@@ -9574,6 +9574,7 @@ bg.render = {};
             this._ssrt.textureEffect.cameraPosition = viewProjection.multVector(cameraTransform.matrix.position).xyz;
           }
           this._ssrt.textureEffect.projectionMatrix = camera.projection;
+          this._ssrt.textureEffect.rayFailColor = this.settings.raytracer.clearColor || bg.Color.Black();
           this._ssrt.drawTexture(this.maps);
         }
         bg.base.Pipeline.SetCurrent(this.pipeline);
@@ -9627,6 +9628,7 @@ bg.render = {};
       },
       draw: function(scene, camera) {
         var mainLight = null;
+        this._opaqueLayer.clearColor = this.clearColor;
         if (this._size.width != camera.viewport.width || this._size.height != camera.viewport.height) {
           this._opaqueLayer.resize(camera);
           this._transparentLayer.resize(camera);
@@ -9635,6 +9637,7 @@ bg.render = {};
         this._transparentLayer.draw(scene, camera);
         bg.base.Pipeline.SetCurrent(this.pipeline);
         this.pipeline.viewport = camera.viewport;
+        this.pipeline.clearColor = this.clearColor;
         this.pipeline.clearBuffers();
         this.pipeline.drawTexture({
           opaque: this._opaqueLayer.texture,
@@ -10507,12 +10510,16 @@ bg.render = {};
             dataType: "vec3",
             role: "value"
           }, {
+            name: "inRayFailColor",
+            dataType: "vec4",
+            role: "value"
+          }, {
             name: "fsTexCoord",
             dataType: "vec2",
             role: "in"
           }]);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\n\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\tvec4 result = vec4(0.0,0.0,0.0,0.0);\n\t\t\t\t\t\tif (material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\tresult = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\n\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\n\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\n\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\tif (rayActualPos.w<0.6) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0) {\n\t\t\t\t\t\t\t\t\tresult = vec4(0.0, 0.0, 0.0, 1.0);\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.4) {\n\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\n\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\tvec4 result = vec4(0.0,0.0,0.0,0.0);\n\t\t\t\t\t\tif (material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\tresult = inRayFailColor;\n\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\n\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\n\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\n\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\tif (rayActualPos.w<0.6) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0) {\n\t\t\t\t\t\t\t\t\tresult = inRayFailColor;\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.4) {\n\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\tgl_FragColor = inRayFailColor;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
@@ -10525,6 +10532,7 @@ bg.render = {};
         this.shader.setTexture("inSamplePosMap", this._surface.reflectionDepth, bg.base.TextureUnit.TEXTURE_4);
         this.shader.setMatrix4("inProjectionMatrix", this._projectionMatrix);
         this.shader.setVector3("inCameraPos", this._cameraPos);
+        this.shader.setVector4("inRayFailColor", this.rayFailColor);
       },
       get projectionMatrix() {
         return this._projectionMatrix;
@@ -10537,6 +10545,12 @@ bg.render = {};
       },
       set cameraPosition(c) {
         this._cameraPos = c;
+      },
+      get rayFailColor() {
+        return this._rayFailColor || bg.Color.Black();
+      },
+      set rayFailColor(c) {
+        this._rayFailColor = c;
       },
       get quality() {
         return this._quality || bg.render.RaytracerQuality.low;
