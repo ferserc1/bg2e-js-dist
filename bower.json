@@ -1,0 +1,11 @@
+{
+  "name": "bg2e-js",
+  "description": "Business Grade Graphic Engine - JavaScript",
+  "keywords": ["webgl", "graphic engine", "deferred render"],
+  "homepage": "http://www.bg2engine.com/",
+  "license": "MIT",
+  "ignore": [
+  ],
+  "dependencies": {
+  }  
+}
