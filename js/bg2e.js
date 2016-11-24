@@ -6338,9 +6338,10 @@ bg.scene = {};
       cloneComponents: function() {
         var newNode = new bg.scene.Node(this.context, this.name ? ("copy of " + this.name) : "");
         newNode.enabled = this.enabled;
-        forEachComponent(function(comp) {
+        this.forEachComponent(function(comp) {
           newNode.addComponent(comp.clone());
         });
+        return newNode;
       },
       get name() {
         return this._name;
@@ -8685,8 +8686,10 @@ bg.manipulation = {};
       display: function(pipeline, matrixState) {
         if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && pipeline.opacityLayer & bg.base.OpacityLayer.SELECTION) {
           this._selectablePlist.forEach(function(item) {
-            pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
-            pipeline.draw(item.plist);
+            if (item.plist.visible) {
+              pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
+              pipeline.draw(item.plist);
+            }
           });
         }
       }
