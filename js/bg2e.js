@@ -9626,8 +9626,13 @@ bg.render = {};
         this._shadowMap.size = new bg.Vector2(2048);
         this._opaqueLayer.shadowMap = this._shadowMap;
         this._transparentLayer.shadowMap = this._shadowMap;
+        var mixSurface = new bg.base.TextureSurface(ctx);
+        mixSurface.create();
+        this._mixPipeline = new bg.base.Pipeline(ctx);
+        this._mixPipeline.textureEffect = new bg.render.RendererMixEffect(ctx);
+        this._mixPipeline.renderSurface = mixSurface;
         this._pipeline = new bg.base.Pipeline(ctx);
-        this._pipeline.textureEffect = new bg.render.RendererMixEffect(ctx);
+        this._pipeline.textureEffect = new bg.render.PostprocessEffect(ctx);
       },
       draw: function(scene, camera) {
         var mainLight = null;
@@ -9638,17 +9643,22 @@ bg.render = {};
         }
         this._opaqueLayer.draw(scene, camera);
         this._transparentLayer.draw(scene, camera);
-        bg.base.Pipeline.SetCurrent(this.pipeline);
-        this.pipeline.viewport = camera.viewport;
-        this.pipeline.clearColor = this.clearColor;
-        this.pipeline.clearBuffers();
-        this.pipeline.drawTexture({
+        bg.base.Pipeline.SetCurrent(this._mixPipeline);
+        this._mixPipeline.viewport = camera.viewport;
+        this._mixPipeline.clearColor = bg.Color.Black();
+        this._mixPipeline.clearBuffers();
+        this._mixPipeline.drawTexture({
           opaque: this._opaqueLayer.texture,
           transparent: this._transparentLayer.texture,
           transparentNormal: this._transparentLayer.maps.normal,
           opaqueDepth: this._opaqueLayer.maps.position,
           transparentDepth: this._transparentLayer.maps.position
         });
+        bg.base.Pipeline.SetCurrent(this.pipeline);
+        this.pipeline.viewport = camera.viewport;
+        this.pipeline.clearColor = this.clearColor;
+        this.pipeline.clearBuffers();
+        this.pipeline.drawTexture({texture: this._mixPipeline.renderSurface.getTexture(0)});
       }
     }, {}, $__super);
   }(bg.render.Renderer);
@@ -10130,6 +10140,59 @@ bg.render = {};
     }, {}, $__super);
   }(bg.base.TextureEffect);
   bg.render.LightingEffect = LightingEffect;
+})();
+
+"use strict";
+(function() {
+  function lib() {
+    return bg.base.ShaderLibrary.Get();
+  }
+  var PostprocessEffect = function($__super) {
+    function PostprocessEffect(context) {
+      $traceurRuntime.superConstructor(PostprocessEffect).call(this, context);
+    }
+    return ($traceurRuntime.createClass)(PostprocessEffect, {
+      get fragmentShaderSource() {
+        if (!this._fragmentShaderSource) {
+          this._fragmentShaderSource = new bg.base.ShaderSource(bg.base.ShaderType.FRAGMENT);
+          this._fragmentShaderSource.addParameter([{
+            name: "inTexture",
+            dataType: "sampler2D",
+            role: "value"
+          }, {
+            name: "inFrameSize",
+            dataType: "vec2",
+            role: "value"
+          }, {
+            name: "fsTexCoord",
+            dataType: "vec2",
+            role: "in"
+          }]);
+          if (bg.Engine.Get().id == "webgl1") {
+            this._fragmentShaderSource.addFunction(lib().functions.utils.texOffset);
+            this._fragmentShaderSource.addFunction(lib().functions.utils.luminance);
+            this._fragmentShaderSource.addFunction(lib().functions.utils.borderDetection);
+            this._fragmentShaderSource.addFunction(lib().functions.blur.gaussianBlur);
+            this._fragmentShaderSource.addFunction(lib().functions.blur.antiAlias);
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\t\tgl_FragColor = antiAlias(inTexture,fsTexCoord,inFrameSize,0.1,3);\n\t\t\t\t\t\t");
+          }
+        }
+        return this._fragmentShaderSource;
+      },
+      setupVars: function() {
+        this.shader.setTexture("inTexture", this._surface.texture, bg.base.TextureUnit.TEXTURE_0);
+        this.shader.setVector2("inFrameSize", this._surface.texture.size);
+      },
+      get settings() {
+        if (!this._settings) {
+          this._currentKernelSize = 0;
+          this._settings = {refractionAmount: 0.01};
+        }
+        return this._settings;
+      }
+    }, {}, $__super);
+  }(bg.base.TextureEffect);
+  bg.render.PostprocessEffect = PostprocessEffect;
 })();
 
 "use strict";
@@ -11097,6 +11160,18 @@ bg.webgl1 = {};
       name: "blur",
       params: blurParams,
       body: blurBody
+    },
+    antiAlias: {
+      returnType: 'vec4',
+      name: 'antiAlias',
+      params: {
+        sampler: 'sampler2D',
+        texCoord: 'vec2',
+        frameSize: 'vec2',
+        tresshold: 'float',
+        iterations: 'int'
+      },
+      body: "\n\t\t\t\treturn (borderDetection(sampler,texCoord,frameSize)>tresshold) ?\n\t\t\t\t\tgaussianBlur(sampler,texCoord,iterations,frameSize) :\n\t\t\t\t\ttexture2D(sampler,texCoord);\n\t\t\t\t"
     }
   };
 })();
@@ -11618,6 +11693,33 @@ bg.webgl1 = {};
         i: "int"
       },
       body: "\n\t\t\t\tvec4 seed4 = vec4(seed,i);\n\t\t\t\tfloat dot_product = dot(seed4, vec4(12.9898,78.233,45.164,94.673));\n\t\t\t\treturn fract(sin(dot_product) * 43758.5453);"
+    },
+    texOffset: {
+      returnType: 'vec4',
+      name: 'texOffset',
+      params: {
+        sampler: 'sampler2D',
+        texCoord: 'vec2',
+        offset: 'vec2',
+        frameSize: 'vec2'
+      },
+      body: "\n\t\t\t\treturn texture2D(sampler,texCoord + vec2(offset.x * 1.0/frameSize.x,offset.y * 1.0 / frameSize.y));\n\t\t\t\t"
+    },
+    luminance: {
+      returnType: 'float',
+      name: 'luminance',
+      params: {color: 'vec3'},
+      body: "\n\t\t\t\treturn dot(vec3(0.2126,0.7152,0.0722), color);\n\t\t\t\t"
+    },
+    borderDetection: {
+      returnType: 'float',
+      name: 'borderDetection',
+      params: {
+        sampler: 'sampler2D',
+        texCoord: 'vec2',
+        frameSize: 'vec2'
+      },
+      body: "\n\t\t\t\tfloat s00 = luminance(texOffset(sampler,texCoord,vec2(-1.0, 1.0),frameSize).rgb);\n\t\t\t\tfloat s10 = luminance(texOffset(sampler,texCoord,vec2(-1.0, 0.0),frameSize).rgb);\n\t\t\t\tfloat s20 = luminance(texOffset(sampler,texCoord,vec2(-1.0,-1.0),frameSize).rgb);\n\t\t\t\tfloat s01 = luminance(texOffset(sampler,texCoord,vec2(-1.0, 1.0),frameSize).rgb);\n\t\t\t\tfloat s21 = luminance(texOffset(sampler,texCoord,vec2( 0.0,-1.0),frameSize).rgb);\n\t\t\t\tfloat s02 = luminance(texOffset(sampler,texCoord,vec2( 1.0, 1.0),frameSize).rgb);\n\t\t\t\tfloat s12 = luminance(texOffset(sampler,texCoord,vec2( 1.0, 0.0),frameSize).rgb);\n\t\t\t\tfloat s22 = luminance(texOffset(sampler,texCoord,vec2( 1.0,-1.0),frameSize).rgb);\n\n\t\t\t\tfloat sx = s00 + 2.0 * s10 + s20 - (s02 + 2.0 * s12 + s22);\n\t\t\t\tfloat sy = s00 + 2.0 * s01 + s02 - (s20 + 2.0 * s21 + s22);\n\n\t\t\t\treturn sx * sx + sy * sy;\n\t\t\t\t"
     }
   };
 })();
