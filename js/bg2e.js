@@ -552,11 +552,18 @@ bg.app = {};
       this._domElem.style.MozUserSelect = 'none';
       this._domElem.style.WebkitUserSelect = 'none';
       this._domElem.setAttribute("onselectstart", "return false");
+      this._multisample = 1.0;
       if (!initContext()) {
         throw new Error("Sorry, your browser does not support WebGL.");
       }
     }
     return ($traceurRuntime.createClass)(Canvas, {
+      get multisample() {
+        return this._multisample;
+      },
+      set multisample(ms) {
+        this._multisample = ms;
+      },
       get context() {
         return this._context;
       },
@@ -836,9 +843,10 @@ bg.app = {};
   }
   function onResize() {
     if (s_mainLoop.canvas && s_mainLoop.windowController) {
-      s_mainLoop.canvas.domElement.width = s_mainLoop.canvas.width;
-      s_mainLoop.canvas.domElement.height = s_mainLoop.canvas.height;
-      s_mainLoop.windowController.reshape(s_mainLoop.canvas.width, s_mainLoop.canvas.height);
+      var multisample = s_mainLoop.canvas.multisample;
+      s_mainLoop.canvas.domElement.width = s_mainLoop.canvas.width * multisample;
+      s_mainLoop.canvas.domElement.height = s_mainLoop.canvas.height * multisample;
+      s_mainLoop.windowController.reshape(s_mainLoop.canvas.width * multisample, s_mainLoop.canvas.height * multisample);
     }
   }
   function onUpdate() {
@@ -853,8 +861,9 @@ bg.app = {};
   }
   function onMouseDown(event) {
     var offset = s_mainLoop.canvas.domElement.getBoundingClientRect();
-    s_mouseStatus.pos.x = event.clientX - offset.left;
-    s_mouseStatus.pos.y = event.clientY - offset.top;
+    var multisample = s_mainLoop.canvas.multisample;
+    s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
+    s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
     switch (event.button) {
       case bg.app.MouseButton.LEFT:
         s_mouseStatus.leftButton = true;
@@ -870,8 +879,9 @@ bg.app = {};
   }
   function onMouseMove(event) {
     var offset = s_mainLoop.canvas.domElement.getBoundingClientRect();
-    s_mouseStatus.pos.x = event.clientX - offset.left;
-    s_mouseStatus.pos.y = event.clientY - offset.top;
+    var multisample = s_mainLoop.canvas.multisample;
+    s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
+    s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
     var evt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
     s_mainLoop.windowController.mouseMove(evt);
     if (s_mouseStatus.anyButton) {
@@ -909,14 +919,16 @@ bg.app = {};
         break;
     }
     var offset = s_mainLoop.canvas.domElement.getBoundingClientRect();
-    s_mouseStatus.pos.x = event.clientX - offset.left;
-    s_mouseStatus.pos.y = event.clientY - offset.top;
+    var multisample = s_mainLoop.canvas.multisample;
+    s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
+    s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
     s_mainLoop.windowController.mouseUp(new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y));
   }
   function onMouseWheel(event) {
     var offset = s_mainLoop.canvas.domElement.getBoundingClientRect();
-    s_mouseStatus.pos.x = event.clientX - offset.left;
-    s_mouseStatus.pos.y = event.clientY - offset.top;
+    var multisample = s_mainLoop.canvas.multisample;
+    s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
+    s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
     var delta = event.wheelDelta ? event.wheelDelta * -1 : event.detail * 10;
     s_mainLoop.windowController.mouseWheel(new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, delta));
   }
