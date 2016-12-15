@@ -332,6 +332,13 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
         var match = /\.([a-z0-9-_]*)$/i.exec(url);
         return (match && match[1].toLowerCase()) || "";
       },
+      JoinUrl: function(url, path) {
+        if (url.length == 0)
+          return path;
+        if (path.length == 0)
+          return url;
+        return /\/$/.test(url) ? url + path : url + "/" + path;
+      },
       IsFormat: function(url, formats) {
         return formats.find(function(fmt) {
           return fmt == this;
@@ -341,7 +348,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
         return Resource.IsFormat(url, ["jpg", "jpeg", "gif", "png"]);
       },
       IsBinary: function(url) {
-        var binaryFormats = arguments[1] !== (void 0) ? arguments[1] : ["vwglb"];
+        var binaryFormats = arguments[1] !== (void 0) ? arguments[1] : ["vwglb", "bg2"];
         return Resource.IsFormat(url, binaryFormats);
       },
       IsVideo: function(url) {
@@ -1224,8 +1231,8 @@ bg.Axis = {
         return new Promise(function(accept, reject) {
           bg.utils.Resource.Load(url).then(function(data) {
             return Loader.LoadData(context, url, data);
-          }).then(function(result) {
-            accept(result);
+          }).then(function(result, extendedData) {
+            accept(result, extendedData);
           }).catch(function(err) {
             reject(err);
           });
@@ -1725,6 +1732,29 @@ bg.Axis = {
       },
       set projection(p) {
         this._projection = p;
+      },
+      deserialize: function(sceneData) {
+        switch (sceneData.lightType) {
+          case 'kTypeDirectional':
+            this._type = bg.base.LightType.DIRECTIONAL;
+            break;
+          case 'kTypeSpot':
+            this._type = bg.base.LightType.SPOT;
+            this._shadowBias = sceneData.shadowBias;
+            break;
+          case 'kTypePoint':
+            this._type = bg.base.LightType.POINT;
+            break;
+        }
+        this._ambient = new bg.Color(sceneData.ambient);
+        this._diffuse = new bg.Color(sceneData.diffuse);
+        this._specular = new bg.Color(sceneData.specular);
+        this._attenuation = new bg.Vector3(sceneData.constantAtt, sceneData.linearAtt, sceneData.expAtt);
+        this._spotCutoff = sceneData.spotCutoff;
+        this._shadowStrength = sceneData.shadowStrength;
+        this._cutoffDistance = sceneData.cutoffDistance;
+        this._projection = new bg.Matrix4(sceneData.projection);
+        this._castShadows = sceneData.castShadows;
       }
     }, {}, $__super);
   }(bg.app.ContextObject);
@@ -4520,7 +4550,17 @@ bg.Axis = {
       var v21 = arguments[7] !== (void 0) ? arguments[7] : 0;
       var v22 = arguments[8] !== (void 0) ? arguments[8] : 1;
       this._m = new bg.Math.Array(9);
-      if (typeof(v00) == "number") {
+      if (Array.isArray($traceurRuntime.typeof((v00)))) {
+        this._m[0] = v00[0];
+        this._m[1] = v00[1];
+        this._m[2] = v00[0];
+        this._m[3] = v00[3];
+        this._m[4] = v00[4];
+        this._m[5] = v00[5];
+        this._m[6] = v00[6];
+        this._m[7] = v00[7];
+        this._m[8] = v00[8];
+      } else if (typeof(v00) == "number") {
         this._m[0] = v00;
         this._m[1] = v01;
         this._m[2] = v02;
@@ -4726,7 +4766,24 @@ bg.Axis = {
       var m32 = arguments[14] !== (void 0) ? arguments[14] : 0;
       var m33 = arguments[15] !== (void 0) ? arguments[15] : 0;
       this._m = new bg.Math.Array(16);
-      if (typeof(m00) == "number") {
+      if (Array.isArray(m00)) {
+        this._m[0] = m00[0];
+        this._m[1] = m00[1];
+        this._m[2] = m00[2];
+        this._m[3] = m00[3];
+        this._m[4] = m00[4];
+        this._m[5] = m00[5];
+        this._m[6] = m00[6];
+        this._m[7] = m00[7];
+        this._m[8] = m00[8];
+        this._m[9] = m00[9];
+        this._m[10] = m00[10];
+        this._m[11] = m00[11];
+        this._m[12] = m00[12];
+        this._m[13] = m00[13];
+        this._m[14] = m00[14];
+        this._m[15] = m00[15];
+      } else if (typeof(m00) == "number") {
         this._m[0] = m00;
         this._m[1] = m01;
         this._m[2] = m02;
@@ -5336,6 +5393,9 @@ bg.Axis = {
       if (x instanceof Vector2) {
         this._v[0] = x._v[0];
         this._v[1] = x._v[1];
+      } else if (Array.isArray(x) && x.length >= 2) {
+        this._v[0] = x[0];
+        this._v[1] = x[1];
       } else {
         if (y === undefined)
           y = x;
@@ -5436,6 +5496,10 @@ bg.Axis = {
         this._v[0] = x._v[0];
         this._v[1] = x._v[1];
         this._v[2] = x._v[2];
+      } else if (Array.isArray(x) && x.length >= 3) {
+        this._v[0] = x[0];
+        this._v[1] = x[1];
+        this._v[2] = x[2];
       } else {
         if (y === undefined)
           y = x;
@@ -5579,6 +5643,11 @@ bg.Axis = {
         this._v[1] = x._v[1];
         this._v[2] = x._v[2];
         this._v[3] = x._v[3];
+      } else if (Array.isArray(x) && x.length >= 4) {
+        this._v[0] = x[0];
+        this._v[1] = x[1];
+        this._v[2] = x[2];
+        this._v[3] = x[3];
       } else {
         if (y === undefined)
           y = x;
@@ -6285,7 +6354,9 @@ bg.scene = {};
       },
       removedFromNode: function(node) {},
       addedToNode: function(node) {},
-      deserialize: function(sceneData) {},
+      deserialize: function(context, sceneData, url) {
+        return Promise.resolve(this);
+      },
       component: function(typeId) {
         return this._node && this._node.component(typeId);
       },
@@ -6310,7 +6381,16 @@ bg.scene = {};
       get transform() {
         return this.component("bg.scene.Transform");
       }
-    }, {Factory: function(componentData) {}}, $__super);
+    }, {Factory: function(context, componentData, node, url) {
+        var Constructor = s_componentRegister[componentData.type];
+        if (Constructor) {
+          var instance = new Constructor();
+          node.addComponent(instance);
+          return instance.deserialize(context, componentData, url);
+        } else {
+          return Promise.resolve();
+        }
+      }}, $__super);
   }(bg.LifeCycle);
   bg.scene.Component = Component;
   bg.scene.registerComponent = function(namespace, componentClass, identifier) {
@@ -6318,7 +6398,7 @@ bg.scene = {};
     var funcName = (result && result.length > 1) ? result[1] : "";
     namespace[funcName] = componentClass;
     componentClass.prototype._typeId = identifier || funcName;
-    s_componentRegister[componentClass] = componentClass;
+    s_componentRegister[funcName] = componentClass;
   };
 })();
 
@@ -6394,6 +6474,27 @@ bg.scene = {};
       },
       component: function(typeId) {
         return this._components[typeId];
+      },
+      get camera() {
+        return this.component("bg.scene.Camera");
+      },
+      get chain() {
+        return this.component("bg.scene.Chain");
+      },
+      get drawable() {
+        return this.component("bg.scene.Drawable");
+      },
+      get inputJoint() {
+        return this.component("bg.scene.InputJoint");
+      },
+      get outputJoint() {
+        return this.component("bg.scene.OutputJoint");
+      },
+      get light() {
+        return this.component("bg.scene.Light");
+      },
+      get transform() {
+        return this.component("bg.scene.Transform");
       },
       forEachComponent: function(callback) {
         var keys = Object.keys(this._components);
@@ -7007,6 +7108,20 @@ bg.scene = {};
         }
         return false;
       },
+      applyMaterialDefinition: function(materialDefinitions, resourcesUrl) {
+        var promises = [];
+        this.forEach(function(plist, mat) {
+          var definition = materialDefinitions[plist.name];
+          if (definition) {
+            promises.push(new Promise(function(resolve, reject) {
+              var modifier = new bg.base.MaterialModifier(definition);
+              mat.applyModifier(plist.context, modifier, resourcesUrl);
+              resolve();
+            }));
+          }
+        });
+        return Promise.all(promises);
+      },
       removePolyList: function(plist) {
         var index = this.indexOf(plist);
         if (index >= 0) {
@@ -7063,87 +7178,87 @@ bg.scene = {};
         return false;
       },
       forEach: function(callback) {
-        var $__5 = true;
-        var $__6 = false;
-        var $__7 = undefined;
+        var $__6 = true;
+        var $__7 = false;
+        var $__8 = undefined;
         try {
-          for (var $__3 = void 0,
-              $__2 = (this._items)[Symbol.iterator](); !($__5 = ($__3 = $__2.next()).done); $__5 = true) {
-            var elem = $__3.value;
+          for (var $__4 = void 0,
+              $__3 = (this._items)[Symbol.iterator](); !($__6 = ($__4 = $__3.next()).done); $__6 = true) {
+            var elem = $__4.value;
             {
               callback(elem.polyList, elem.material, elem.transform);
             }
           }
-        } catch ($__8) {
-          $__6 = true;
-          $__7 = $__8;
+        } catch ($__9) {
+          $__7 = true;
+          $__8 = $__9;
         } finally {
           try {
-            if (!$__5 && $__2.return != null) {
-              $__2.return();
+            if (!$__6 && $__3.return != null) {
+              $__3.return();
             }
           } finally {
-            if ($__6) {
-              throw $__7;
+            if ($__7) {
+              throw $__8;
             }
           }
         }
       },
       some: function(callback) {
-        var $__5 = true;
-        var $__6 = false;
-        var $__7 = undefined;
+        var $__6 = true;
+        var $__7 = false;
+        var $__8 = undefined;
         try {
-          for (var $__3 = void 0,
-              $__2 = (this._items)[Symbol.iterator](); !($__5 = ($__3 = $__2.next()).done); $__5 = true) {
-            var elem = $__3.value;
+          for (var $__4 = void 0,
+              $__3 = (this._items)[Symbol.iterator](); !($__6 = ($__4 = $__3.next()).done); $__6 = true) {
+            var elem = $__4.value;
             {
               if (callback(elem.polyList, elem.material, elem.transform)) {
                 return true;
               }
             }
           }
-        } catch ($__8) {
-          $__6 = true;
-          $__7 = $__8;
+        } catch ($__9) {
+          $__7 = true;
+          $__8 = $__9;
         } finally {
           try {
-            if (!$__5 && $__2.return != null) {
-              $__2.return();
+            if (!$__6 && $__3.return != null) {
+              $__3.return();
             }
           } finally {
-            if ($__6) {
-              throw $__7;
+            if ($__7) {
+              throw $__8;
             }
           }
         }
         return false;
       },
       every: function(callback) {
-        var $__5 = true;
-        var $__6 = false;
-        var $__7 = undefined;
+        var $__6 = true;
+        var $__7 = false;
+        var $__8 = undefined;
         try {
-          for (var $__3 = void 0,
-              $__2 = (this._items)[Symbol.iterator](); !($__5 = ($__3 = $__2.next()).done); $__5 = true) {
-            var elem = $__3.value;
+          for (var $__4 = void 0,
+              $__3 = (this._items)[Symbol.iterator](); !($__6 = ($__4 = $__3.next()).done); $__6 = true) {
+            var elem = $__4.value;
             {
               if (!callback(elem.polyList, elem.material, elem.transform)) {
                 return false;
               }
             }
           }
-        } catch ($__8) {
-          $__6 = true;
-          $__7 = $__8;
+        } catch ($__9) {
+          $__7 = true;
+          $__8 = $__9;
         } finally {
           try {
-            if (!$__5 && $__2.return != null) {
-              $__2.return();
+            if (!$__6 && $__3.return != null) {
+              $__3.return();
             }
           } finally {
-            if ($__6) {
-              throw $__7;
+            if ($__7) {
+              throw $__8;
             }
           }
         }
@@ -7204,7 +7319,18 @@ bg.scene = {};
       hideByName: function(name) {
         this.setVisibleByName(name, false);
       },
-      deserialize: function(sceneData) {}
+      deserialize: function(context, sceneData, url) {
+        var $__2 = this;
+        return new Promise(function(resolve, reject) {
+          var modelUrl = bg.utils.Resource.JoinUrl(url, sceneData.name + '.vwglb');
+          bg.base.Loader.Load(context, modelUrl).then(function(node) {
+            var drw = node.component("bg.scene.Drawable");
+            $__2._name = drw._name;
+            $__2._items = drw._items;
+            resolve($__2);
+          });
+        });
+      }
     }, {InstanceNode: function(node) {
         var newNode = new bg.scene.Node(node.context, node.name ? ("copy of " + node.name) : "");
         newNode.enabled = node.enabled;
@@ -7271,12 +7397,378 @@ bg.scene = {};
       },
       addedToNode: function(node) {
         registerLight(this);
+      },
+      deserialize: function(context, sceneData, url) {
+        var $__1 = this;
+        return new Promise(function(resolve, reject) {
+          $__1._light = new bg.base.Light(context);
+          $__1._light.deserialize(sceneData);
+          resolve($__1);
+        });
       }
     }, {GetActiveLights: function() {
         return s_lightRegister;
       }}, $__super);
   }(bg.scene.Component);
   bg.scene.registerComponent(bg.scene, Light, "bg.scene.Light");
+})();
+
+"use strict";
+(function() {
+  function parseMTL_n(line) {
+    var res = /newmtl\s+(.*)/.exec(line);
+    if (res) {
+      this._jsonData[res[1]] = JSON.parse(JSON.stringify(s_matInit));
+      this._currentMat = this._jsonData[res[1]];
+    }
+  }
+  function parseMTL_N(line) {
+    var res = /Ns\s+([\d\.]+)/.exec(line);
+    if (res) {
+      this._currentMat.shininess = Number(res[1]);
+    }
+  }
+  function vectorFromRE(re) {
+    return [Number(re[1]), Number(re[2]), Number(re[3]), re[4] ? Number(re[4]) : 1.0];
+  }
+  function parseMTL_K(line) {
+    var res = /Kd\s+([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)\s*([\d\.]*)/.exec(line);
+    if (res) {
+      var d = vectorFromRE(res);
+      this._currentMat.diffuseR = d[0];
+      this._currentMat.diffuseG = d[1];
+      this._currentMat.diffuseB = d[2];
+      this._currentMat.diffuseA = d[3];
+    } else if ((res = /Ks\s+([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)\s*([\d\.]*)/.exec(line))) {
+      var s = vectorFromRE(res);
+      this._currentMat.specularR = s[0];
+      this._currentMat.specularG = s[1];
+      this._currentMat.specularB = s[2];
+      this._currentMat.specularA = s[3];
+    }
+  }
+  function parseMTL_m(line) {
+    var res = /map_Kd\s+(.*)/.exec(line);
+    if (res) {
+      var path = res[1];
+      path = path.replace(/\\/g, '/');
+      var slashIndex = path.lastIndexOf('/');
+      if (slashIndex >= 0) {
+        path = path.substring(slashIndex + 1);
+      }
+      this._currentMat.texture = path;
+    }
+  }
+  var s_matInit = {
+    diffuseR: 1.0,
+    diffuseG: 1.0,
+    diffuseB: 1.0,
+    diffuseA: 1.0,
+    specularR: 1.0,
+    specularG: 1.0,
+    specularB: 1.0,
+    specularA: 1.0,
+    shininess: 0,
+    lightEmission: 0,
+    refractionAmount: 0,
+    reflectionAmount: 0,
+    textureOffsetX: 0,
+    textureOffsetY: 0,
+    textureScaleX: 1,
+    textureScaleY: 1,
+    lightmapOffsetX: 0,
+    lightmapOffsetY: 0,
+    lightmapScaleX: 1,
+    lightmapScaleY: 1,
+    normalMapOffsetX: 0,
+    normalMapOffsetY: 0,
+    normalMapScaleX: 1,
+    normalMapScaleY: 1,
+    alphaCutoff: 0.5,
+    castShadows: true,
+    receiveShadows: true,
+    shininessMaskChannel: 0,
+    shininessMaskInvert: false,
+    lightEmissionMaskChannel: 0,
+    lightEmissionMaskInvert: false,
+    reflectionMaskChannel: 0,
+    reflectionMaskInvert: false,
+    cullFace: true,
+    texture: "",
+    lightmap: "",
+    normalMap: "",
+    shininessMask: "",
+    lightEmissionMask: "",
+    reflectionMask: ""
+  };
+  var MTLParser = function() {
+    function MTLParser(mtlData) {
+      var $__2 = this;
+      this._jsonData = {};
+      this._currentMat = JSON.parse(JSON.stringify(s_matInit));
+      var lines = mtlData.split('\n');
+      lines.forEach(function(line) {
+        line = line.trim();
+        if (line.length > 1 && line[0] != '#') {
+          switch (line[0]) {
+            case 'n':
+              parseMTL_n.apply($__2, [line]);
+              break;
+            case 'N':
+              parseMTL_N.apply($__2, [line]);
+              break;
+            case 'm':
+              parseMTL_m.apply($__2, [line]);
+              break;
+            case 'd':
+              break;
+            case 'T':
+              break;
+            case 'K':
+              parseMTL_K.apply($__2, [line]);
+              break;
+            case 'i':
+              break;
+            case 'o':
+              break;
+          }
+        }
+      });
+    }
+    return ($traceurRuntime.createClass)(MTLParser, {get jsonData() {
+        return this._jsonData;
+      }}, {});
+  }();
+  function parseM(line) {
+    var res = /mtllib\s+(.*)/.exec(line);
+    if (res) {
+      this._mtlLib = res[1];
+    }
+  }
+  function parseG(line) {
+    var res = /g\s+(.*)/.exec(line);
+    if (res) {
+      this._currentPlist.name = res[1];
+    }
+  }
+  function parseU(line) {
+    var res = /usemtl\s+(.*)/.exec(line);
+    if (res) {
+      this._currentPlist._matName = res[1];
+      if (this._currentPlist.name == "") {
+        this._currentPlist.name = res[1];
+      }
+    }
+  }
+  function parseS(line) {
+    var res = /s\s+(.*)/.exec(line);
+    if (res) {}
+  }
+  function addPoint(pointData) {
+    this._currentPlist.vertex.push(pointData.vertex[0], pointData.vertex[1], pointData.vertex[2]);
+    if (pointData.normal) {
+      this._currentPlist.normal.push(pointData.normal[0], pointData.normal[1], pointData.normal[2]);
+    }
+    if (pointData.tex) {
+      this._currentPlist.texCoord0.push(pointData.tex[0], pointData.tex[1]);
+    }
+    this._currentPlist.index.push(this._currentPlist.index.length);
+  }
+  function addPolygon(polygonData) {
+    var currentVertex = 0;
+    var sides = polygonData.length;
+    if (sides < 3)
+      return;
+    while (currentVertex < sides) {
+      var i0 = currentVertex;
+      var i1 = currentVertex + 1;
+      var i2 = currentVertex + 2;
+      if (i2 == sides) {
+        i2 = 0;
+      } else if (i1 == sides) {
+        i1 = 0;
+        i2 = 2;
+      }
+      var p0 = polygonData[i0];
+      var p1 = polygonData[i1];
+      var p2 = polygonData[i2];
+      addPoint.apply(this, [p0]);
+      addPoint.apply(this, [p1]);
+      addPoint.apply(this, [p2]);
+      currentVertex += 3;
+    }
+  }
+  function parseF(line) {
+    this._addPlist = true;
+    var res = /f\s+(.*)/.exec(line);
+    if (res) {
+      var params = res[1];
+      var vtnRE = /([\d\-]+)\/([\d\-]*)\/([\d\-]*)/g;
+      if (params.indexOf('/') == -1) {
+        var vRE = /([\d\-]+)/g;
+      }
+      var polygon = [];
+      while ((res = vtnRE.exec(params))) {
+        var iV = Number(res[1]);
+        var iN = res[3] ? Number(res[3]) : null;
+        var iT = res[2] ? Number(res[2]) : null;
+        iV = iV < 0 ? this._vertexArray.length + iV : iV - 1;
+        iN = iN < 0 ? this._normalArray.length + iN : (iN === null ? null : iN - 1);
+        iT = iT < 0 ? this._texCoordArray.length + iT : (iT === null ? null : iT - 1);
+        var v = this._vertexArray[iV];
+        var n = iN !== null ? this._normalArray[iN] : null;
+        var t = iT !== null ? this._texCoordArray[iT] : null;
+        polygon.push({
+          vertex: v,
+          normal: n,
+          tex: t
+        });
+      }
+      addPolygon.apply(this, [polygon]);
+    }
+  }
+  function parseO(line) {
+    var res = /s\s+(.*)/.exec(line);
+    if (res && this._currentPlist.name == "") {
+      this._currentPlist.name = res[1];
+    }
+  }
+  function checkAddPlist() {
+    if (this._addPlist) {
+      if (this._currentPlist) {
+        this._currentPlist.build();
+        this._plistArray.push(this._currentPlist);
+      }
+      this._currentPlist = new bg.base.PolyList(this.context);
+      this._addPlist = false;
+    }
+  }
+  function parseMTL(mtlData) {
+    var parser = new MTLParser(mtlData);
+    return parser.jsonData;
+  }
+  var OBJParser = function() {
+    function OBJParser(context, url) {
+      this.context = context;
+      this.url = url;
+      this._plistArray = [];
+      this._vertexArray = [];
+      this._normalArray = [];
+      this._texCoordArray = [];
+      this._mtlLib = "";
+      this._addPlist = true;
+    }
+    return ($traceurRuntime.createClass)(OBJParser, {loadDrawable: function(data) {
+        var $__2 = this;
+        return new Promise(function(resolve, reject) {
+          var drawable = new bg.scene.Drawable($__2.url);
+          var lines = data.split('\n');
+          lines.forEach(function(line) {
+            line = line.trim();
+            if (line.length > 1 && line[0] != '#') {
+              switch (line[0]) {
+                case 'v':
+                  var res = /v\s+([\d\.\-]+)\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line);
+                  if (res) {
+                    $__2._vertexArray.push([Number(res[1]), Number(res[2]), Number(res[3])]);
+                  } else if ((res = /vn\s+([\d\.\-]+)\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line))) {
+                    $__2._normalArray.push([Number(res[1]), Number(res[2]), Number(res[3])]);
+                  } else if ((res = /vt\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line))) {
+                    $__2._texCoordArray.push([Number(res[1]), Number(res[2])]);
+                  }
+                  break;
+                case 'm':
+                  checkAddPlist.apply($__2);
+                  parseM.apply($__2, [line]);
+                  break;
+                case 'g':
+                  checkAddPlist.apply($__2);
+                  parseG.apply($__2, [line]);
+                  break;
+                case 'u':
+                  checkAddPlist.apply($__2);
+                  parseU.apply($__2, [line]);
+                  break;
+                case 's':
+                  parseS.apply($__2, [line]);
+                  break;
+                case 'f':
+                  parseF.apply($__2, [line]);
+                  break;
+                case 'o':
+                  checkAddPlist.apply($__2);
+                  parseO.apply($__2, [line]);
+                  break;
+              }
+            }
+          });
+          if ($__2._currentPlist && $__2._addPlist) {
+            $__2._currentPlist.build();
+            $__2._plistArray.push($__2._currentPlist);
+          }
+          function buildDrawable(plistArray, materials) {
+            var $__3 = this;
+            plistArray.forEach(function(plist) {
+              var mat = new bg.base.Material();
+              var matData = materials[plist._matName];
+              if (matData) {
+                var url = $__3.url.substring(0, $__3.url.lastIndexOf('/') + 1);
+                bg.base.Material.GetMaterialWithJson($__3.context, matData, url).then(function(material) {
+                  drawable.addPolyList(plist, material);
+                });
+              } else {
+                drawable.addPolyList(plist, mat);
+              }
+            });
+          }
+          if ($__2._mtlLib) {
+            var locationUrl = $__2.url.substring(0, $__2.url.lastIndexOf("/"));
+            if (locationUrl.length > 0 && locationUrl != '/')
+              locationUrl += "/";
+            bg.utils.Resource.Load(locationUrl + $__2._mtlLib).then(function(data) {
+              buildDrawable.apply($__2, [$__2._plistArray, parseMTL(data)]);
+              resolve(drawable);
+            }).catch(function() {
+              bg.log("Warning: no such material library file for obj model " + $__2.url);
+              buildDrawable.apply($__2, [$__2._plistArray]);
+              resolve(drawable);
+            });
+          } else {
+            buildDrawable.apply($__2, [$__2._plistArray]);
+            resolve(drawable);
+          }
+        });
+      }}, {});
+  }();
+  var OBJLoaderPlugin = function($__super) {
+    function OBJLoaderPlugin() {
+      $traceurRuntime.superConstructor(OBJLoaderPlugin).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(OBJLoaderPlugin, {
+      acceptType: function(url, data) {
+        return bg.utils.Resource.GetExtension(url) == "obj";
+      },
+      load: function(context, url, data) {
+        return new Promise(function(resolve, reject) {
+          if (data) {
+            try {
+              var parser = new OBJParser(context, url);
+              parser.loadDrawable(data).then(function(drawable) {
+                var node = new bg.scene.Node(context, drawable.name);
+                node.addComponent(drawable);
+                resolve(node);
+              });
+            } catch (e) {
+              reject(e);
+            }
+          } else {
+            reject(new Error("Error loading drawable. Data is null."));
+          }
+        });
+      }
+    }, {}, $__super);
+  }(bg.base.LoaderPlugin);
+  bg.base.OBJLoaderPlugin = OBJLoaderPlugin;
 })();
 
 "use strict";
@@ -7384,6 +7876,141 @@ bg.scene = {};
 
 "use strict";
 (function() {
+  function fooScene(context) {
+    var root = new bg.scene.Node(context, "Scene Root");
+    bg.base.Loader.Load(context, "../data/test-shape.vwglb").then(function(node) {
+      root.addChild(node);
+      node.addComponent(new bg.scene.Transform(bg.Matrix4.Translation(-1.4, 0.25, 0).scale(0.5, 0.5, 0.5)));
+    }).catch(function(err) {
+      alert(err.message);
+    });
+    var sphereNode = new bg.scene.Node(context, "Sphere");
+    sphereNode.addComponent(new bg.scene.Transform(bg.Matrix4.Translation(-1.3, 0.1, 1.3)));
+    sphereNode.addComponent(bg.scene.PrimitiveFactory.Sphere(context, 0.1));
+    sphereNode.component("bg.scene.Drawable").getMaterial(0).diffuse.a = 0.8;
+    sphereNode.component("bg.scene.Drawable").getMaterial(0).reflectionAmount = 0.4;
+    root.addChild(sphereNode);
+    var floorNode = new bg.scene.Node(context, "Floor");
+    floorNode.addComponent(new bg.scene.Transform(bg.Matrix4.Translation(0, 0, 0)));
+    floorNode.addComponent(bg.scene.PrimitiveFactory.Plane(context, 10, 10));
+    floorNode.component("bg.scene.Drawable").getMaterial(0).shininess = 50;
+    floorNode.component("bg.scene.Drawable").getMaterial(0).reflectionAmount = 0.3;
+    floorNode.component("bg.scene.Drawable").getMaterial(0).normalMapScale = new bg.Vector2(10, 10);
+    floorNode.component("bg.scene.Drawable").getMaterial(0).textureScale = new bg.Vector2(10, 10);
+    floorNode.component("bg.scene.Drawable").getMaterial(0).reflectionMaskInvert = true;
+    floorNode.component("bg.scene.Drawable").getMaterial(0).shininessMaskInvert = true;
+    root.addChild(floorNode);
+    bg.base.Loader.Load(context, "../data/bricks_nm.png").then(function(tex) {
+      floorNode.component("bg.scene.Drawable").getMaterial(0).normalMap = tex;
+    });
+    bg.base.Loader.Load(context, "../data/bricks.jpg").then(function(tex) {
+      floorNode.component("bg.scene.Drawable").getMaterial(0).texture = tex;
+    });
+    bg.base.Loader.Load(context, "../data/bricks_shin.jpg").then(function(tex) {
+      floorNode.component("bg.scene.Drawable").getMaterial(0).reflectionMask = tex;
+      floorNode.component("bg.scene.Drawable").getMaterial(0).shininessMask = tex;
+    });
+    var lightNode = new bg.scene.Node(context, "Light");
+    lightNode.addComponent(new bg.scene.Light(new bg.base.Light(context)));
+    lightNode.addComponent(new bg.scene.Transform(bg.Matrix4.Identity().rotate(bg.Math.degreesToRadians(30), 0, 1, 0).rotate(bg.Math.degreesToRadians(35), -1, 0, 0)));
+    root.addChild(lightNode);
+    var camera = new bg.scene.Camera();
+    var cameraNode = new bg.scene.Node("Camera");
+    cameraNode.addComponent(camera);
+    cameraNode.addComponent(new bg.scene.Transform());
+    cameraNode.addComponent(new bg.manipulation.OrbitCameraController());
+    var camCtrl = cameraNode.component("bg.manipulation.OrbitCameraController");
+    camCtrl.minPitch = -45;
+    root.addChild(cameraNode);
+    return root;
+  }
+  var SceneFileParser = function() {
+    function SceneFileParser(url, jsonData) {
+      this.url = url.substring(0, url.lastIndexOf('/'));
+      this.jsonData = jsonData;
+    }
+    return ($traceurRuntime.createClass)(SceneFileParser, {
+      loadNode: function(context, jsonData, parent, promises) {
+        var $__2 = this;
+        var node = new bg.scene.Node(context, jsonData.name);
+        node.enabled = jsonData.enabled;
+        parent.addChild(node);
+        jsonData.components.forEach(function(compData) {
+          promises.push(bg.scene.Component.Factory(context, compData, node, $__2.url));
+        });
+        jsonData.children.forEach(function(child) {
+          $__2.loadNode(context, child, node, promises);
+        });
+      },
+      loadScene: function(context) {
+        var $__2 = this;
+        var promises = [];
+        var sceneRoot = new bg.scene.Node(context, "scene-root");
+        this.jsonData.scene.forEach(function(nodeData) {
+          $__2.loadNode(context, nodeData, sceneRoot, promises);
+        });
+        return new Promise(function(resolve, reject) {
+          Promise.all(promises).then(function() {
+            var findVisitor = new bg.scene.FindComponentVisitor("bg.scene.Camera");
+            sceneRoot.accept(findVisitor);
+            var cameraNode = null;
+            findVisitor.result.some(function(cn) {
+              cameraNode = cn;
+            });
+            if (!cameraNode) {
+              cameraNode = new bg.scene.Node(context, "Camera");
+              cameraNode.addComponent(new bg.scene.Camera());
+              var trx = bg.Matrix4.Rotate(0.52, -1, 0, 0);
+              trx.translate(0, 0, 5);
+              cameraNode.addComponent(new bg.scene.Transform(trx));
+              sceneRoot.addChild(cameraNode);
+            }
+            resolve({
+              sceneRoot: sceneRoot,
+              cameraNode: cameraNode
+            });
+          });
+        });
+      }
+    }, {});
+  }();
+  var SceneLoaderPlugin = function($__super) {
+    function SceneLoaderPlugin() {
+      $traceurRuntime.superConstructor(SceneLoaderPlugin).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(SceneLoaderPlugin, {
+      acceptType: function(url, data) {
+        var ext = bg.utils.Resource.GetExtension(url);
+        return ext == "vitscnj" || ext == "json";
+      },
+      load: function(context, url, data) {
+        return new Promise(function(resolve, reject) {
+          if (data) {
+            try {
+              if (typeof(data) == "string") {
+                data = data.replace(/,[\s\r\n]*\]/g, ']');
+                data = data.replace(/,[\s\r\n]*\}/g, '}');
+                data = JSON.parse(data);
+              }
+              var parser = new SceneFileParser(url, data);
+              parser.loadScene(context).then(function(result) {
+                resolve(result);
+              });
+            } catch (e) {
+              reject(e);
+            }
+          } else {
+            reject(new Error("Error loading scene. Data is null"));
+          }
+        });
+      }
+    }, {}, $__super);
+  }(bg.base.LoaderPlugin);
+  bg.base.SceneLoaderPlugin = SceneLoaderPlugin;
+})();
+
+"use strict";
+(function() {
   var Transform = function($__super) {
     function Transform(matrix) {
       $traceurRuntime.superConstructor(Transform).call(this);
@@ -7411,8 +8038,40 @@ bg.scene = {};
         }
         return this._globalMatrix;
       },
-      deserialize: function(sceneData) {
-        if (sceneData.transformStrategy) {} else if (sceneData.transformMatrix) {}
+      deserialize: function(context, sceneData, url) {
+        var $__1 = this;
+        return new Promise(function(resolve, reject) {
+          if (sceneData.transformStrategy) {
+            var str = sceneData.transformStrategy;
+            if (str.type == "TRSTransformStrategy") {
+              $__1._matrix.identity().translate(str.translate[0], str.translate[1], str.translate[2]);
+              switch (str.rotationOrder) {
+                case "kOrderXYZ":
+                  $__1._matrix.rotate(str.rotateX, 1, 0, 0).rotate(str.rotateY, 0, 1, 0).rotate(str.rotateZ, 0, 0, 1);
+                  break;
+                case "kOrderXZY":
+                  $__1._matrix.rotate(str.rotateX, 1, 0, 0).rotate(str.rotateZ, 0, 0, 1).rotate(str.rotateY, 0, 1, 0);
+                  break;
+                case "kOrderYXZ":
+                  $__1._matrix.rotate(str.rotateY, 0, 1, 0).rotate(str.rotateX, 1, 0, 0).rotate(str.rotateZ, 0, 0, 1);
+                  break;
+                case "kOrderYZX":
+                  $__1._matrix.rotate(str.rotateY, 0, 1, 0).rotate(str.rotateZ, 0, 0, 1).rotate(str.rotateX, 1, 0, 0);
+                  break;
+                case "kOrderZYX":
+                  $__1._matrix.rotate(str.rotateZ, 0, 0, 1).rotate(str.rotateY, 0, 1, 0).rotate(str.rotateX, 1, 0, 0);
+                  break;
+                case "kOrderZXY":
+                  $__1._matrix.rotate(str.rotateZ, 0, 0, 1).rotate(str.rotateX, 1, 0, 0).rotate(str.rotateY, 0, 1, 0);
+                  break;
+              }
+              $__1._matrix.scale(str.scale[0], str.scale[1], str.scale[2]);
+            }
+          } else if (sceneData.transformMatrix) {
+            $__1._matrix = new bg.Matrix4(sceneData.transformMatrix);
+          }
+          resolve($__1);
+        });
       },
       willDisplay: function(pipeline, matrixState) {
         if (this.node && this.node.enabled) {
@@ -7598,6 +8257,27 @@ bg.scene = {};
     }, {}, $__super);
   }(bg.scene.NodeVisitor);
   bg.scene.BoundingBoxVisitor = BoundingBoxVisitor;
+  var FindComponentVisitor = function($__super) {
+    function FindComponentVisitor(componentId) {
+      $traceurRuntime.superConstructor(FindComponentVisitor).call(this);
+      this.componentId = componentId;
+      this.clear();
+    }
+    return ($traceurRuntime.createClass)(FindComponentVisitor, {
+      get result() {
+        return this._result;
+      },
+      clear: function() {
+        this._result = [];
+      },
+      visit: function(node) {
+        if (node.component(this.componentId)) {
+          this._result.push(node);
+        }
+      }
+    }, {}, $__super);
+  }(bg.scene.NodeVisitor);
+  bg.scene.FindComponentVisitor = FindComponentVisitor;
 })();
 
 "use strict";
@@ -7890,7 +8570,8 @@ bg.scene = {};
     }
     return ($traceurRuntime.createClass)(VWGLBLoaderPlugin, {
       acceptType: function(url, data) {
-        return bg.utils.Resource.GetExtension(url) == "vwglb";
+        var ext = bg.utils.Resource.GetExtension(url);
+        return ext == "vwglb" || ext == "bg2";
       },
       load: function(context, url, data) {
         return new Promise(function(accept, reject) {
@@ -10842,6 +11523,7 @@ bg.webgl1 = {};
     }
     return null;
   }
+  var s_uintElements = false;
   var PolyListImpl = function($__super) {
     function PolyListImpl() {
       $traceurRuntime.superConstructor(PolyListImpl).apply(this, arguments);
@@ -10851,6 +11533,7 @@ bg.webgl1 = {};
         bg.base.DrawMode.TRIANGLES = context.TRIANGLES;
         bg.base.DrawMode.TRIANGLE_FAN = context.TRIANGLE_FAN;
         bg.base.DrawMode.TRIANGLE_STRIP = context.TRIANGLE_STRIP;
+        s_uintElements = context.getExtension("OES_element_index_uint");
       },
       create: function(context) {
         return {
@@ -10872,7 +11555,13 @@ bg.webgl1 = {};
         plist.tex2Buffer = createBuffer(context, t2, 2, context.STATIC_DRAW);
         plist.colorBuffer = createBuffer(context, col, 4, context.STATIC_DRAW);
         plist.tangentBuffer = createBuffer(context, tan, 3, context.STATIC_DRAW);
-        if (index.length > 0) {
+        if (index.length > 0 && s_uintElements) {
+          plist.indexBuffer = context.createBuffer();
+          context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, plist.indexBuffer);
+          context.bufferData(context.ELEMENT_ARRAY_BUFFER, new Uint32Array(index), context.STATIC_DRAW);
+          plist.indexBuffer.itemSize = 3;
+          plist.indexBuffer.numItems = index.length;
+        } else {
           plist.indexBuffer = context.createBuffer();
           context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, plist.indexBuffer);
           context.bufferData(context.ELEMENT_ARRAY_BUFFER, new Uint16Array(index), context.STATIC_DRAW);
@@ -10883,7 +11572,11 @@ bg.webgl1 = {};
       },
       draw: function(context, plist, drawMode, numberOfIndex) {
         context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, plist.indexBuffer);
-        context.drawElements(drawMode, numberOfIndex, context.UNSIGNED_SHORT, 0);
+        if (s_uintElements) {
+          context.drawElements(drawMode, numberOfIndex, context.UNSIGNED_INT, 0);
+        } else {
+          context.drawElements(drawMode, numberOfIndex, context.UNSIGNED_SHORT, 0);
+        }
       },
       destroy: function(context, plist) {
         context.bindBuffer(context.ARRAY_BUFFER, null);
