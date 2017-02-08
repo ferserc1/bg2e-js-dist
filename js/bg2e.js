@@ -7981,7 +7981,7 @@ bg.scene = {};
     return ($traceurRuntime.createClass)(SceneLoaderPlugin, {
       acceptType: function(url, data) {
         var ext = bg.utils.Resource.GetExtension(url);
-        return ext == "vitscnj" || ext == "json";
+        return ext == "vitscnj";
       },
       load: function(context, url, data) {
         return new Promise(function(resolve, reject) {
