@@ -733,10 +733,14 @@ bg.app = {};
   };
   var MainLoop = function() {
     function MainLoop() {
+      var $__3 = this;
       this._canvas = null;
       this._windowController = null;
       this._updateMode = bg.app.FrameUpdate.AUTO;
       this._redisplay = true;
+      bg.bindImageLoadEvent(function() {
+        $__3.postRedisplay();
+      });
     }
     return ($traceurRuntime.createClass)(MainLoop, {
       get canvas() {
@@ -1400,6 +1404,10 @@ bg.Axis = {
         name: "fsVertexPosFromLight",
         dataType: "vec4",
         role: "in"
+      }, {
+        name: "inCubeMap",
+        dataType: "samplerCube",
+        role: "value"
       }]);
       s_fragmentSource.addFunction(lib().functions.materials.all);
       s_fragmentSource.addFunction(lib().functions.colorCorrection.all);
@@ -1407,7 +1415,7 @@ bg.Axis = {
       s_fragmentSource.addFunction(lib().functions.utils.random);
       s_fragmentSource.addFunction(lib().functions.lighting.all);
       if (bg.Engine.Get().id == "webgl1") {
-        s_fragmentSource.setMainBody("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tif (diffuseColor.a>=inAlphaCutoff) {\t\n\t\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\tvec4 light = getDirectionalLight(inLightAmbient,inLightDiffuse,inLightSpecular,inShininess,\n\t\t\t\t\t\t\t\t\t\t\t\t-inLightDirection,fsPosition,normalMap,\n\t\t\t\t\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor);\n\t\t\t\t\t\t\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\t// TODO: Select mode\n\t\t\t\t\t\tgl_FragColor = colorCorrection(light,inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}");
+        s_fragmentSource.setMainBody("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tif (diffuseColor.a>=inAlphaCutoff) {\t\n\t\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\tvec4 light = getDirectionalLight(inLightAmbient,inLightDiffuse,inLightSpecular,inShininess,\n\t\t\t\t\t\t\t\t\t\t\t\t-inLightDirection,fsPosition,normalMap,\n\t\t\t\t\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor);\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tvec4 cubemapColor = textureCube(inCubeMap,lookup);\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tcubemapColor = cubemapColor * reflectionAmount + vec4(1.0 - reflectionAmount);\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb * cubemapColor.rgb + (lightEmission * diffuseColor.rgb), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tgl_FragColor = colorCorrection(light,inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}");
       }
     }
     return s_fragmentSource;
@@ -1528,6 +1536,7 @@ bg.Axis = {
           this.shader.setVector4('inLightAmbient', this._light.ambient);
           this.shader.setVector4('inLightDiffuse', this._light.diffuse);
           this.shader.setVector4('inLightSpecular', this._light.specular);
+          this.shader.setTexture('inCubeMap', bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_6);
           var dir = viewMatrix.mult(this._lightTransform).rotation.multVector(this._light.direction).xyz;
           this.shader.setVector3('inLightDirection', dir);
         } else {
@@ -1576,6 +1585,11 @@ bg.Axis = {
           this.shader.setVector2('inNormalMapScale', this.material.normalMapScale);
           this.shader.setVector2('inNormalMapOffset', this.material.normalMapOffset);
           this.shader.setValueInt('inReceiveShadows', this.material.receiveShadows);
+          var reflectionMask = this.material.reflectionMask || whiteTex;
+          this.shader.setValueFloat('inReflection', this.material.reflectionAmount);
+          this.shader.setTexture('inReflectionMask', reflectionMask, bg.base.TextureUnit.TEXTURE_7);
+          this.shader.setVector4('inReflectionMaskChannel', this.material.reflectionMaskChannelVector);
+          this.shader.setValueInt('inReflectionMaskInvert', this.material.reflectionMaskInvert);
           this.shader.setValueInt('inSelectMode', false);
         }
       }
@@ -4040,6 +4054,7 @@ bg.Axis = {
   var s_blackTexture = "static-black-color-texture";
   var s_normalTexture = "static-normal-color-texture";
   var s_randomTexture = "static-random-color-texture";
+  var s_whiteCubemap = "static-white-cubemap-texture";
   var TextureCache = function() {
     function TextureCache(context) {
       this._context = context;
@@ -4068,6 +4083,15 @@ bg.Axis = {
       },
       GetColorTextureSize: function() {
         return COLOR_TEXTURE_SIZE;
+      },
+      WhiteCubemap: function(context) {
+        var cache = TextureCache.Get(context);
+        var tex = cache.find(s_whiteCubemap);
+        if (!tex) {
+          tex = bg.base.Texture.WhiteCubemap(context);
+          cache.register(s_whiteCubemap, tex);
+        }
+        return tex;
       },
       WhiteTexture: function(context) {
         var cache = TextureCache.Get(context);
@@ -4263,6 +4287,15 @@ bg.Axis = {
       setImageRaw: function(context, target, minFilter, magFilter, texture, width, height, data) {
         console.log("TextureImpl: setImageRaw() method not implemented");
       },
+      setTextureFilter: function(context, target, minFilter, magFilter) {
+        console.log("TextureImpl: setTextureFilter() method not implemented");
+      },
+      setCubemapImage: function(context, face, image) {
+        console.log("TextureImpl: setCubemapImage() method not implemented");
+      },
+      setCubemapRaw: function(context, face, rawImage, w, h) {
+        console.log("TextureImpl: setCubemapRaw() method not implemented");
+      },
       setVideo: function(context, target, texture, video, flipY) {
         console.log("TextureImpl: setVideo() method not implemented");
       },
@@ -4371,6 +4404,30 @@ bg.Axis = {
         bg.Engine.Get().texture.setTextureWrapY(this.context, this._target, this._texture, this._wrapY);
         bg.Engine.Get().texture.setImageRaw(this.context, this._target, this._minFilter, this._magFilter, this._texture, width, height, data, type, format);
       },
+      setCubemap: function(posX, negX, posY, negY, posZ, negZ) {
+        bg.Engine.Get().texture.bind(this.context, this._target, this._texture);
+        bg.Engine.Get().texture.setTextureWrapX(this.context, this._target, this._texture, this._wrapX);
+        bg.Engine.Get().texture.setTextureWrapX(this.context, this._target, this._texture, this._wrapY);
+        bg.Engine.Get().texture.setTextureFilter(this.context, this._target, this._minFilter, this._magFilter);
+        bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.POSITIVE_X_FACE, posX);
+        bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.NEGATIVE_X_FACE, negX);
+        bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.POSITIVE_Y_FACE, posY);
+        bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.NEGATIVE_Y_FACE, negY);
+        bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.POSITIVE_Z_FACE, posZ);
+        bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.NEGATIVE_Z_FACE, negZ);
+      },
+      setCubemapRaw: function(w, h, posX, negX, posY, negY, posZ, negZ) {
+        bg.Engine.Get().texture.bind(this.context, this._target, this._texture);
+        bg.Engine.Get().texture.setTextureWrapX(this.context, this._target, this._texture, this._wrapX);
+        bg.Engine.Get().texture.setTextureWrapX(this.context, this._target, this._texture, this._wrapY);
+        bg.Engine.Get().texture.setTextureFilter(this.context, this._target, this._minFilter, this._magFilter);
+        bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.POSITIVE_X_FACE, posX, w, h);
+        bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.NEGATIVE_X_FACE, negX, w, h);
+        bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.POSITIVE_Y_FACE, posY, w, h);
+        bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.NEGATIVE_Y_FACE, negY, w, h);
+        bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.POSITIVE_Z_FACE, posZ, w, h);
+        bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.NEGATIVE_Z_FACE, negZ, w, h);
+      },
       setVideo: function(video, flipY) {
         if (flipY === undefined)
           flipY = true;
@@ -4414,6 +4471,30 @@ bg.Axis = {
       },
       WhiteTexture: function(context, size) {
         return Texture.ColorTexture(context, bg.Color.White(), size);
+      },
+      WhiteCubemap: function(context) {
+        return Texture.ColorCubemap(context, bg.Color.White());
+      },
+      BlackCubemap: function(context) {
+        return Texture.ColorCubemap(context, bg.Color.Black());
+      },
+      ColorCubemap: function(context, color) {
+        var cm = new bg.base.Texture(context);
+        cm.target = bg.base.TextureTarget.CUBE_MAP;
+        cm.create();
+        cm.bind();
+        var dataSize = 32 * 32 * 4;
+        var textureData = [];
+        for (var i = 0; i < dataSize; i += 4) {
+          textureData[i] = color.r * 255;
+          textureData[i + 1] = color.g * 255;
+          textureData[i + 2] = color.b * 255;
+          textureData[i + 3] = color.a * 255;
+        }
+        textureData = new Uint8Array(textureData);
+        cm.setCubemapRaw(32, 32, textureData, textureData, textureData, textureData, textureData, textureData);
+        cm.unbind();
+        return cm;
       },
       NormalTexture: function(context, size) {
         return Texture.ColorTexture(context, new bg.Color(0.5, 0.5, 1, 1), size);
@@ -7070,6 +7151,79 @@ bg.scene = {};
       }}, {}, $__super);
   }(ChainJoint);
   bg.scene.registerComponent(bg.scene, OutputChainJoint, "bg.scene.OutputChainJoint");
+})();
+
+"use strict";
+(function() {
+  bg.scene.CubemapImage = {
+    POSITIVE_X: 0,
+    NEGATIVE_X: 1,
+    POSITIVE_Y: 2,
+    NEGATIVE_Y: 3,
+    POSITIVE_Z: 4,
+    NEGATIVE_Z: 5
+  };
+  var g_currentCubemap = null;
+  var Cubemap = function($__super) {
+    function Cubemap() {
+      $traceurRuntime.superConstructor(Cubemap).call(this);
+      this._images = [null, null, null, null, null, null];
+      this._texture = null;
+    }
+    return ($traceurRuntime.createClass)(Cubemap, {
+      setImageUrl: function(imgCode, texture) {
+        this._images[imgCode] = texture;
+      },
+      getImageUrl: function(imgCode) {
+        return this._images[imgCode];
+      },
+      get texture() {
+        return this._texture;
+      },
+      loadCubemap: function(context) {
+        var $__1 = this;
+        context = context || this.node && this.node.context;
+        return new Promise(function(resolve, reject) {
+          bg.utils.Resource.LoadMultiple($__1._images).then(function(result) {
+            $__1._texture = new bg.base.Texture(context);
+            $__1._texture.target = bg.base.TextureTarget.CUBE_MAP;
+            $__1._texture.create();
+            $__1._texture.bind();
+            $__1._texture.setCubemap(result[$__1.getImageUrl(bg.scene.CubemapImage.POSITIVE_X)], result[$__1.getImageUrl(bg.scene.CubemapImage.NEGATIVE_X)], result[$__1.getImageUrl(bg.scene.CubemapImage.POSITIVE_Y)], result[$__1.getImageUrl(bg.scene.CubemapImage.NEGATIVE_Y)], result[$__1.getImageUrl(bg.scene.CubemapImage.POSITIVE_Z)], result[$__1.getImageUrl(bg.scene.CubemapImage.NEGATIVE_Z)]);
+            g_currentCubemap = $__1._texture;
+            bg.emitImageLoadEvent(result[$__1.getImageUrl(bg.scene.CubemapImage.POSITIVE_X)]);
+            resolve($__1);
+          }).catch(function(err) {
+            reject(err);
+          });
+        });
+      },
+      clone: function() {
+        var cubemap = new Cubemap();
+        for (var code in this._images) {
+          cubemap._images[code] = this._images[code];
+        }
+        ;
+        cubemap._texture = this._texture;
+        return cubemap;
+      },
+      deserialize: function(context, sceneData, url) {
+        this.setImageUrl(bg.scene.CubemapImage.POSITIVE_X, bg.utils.Resource.JoinUrl(url, sceneData["positiveX"]));
+        this.setImageUrl(bg.scene.CubemapImage.NEGATIVE_X, bg.utils.Resource.JoinUrl(url, sceneData["negativeX"]));
+        this.setImageUrl(bg.scene.CubemapImage.POSITIVE_Y, bg.utils.Resource.JoinUrl(url, sceneData["positiveY"]));
+        this.setImageUrl(bg.scene.CubemapImage.NEGATIVE_Y, bg.utils.Resource.JoinUrl(url, sceneData["negativeY"]));
+        this.setImageUrl(bg.scene.CubemapImage.POSITIVE_Z, bg.utils.Resource.JoinUrl(url, sceneData["positiveZ"]));
+        this.setImageUrl(bg.scene.CubemapImage.NEGATIVE_Z, bg.utils.Resource.JoinUrl(url, sceneData["negativeZ"]));
+        return this.loadCubemap(context);
+      }
+    }, {Current: function(context) {
+        if (!g_currentCubemap) {
+          g_currentCubemap = bg.base.TextureCache.WhiteCubemap(context);
+        }
+        return g_currentCubemap;
+      }}, $__super);
+  }(bg.scene.Component);
+  bg.scene.registerComponent(bg.scene, Cubemap, "bg.scene.Cubemap");
 })();
 
 "use strict";
@@ -10968,7 +11122,7 @@ bg.render = {};
       get settings() {
         if (!this._settings) {
           this._currentKernelSize = 0;
-          this._settings = {refractionAmount: -0.1};
+          this._settings = {refractionAmount: -0.05};
         }
         return this._settings;
       }
@@ -11294,12 +11448,16 @@ bg.render = {};
             dataType: "vec4",
             role: "value"
           }, {
+            name: "inCubeMap",
+            dataType: "samplerCube",
+            role: "value"
+          }, {
             name: "fsTexCoord",
             dataType: "vec2",
             role: "in"
           }]);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\n\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\tvec4 result = vec4(0.0,0.0,0.0,0.0);\n\t\t\t\t\t\tif (material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\tresult = inRayFailColor;\n\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\n\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\n\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\n\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\tif (rayActualPos.w<0.6) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0) {\n\t\t\t\t\t\t\t\t\tresult = inRayFailColor;\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.4) {\n\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\tgl_FragColor = inRayFailColor;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\n\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\tvec4 result = vec4(0.0,0.0,0.0,0.0);\n\t\t\t\t\t\tif (material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\n\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\n\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\n\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\tif (rayActualPos.w<0.6) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0) {\n\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.4) {\n\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
@@ -11313,6 +11471,7 @@ bg.render = {};
         this.shader.setMatrix4("inProjectionMatrix", this._projectionMatrix);
         this.shader.setVector3("inCameraPos", this._cameraPos);
         this.shader.setVector4("inRayFailColor", this.rayFailColor);
+        this.shader.setTexture("inCubeMap", bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_5);
       },
       get projectionMatrix() {
         return this._projectionMatrix;
@@ -12677,9 +12836,23 @@ bg.webgl1 = {};
           context.generateMipmap(target);
         }
       },
+      setTextureFilter: function(context, target, minFilter, magFilter) {
+        context.texParameteri(target, context.TEXTURE_MIN_FILTER, minFilter);
+        context.texParameteri(target, context.TEXTURE_MAG_FILTER, magFilter);
+      },
+      setCubemapImage: function(context, face, image) {
+        context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
+        context.texImage2D(face, 0, context.RGBA, context.RGBA, context.UNSIGNED_BYTE, image);
+      },
+      setCubemapRaw: function(context, face, rawImage, w, h) {
+        var type = context.RGBA;
+        var format = context.UNSIGNED_BYTE;
+        context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
+        context.texImage2D(face, 0, type, w, h, 0, type, format, rawImage);
+      },
       setVideo: function(context, target, texture, video, flipY) {
         if (flipY)
-          context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, true);
+          context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
         context.texParameteri(target, context.TEXTURE_MAG_FILTER, context.LINEAR);
         context.texParameteri(target, context.TEXTURE_MIN_FILTER, context.LINEAR);
         context.texParameteri(target, context.TEXTURE_WRAP_S, context.CLAMP_TO_EDGE);
