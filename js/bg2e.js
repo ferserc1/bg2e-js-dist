@@ -4012,10 +4012,13 @@ bg.Axis = {
           var cameraPos = camera.transform.matrix.position;
           var cameraTransform = new bg.Matrix4(camera.transform.matrix);
           var target = cameraPos.add(cameraTransform.forwardVector.scale(-camera.focus));
-          window.camera = camera;
-          window.cameraTransform = camera.transform.matrix;
           this._viewMatrix.identity().translate(target).mult(rotation).translate(0, 0, 10).invert();
           light.projection = bg.Matrix4.Ortho(-camera.focus, camera.focus, -camera.focus, camera.focus, 1, 300 * camera.focus);
+        } else if (light.type == bg.base.LightType.SPOT) {
+          var cutoff = light.spotCutoff;
+          light.projection = bg.Matrix4.Perspective(cutoff * 2, 1, 0.1, 200.0);
+          light.shadowBias = 0.0002;
+          this._viewMatrix.invert();
         }
         this._projection = light.projection;
         this._pipeline.effect.lightTransform = this._viewMatrix;
@@ -4994,6 +4997,11 @@ bg.Axis = {
       },
       elemAtIndex: function(i) {
         return this._m[i];
+      },
+      setScale: function(x, y, z) {
+        this._m[0] = x;
+        this._m[5] = y;
+        this._m[10] = z;
       },
       assign: function(a) {
         if (a.length == 9) {
@@ -6165,14 +6173,15 @@ bg.physics = {};
         this.calculateTransform();
       },
       multTransform: function(dst) {
+        var offset = this.offset;
         switch (this.transformOrder) {
           case bg.physics.LinkTransformOrder.TRANSLATE_ROTATE:
-            dst.translate(this.offset.x, this.offset.y, this.offset.z);
+            dst.translate(offset.x, offset.y, offset.z);
             this.multRotation(dst);
             break;
           case bg.physics.LinkTransformOrder.TRANSLATE_ROTATE:
             this.multRotation(dst);
-            dst.translate(this.offset.x, this.offset.y, this.offset.z);
+            dst.translate(offset.x, offset.y, offset.z);
             break;
         }
       },
@@ -6369,11 +6378,11 @@ bg.scene = {};
       get drawable() {
         return this.component("bg.scene.Drawable");
       },
-      get inputJoint() {
-        return this.component("bg.scene.InputJoint");
+      get inputChainJoint() {
+        return this.component("bg.scene.InputChainJoint");
       },
-      get outputJoint() {
-        return this.component("bg.scene.OutputJoint");
+      get outputChainJoint() {
+        return this.component("bg.scene.OutputChainJoint");
       },
       get light() {
         return this.component("bg.scene.Light");
@@ -9821,7 +9830,8 @@ bg.render = {};
     raytracer: {
       enabled: true,
       quality: bg.render.RaytracerQuality.mid
-    }
+    },
+    antialiasing: {enabled: false}
   };
   var Renderer = function($__super) {
     function Renderer(context) {
@@ -10328,6 +10338,10 @@ bg.render = {};
         this._pipeline.textureEffect = new bg.render.PostprocessEffect(ctx);
       },
       draw: function(scene, camera) {
+        var vp = camera.viewport;
+        var aa = this.settings.antialiasing || {};
+        var scaledViewport = aa.enabled ? new bg.Viewport(0, 0, vp.width * 2, vp.height * 2) : vp;
+        camera.viewport = scaledViewport;
         var mainLight = null;
         this._opaqueLayer.clearColor = this.clearColor;
         if (this._size.width != camera.viewport.width || this._size.height != camera.viewport.height) {
@@ -10348,10 +10362,11 @@ bg.render = {};
           transparentDepth: this._transparentLayer.maps.position
         });
         bg.base.Pipeline.SetCurrent(this.pipeline);
-        this.pipeline.viewport = camera.viewport;
+        this.pipeline.viewport = vp;
         this.pipeline.clearColor = this.clearColor;
         this.pipeline.clearBuffers();
         this.pipeline.drawTexture({texture: this._mixPipeline.renderSurface.getTexture(0)});
+        camera.viewport = vp;
       }
     }, {}, $__super);
   }(bg.render.Renderer);
@@ -10790,7 +10805,7 @@ bg.render = {};
           this._fragmentShaderSource.addFunction(lib().functions.utils.all);
           this._fragmentShaderSource.addFunction(lib().functions.lighting.all);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 specular = texture2D(inSpecular,fsTexCoord);\n\t\t\t\t\tvec3 normal = texture2D(inNormal,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\t\t\t\t\tvec4 position = texture2D(inPosition,fsTexCoord);\n\t\t\t\t\t\n\t\t\t\t\tvec4 shadowColor = texture2D(inShadowMap,fsTexCoord);\n\t\t\t\t\tfloat shininess = material.g * 255.0;\n\t\t\t\t\tif (inLightType==" + bg.base.LightType.DIRECTIONAL + ") {\n\t\t\t\t\t\tgl_FragColor = getDirectionalLight(inLightAmbient,inLightDiffuse,inLightSpecular,shininess,\n\t\t\t\t\t\t\t\t\t\t-inLightDirection,position.rgb,normal,diffuse,specular,shadowColor);\n\t\t\t\t\t}\n\t\t\t\t\telse if (inLightType==" + bg.base.LightType.SPOT + ") {\n\t\t\t\t\t\tshadowColor = vec4(1.0);\n\t\t\t\t\t\tgl_FragColor = getSpotLight(inLightAmbient,inLightDiffuse,inLightSpecular,shininess,\n\t\t\t\t\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\t\t\t\t\tinSpotCutoff,inSpotExponent,\n\t\t\t\t\t\t\t\t\t\tposition.rgb,normal,diffuse,specular,shadowColor);\n\t\t\t\t\t}\n\t\t\t\t\telse if (inLightType==" + bg.base.LightType.POINT + ") {\nshadowColor = vec4(1.0);\n\t\t\t\t\t\tgl_FragColor = getSpotLight(inLightAmbient,inLightDiffuse,inLightSpecular,shininess,\n\t\t\t\t\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\t\t\t\t\tinSpotCutoff,inSpotExponent,\n\t\t\t\t\t\t\t\t\t\tposition.rgb,normal,diffuse,specular,shadowColor);\n\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 specular = texture2D(inSpecular,fsTexCoord);\n\t\t\t\t\tvec3 normal = texture2D(inNormal,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\t\t\t\t\tvec4 position = texture2D(inPosition,fsTexCoord);\n\t\t\t\t\t\n\t\t\t\t\tvec4 shadowColor = texture2D(inShadowMap,fsTexCoord);\n\t\t\t\t\tfloat shininess = material.g * 255.0;\n\t\t\t\t\tif (inLightType==" + bg.base.LightType.DIRECTIONAL + ") {\n\t\t\t\t\t\tgl_FragColor = getDirectionalLight(inLightAmbient,inLightDiffuse,inLightSpecular,shininess,\n\t\t\t\t\t\t\t\t\t\t-inLightDirection,position.rgb,normal,diffuse,specular,shadowColor);\n\t\t\t\t\t}\n\t\t\t\t\telse if (inLightType==" + bg.base.LightType.SPOT + ") {\n\t\t\t\t\t\tgl_FragColor = getSpotLight(inLightAmbient,inLightDiffuse,inLightSpecular,shininess,\n\t\t\t\t\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\t\t\t\t\tinSpotCutoff,inSpotExponent,\n\t\t\t\t\t\t\t\t\t\tposition.rgb,normal,diffuse,specular,shadowColor);\n\t\t\t\t\t}\n\t\t\t\t\telse if (inLightType==" + bg.base.LightType.POINT + ") {\n\t\t\t\t\t\tshadowColor = vec4(1.0);\n\t\t\t\t\t\tgl_FragColor = getSpotLight(inLightAmbient,inLightDiffuse,inLightSpecular,shininess,\n\t\t\t\t\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\t\t\t\t\tinSpotCutoff,inSpotExponent,\n\t\t\t\t\t\t\t\t\t\tposition.rgb,normal,diffuse,specular,shadowColor);\n\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
@@ -10953,7 +10968,7 @@ bg.render = {};
       get settings() {
         if (!this._settings) {
           this._currentKernelSize = 0;
-          this._settings = {refractionAmount: 0.01};
+          this._settings = {refractionAmount: -0.1};
         }
         return this._settings;
       }
@@ -11008,7 +11023,7 @@ bg.render = {};
       fragment.addFunction(lib().functions.materials.samplerColor);
       if (bg.Engine.Get().id == "webgl1") {
         vertex.setMainBody("\n\t\t\t\t\tmat4 ScaleMatrix = mat4(0.5, 0.0, 0.0, 0.0,\n\t\t\t\t\t\t\t\t\t\t\t0.0, 0.5, 0.0, 0.0,\n\t\t\t\t\t\t\t\t\t\t\t0.0, 0.0, 0.5, 0.0,\n\t\t\t\t\t\t\t\t\t\t\t0.5, 0.5, 0.5, 1.0);\n\t\t\t\t\t\n\t\t\t\t\tfsVertexPosFromLight = ScaleMatrix * inLightProjectionMatrix * inLightViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n\t\t\t\t\tfsTexCoord = inTex0;\n\t\t\t\t\t\n\t\t\t\t\tgl_Position = inProjectionMatrix * inViewMatrix * inModelMatrix * vec4(inVertex,1.0);");
-        fragment.setMainBody("\n\t\t\t\t\tfloat alpha = samplerColor(inTexture,fsTexCoord,inTextureOffset,inTextureScale).a;\n\t\t\t\t\tif (alpha>inAlphaCutoff) {\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tgl_FragColor = shadowColor;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}");
+        fragment.setMainBody("\n\t\t\t\t\tfloat alpha = samplerColor(inTexture,fsTexCoord,inTextureOffset,inTextureScale).a;\n\t\t\t\t\tif (alpha>inAlphaCutoff) {\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0, 1.0, 1.0, 1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tgl_FragColor = shadowColor;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}");
       }
       this.setupShaderSource([vertex, fragment]);
     }
@@ -12337,7 +12352,7 @@ bg.webgl1 = {};
         matSpecular: "vec4",
         shadowColor: "vec4"
       },
-      body: "\n\t\t\t\tvec4 matAmbient = vec4(1.0);\n\t\t\t\tvec3 s = normalize(position - vertexPos);\n\t\t\t\tfloat angle = acos(dot(-s, direction));\n\t\t\t\tfloat cutoff = radians(clamp(spotCutoff,0.0,90.0));\n\t\t\t\tfloat distance = length(position - vertexPos);\n\t\t\t\tfloat attenuation = 1.0 / (constAtt );//+ linearAtt * distance + expAtt * distance * distance);\n\t\t\t\tif (angle<cutoff) {\n\t\t\t\t\tfloat spotFactor = pow(dot(-s, direction), spotExponent);\n\t\t\t\t\tvec3 v = normalize(vec3(-vertexPos));\n\t\t\t\t\tvec3 h = normalize(v + s);\n\t\t\t\t\tvec3 diffuseAmount = matDiffuse.rgb * diffuse.rgb * max(dot(s, normal), 0.0);\n\t\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\t\tdiffuseAmount += matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);\n\t\t\t\t\t}\n\t\t\t\t\tdiffuseAmount.r = min(diffuseAmount.r, shadowColor.r);\n\t\t\t\t\tdiffuseAmount.g = min(diffuseAmount.g, shadowColor.g);\n\t\t\t\t\tdiffuseAmount.b = min(diffuseAmount.b, shadowColor.b);\n\t\t\t\t\treturn vec4(ambient.rgb * matDiffuse.rgb + attenuation * spotFactor * diffuseAmount,1.0);\n\t\t\t\t}\n\t\t\t\telse {\n\t\t\t\t\treturn vec4(vertexPos.x,vertexPos.y,vertexPos.z,1.0);//vec4(ambient.rgb * matDiffuse.rgb,1.0);\n\t\t\t\t}"
+      body: "\n\t\t\t\tvec4 matAmbient = vec4(1.0);\n\t\t\t\tvec3 s = normalize(position - vertexPos);\n\t\t\t\tfloat angle = acos(dot(-s, direction));\n\t\t\t\tfloat cutoff = radians(clamp(spotCutoff / 2.0,0.0,90.0));\n\t\t\t\tfloat distance = length(position - vertexPos);\n\t\t\t\tfloat attenuation = 1.0 / (constAtt );//+ linearAtt * distance + expAtt * distance * distance);\n\t\t\t\tif (angle<cutoff) {\n\t\t\t\t\tfloat spotFactor = pow(dot(-s, direction), spotExponent);\n\t\t\t\t\tvec3 v = normalize(vec3(-vertexPos));\n\t\t\t\t\tvec3 h = normalize(v + s);\n\t\t\t\t\tvec3 diffuseAmount = matDiffuse.rgb * diffuse.rgb * max(dot(s, normal), 0.0);\n\t\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\t\tdiffuseAmount += matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);\n\t\t\t\t\t\tdiffuseAmount *= pow(shadowColor.rgb,vec3(10.0));\n\t\t\t\t\t}\n\t\t\t\t\tdiffuseAmount.r = min(diffuseAmount.r, shadowColor.r);\n\t\t\t\t\tdiffuseAmount.g = min(diffuseAmount.g, shadowColor.g);\n\t\t\t\t\tdiffuseAmount.b = min(diffuseAmount.b, shadowColor.b);\n\t\t\t\t\treturn vec4(ambient.rgb * matDiffuse.rgb + attenuation * spotFactor * diffuseAmount,1.0);\n\t\t\t\t}\n\t\t\t\telse {\n\t\t\t\t\treturn vec4(ambient.rgb * matDiffuse.rgb,1.0);\n\t\t\t\t}"
     },
     getShadowColor: {
       returnType: "vec4",
