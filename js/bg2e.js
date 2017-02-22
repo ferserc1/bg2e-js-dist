@@ -10494,7 +10494,15 @@ bg.render = {};
       draw: function(scene, camera) {
         var vp = camera.viewport;
         var aa = this.settings.antialiasing || {};
-        var scaledViewport = aa.enabled ? new bg.Viewport(0, 0, vp.width * 2, vp.height * 2) : vp;
+        var scaledWidth = vp.width;
+        var scaledHeight = vp.height;
+        if (aa.enabled) {
+          var maxWidth = aa.maxTextureSize || 4096;
+          var maxHeight = aa.maxTextureSize || 4096;
+          scaledWidth = vp.width * 2 < maxWidth ? vp.width * 2 : maxWidth;
+          scaledHeight = vp.height * 2 < maxHeight ? vp.height * 2 : maxHeight;
+        }
+        var scaledViewport = new bg.Viewport(0, 0, scaledWidth, scaledHeight);
         camera.viewport = scaledViewport;
         var mainLight = null;
         this._opaqueLayer.clearColor = this.clearColor;
