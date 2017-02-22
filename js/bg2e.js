@@ -10497,10 +10497,17 @@ bg.render = {};
         var scaledWidth = vp.width;
         var scaledHeight = vp.height;
         if (aa.enabled) {
-          var maxWidth = aa.maxTextureSize || 4096;
-          var maxHeight = aa.maxTextureSize || 4096;
-          scaledWidth = vp.width * 2 < maxWidth ? vp.width * 2 : maxWidth;
-          scaledHeight = vp.height * 2 < maxHeight ? vp.height * 2 : maxHeight;
+          var maxSize = aa.maxTextureSize || 4096;
+          var ratio = vp.aspectRatio;
+          scaledWidth = vp.width * 2;
+          scaledHeight = vp.height * 2;
+          if (ratio > 1 && scaledWidth > maxSize) {
+            scaledWidth = maxSize;
+            scaledHeight = maxSize / ratio;
+          } else if (scaledHeight > maxSize) {
+            scaledHeight = maxSize;
+            scaledWidth = maxSize * ratio;
+          }
         }
         var scaledViewport = new bg.Viewport(0, 0, scaledWidth, scaledHeight);
         camera.viewport = scaledViewport;
