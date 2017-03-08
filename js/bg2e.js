@@ -6947,19 +6947,17 @@ bg.scene = {};
       accept: function(nodeVisitor) {
         if (!nodeVisitor.ignoreDisabled || this.enabled) {
           nodeVisitor.visit(this);
-        }
-        this._children.forEach(function(child) {
-          child.accept(nodeVisitor);
-        });
-        if (!nodeVisitor.ignoreDisabled || this.enabled) {
+          this._children.forEach(function(child) {
+            child.accept(nodeVisitor);
+          });
           nodeVisitor.didVisit(this);
         }
       },
       acceptReverse: function(nodeVisitor) {
-        if (this._parent) {
-          this._parent.acceptReverse(nodeVisitor);
-        }
         if (!nodeVisitor.ignoreDisabled || this.enabled) {
+          if (this._parent) {
+            this._parent.acceptReverse(nodeVisitor);
+          }
           nodeVisitor.visit(this);
         }
       },
