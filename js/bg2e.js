@@ -6945,17 +6945,23 @@ bg.scene = {};
         isNodeAncient(this, node);
       },
       accept: function(nodeVisitor) {
-        nodeVisitor.visit(this);
+        if (!nodeVisitor.ignoreDisabled || this.enabled) {
+          nodeVisitor.visit(this);
+        }
         this._children.forEach(function(child) {
           child.accept(nodeVisitor);
         });
-        nodeVisitor.didVisit(this);
+        if (!nodeVisitor.ignoreDisabled || this.enabled) {
+          nodeVisitor.didVisit(this);
+        }
       },
       acceptReverse: function(nodeVisitor) {
         if (this._parent) {
           this._parent.acceptReverse(nodeVisitor);
         }
-        nodeVisitor.visit(this);
+        if (!nodeVisitor.ignoreDisabled || this.enabled) {
+          nodeVisitor.visit(this);
+        }
       },
       destroy: function() {
         $traceurRuntime.superGet(this, Node.prototype, "destroy").call(this);
@@ -6968,8 +6974,16 @@ bg.scene = {};
   }(bg.scene.SceneObject);
   bg.scene.Node = Node;
   var NodeVisitor = function() {
-    function NodeVisitor() {}
+    function NodeVisitor() {
+      this._ignoreDisabled = true;
+    }
     return ($traceurRuntime.createClass)(NodeVisitor, {
+      get ignoreDisabled() {
+        return this._ignoreDisabled;
+      },
+      set ignoreDisabled(v) {
+        this._ignoreDisabled = v;
+      },
       visit: function(node) {},
       didVisit: function(node) {}
     }, {});
