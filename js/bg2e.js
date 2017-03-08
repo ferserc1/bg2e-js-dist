@@ -1266,6 +1266,44 @@ bg.Axis = {
 
 "use strict";
 (function() {
+  var Bg2matLoaderPlugin = function($__super) {
+    function Bg2matLoaderPlugin() {
+      $traceurRuntime.superConstructor(Bg2matLoaderPlugin).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(Bg2matLoaderPlugin, {
+      acceptType: function(url, data) {
+        return bg.utils.Resource.GetExtension(url) == "bg2mat";
+      },
+      load: function(context, url, data) {
+        return new Promise(function(resolve, reject) {
+          if (data) {
+            try {
+              if (typeof(data) == "string") {
+                data = JSON.parse(data);
+              }
+              var promises = [];
+              var basePath = url.substring(0, url.lastIndexOf('/') + 1);
+              data.forEach(function(matData) {
+                promises.push(bg.base.Material.FromMaterialDefinition(context, matData, basePath));
+              });
+              Promise.all(promises).then(function(result) {
+                resolve(result);
+              });
+            } catch (e) {
+              reject(e);
+            }
+          } else {
+            reject(new Error("Error loading material. Data is null."));
+          }
+        });
+      }
+    }, {}, $__super);
+  }(bg.base.LoaderPlugin);
+  bg.base.Bg2matLoaderPlugin = Bg2matLoaderPlugin;
+})();
+
+"use strict";
+(function() {
   function lib() {
     return bg.base.ShaderLibrary.Get();
   }
@@ -2236,6 +2274,33 @@ bg.Axis = {
   function channelVector(channel) {
     return new bg.Vector4(channel == 0 ? 1 : 0, channel == 1 ? 1 : 0, channel == 2 ? 1 : 0, channel == 3 ? 1 : 0);
   }
+  function readVector(data) {
+    switch (data.length) {
+      case 2:
+        return new bg.Vector2(data[0], data[1]);
+      case 3:
+        return new bg.Vector2(data[0], data[1], data[2]);
+      case 4:
+        return new bg.Vector2(data[0], data[1], data[2], data[3]);
+    }
+    return null;
+  }
+  function readTexture(context, basePath, texData, mat, property) {
+    return new Promise(function(resolve) {
+      if (!texData) {
+        resolve();
+      } else if (/data\:image\/[a-z]+\;base64\,/.test(texData)) {
+        mat[property] = bg.base.Texture.FromBase64Image(context, texData);
+        resolve(mat[property]);
+      } else {
+        var fullPath = basePath + texData;
+        bg.base.Loader.Load(context, fullPath).then(function(tex) {
+          mat[property] = tex;
+          resolve(tex);
+        });
+      }
+    });
+  }
   var Material = function() {
     function Material() {
       this._diffuse = bg.Color.White();
@@ -2746,7 +2811,45 @@ bg.Axis = {
         }
         mod.setFlags(modifierMask);
       }
-    }, {GetMaterialWithJson: function(context, data, path) {
+    }, {
+      FromMaterialDefinition: function(context, def) {
+        var basePath = arguments[2] !== (void 0) ? arguments[2] : "";
+        return new Promise(function(resolve, reject) {
+          var mat = new Material();
+          mat.diffuse = readVector(def.diffuse) || bg.Color.White();
+          mat.specular = readVector(def.specular) || bg.Color.White();
+          mat.shininess = def.shininess || 0;
+          mat.shininessMaskChannel = def.shininessMaskChannel || 0;
+          mat.shininessMaskInvert = def.shininessMaskInvert || false;
+          mat.lightEmission = def.lightEmission || 0;
+          mat.lightEmissionMaskChannel = def.lightEmissionMaskChannel || 0;
+          mat.lightEmissionMaskInvert = def.lightEmissionMaskInvert || false;
+          mat.refractionAmount = def.refractionAmount || 0;
+          mat.reflectionAmount = def.reflectionAmount || 0;
+          mat.reflectionMaskChannel = def.reflectionMaskChannel || 0;
+          mat.reflectionMaskInvert = def.reflectionMaskInvert || false;
+          mat.textureOffset = readVector(def.textureOffset) || new bg.Vector2(0, 0);
+          mat.textureScale = readVector(def.textureScale) || new bg.Vector2(1, 1);
+          mat.normalMapOffset = readVector(def.normalMapOffset) || new bg.Vector2(0, 0);
+          mat.normalMapScale = readVector(def.normalMapScale) || new bg.Vector2(1, 1);
+          mat.cullFace = def.cullFace === undefined ? true : def.cullFace;
+          mat.castShadows = def.castShadows === undefined ? true : def.castShadows;
+          mat.receiveShadows = def.receiveShadows === undefined ? true : def.receiveShadows;
+          mat.alphaCutoff = def.alphaCutoff === undefined ? 0.5 : def.alphaCutoff;
+          mat.name = def.name;
+          mat.description = def.description;
+          var texPromises = [];
+          texPromises.push(readTexture(context, basePath, def.shininessMask, mat, "shininessMask"));
+          texPromises.push(readTexture(context, basePath, def.lightEmissionMask, mat, "lightEmissionMask"));
+          texPromises.push(readTexture(context, basePath, def.reflectionMask, mat, "reflectionMask"));
+          texPromises.push(readTexture(context, basePath, def.texture, mat, "texture"));
+          texPromises.push(readTexture(context, basePath, def.normalMap, mat, "normalMap"));
+          Promise.all(texPromises).then(function() {
+            resolve(mat);
+          });
+        });
+      },
+      GetMaterialWithJson: function(context, data, path) {
         var material = new Material();
         if (data.cullFace === undefined) {
           data.cullFace = true;
@@ -2817,7 +2920,8 @@ bg.Axis = {
             accept(material);
           });
         });
-      }});
+      }
+    });
   }();
   bg.base.Material = Material;
 })();
@@ -4451,6 +4555,16 @@ bg.Axis = {
         bg.Engine.Get().texture.updateVideoData(this.context, this._target, this._texture, this._video);
       }
     }, {
+      FromBase64Image: function(context, imgData) {
+        var tex = new bg.base.Texture(context);
+        tex.img = new Image();
+        tex.img.src = imgData;
+        tex.create();
+        tex.bind();
+        tex.setImage(tex.img);
+        tex.unbind();
+        return tex;
+      },
       ColorTexture: function(context, color, size) {
         var colorTexture = new bg.base.Texture(context);
         colorTexture.create();
