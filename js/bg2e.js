@@ -1701,7 +1701,7 @@ bg.Axis = {
           this.shader.setVector2('inNormalMapScale', this.material.normalMapScale);
           this.shader.setVector2('inNormalMapOffset', this.material.normalMapOffset);
           this.shader.setValueInt('inReceiveShadows', this.material.receiveShadows);
-          var reflectionMask = this.material.reflectionMask || whiteTex;
+          var reflectionMask = this.material.reflectionMask || blackTex;
           this.shader.setValueFloat('inReflection', this.material.reflectionAmount);
           this.shader.setTexture('inReflectionMask', reflectionMask, bg.base.TextureUnit.TEXTURE_7);
           this.shader.setVector4('inReflectionMaskChannel', this.material.reflectionMaskChannelVector);
