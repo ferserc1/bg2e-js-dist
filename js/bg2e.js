@@ -4490,6 +4490,14 @@ bg.Axis = {
     }, {});
   }();
   bg.base.TextureImpl = TextureImpl;
+  bg.base.TextureDataType = {
+    NONE: 0,
+    IMAGE: 1,
+    IMAGE_DATA: 2,
+    CUBEMAP: 3,
+    CUBEMAP_DATA: 4,
+    VIDEO: 5
+  };
   var Texture = function($__super) {
     function Texture(context) {
       $traceurRuntime.superConstructor(Texture).call(this, context);
@@ -4546,8 +4554,35 @@ bg.Axis = {
       get size() {
         return this._size;
       },
+      get image() {
+        return this._image;
+      },
+      get imageData() {
+        return this._imageData;
+      },
+      get cubeMapImages() {
+        return this._cubeMapImages;
+      },
+      get cubeMapData() {
+        return this._cubeMapData;
+      },
       get video() {
         return this._video;
+      },
+      get dataType() {
+        if (this._image) {
+          return bg.base.TextureDataType.IMAGE;
+        } else if (this._imageData) {
+          return bg.base.TextureDataType.IMAGE_DATA;
+        } else if (this._cubeMapImages) {
+          return bg.base.TextureDataType.CUBEMAP;
+        } else if (this._cubeMapData) {
+          return bg.base.TextureDataType.CUBEMAP_DATA;
+        } else if (this._video) {
+          return bg.base.TextureDataType.VIDEO;
+        } else {
+          return bg.base.TextureDataType.NONE;
+        }
       },
       create: function() {
         if (this._texture !== null) {
@@ -4572,6 +4607,11 @@ bg.Axis = {
         bg.Engine.Get().texture.setTextureWrapX(this.context, this._target, this._texture, this._wrapX);
         bg.Engine.Get().texture.setTextureWrapY(this.context, this._target, this._texture, this._wrapY);
         bg.Engine.Get().texture.setImage(this.context, this._target, this._minFilter, this._magFilter, this._texture, img, flipY);
+        this._image = img;
+        this._imageData = null;
+        this._cubeMapImages = null;
+        this._cubeMapData = null;
+        this._video = null;
       },
       setImageRaw: function(width, height, data, type, format) {
         if (!type) {
@@ -4585,6 +4625,11 @@ bg.Axis = {
         bg.Engine.Get().texture.setTextureWrapX(this.context, this._target, this._texture, this._wrapX);
         bg.Engine.Get().texture.setTextureWrapY(this.context, this._target, this._texture, this._wrapY);
         bg.Engine.Get().texture.setImageRaw(this.context, this._target, this._minFilter, this._magFilter, this._texture, width, height, data, type, format);
+        this._image = null;
+        this._imageData = data;
+        this._cubeMapImages = null;
+        this._cubeMapData = null;
+        this._video = null;
       },
       setCubemap: function(posX, negX, posY, negY, posZ, negZ) {
         bg.Engine.Get().texture.bind(this.context, this._target, this._texture);
@@ -4597,6 +4642,18 @@ bg.Axis = {
         bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.NEGATIVE_Y_FACE, negY);
         bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.POSITIVE_Z_FACE, posZ);
         bg.Engine.Get().texture.setCubemapImage(this.context, bg.base.TextureTarget.NEGATIVE_Z_FACE, negZ);
+        this._image = null;
+        this._imageData = null;
+        this._cubeMapImages = {
+          posX: posX,
+          negX: negX,
+          posY: posY,
+          negY: negY,
+          posZ: posZ,
+          negZ: negZ
+        };
+        this._cubeMapData = null;
+        this._video = null;
       },
       setCubemapRaw: function(w, h, posX, negX, posY, negY, posZ, negZ) {
         bg.Engine.Get().texture.bind(this.context, this._target, this._texture);
@@ -4609,6 +4666,20 @@ bg.Axis = {
         bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.NEGATIVE_Y_FACE, negY, w, h);
         bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.POSITIVE_Z_FACE, posZ, w, h);
         bg.Engine.Get().texture.setCubemapRaw(this.context, bg.base.TextureTarget.NEGATIVE_Z_FACE, negZ, w, h);
+        this._image = null;
+        this._imageData = null;
+        this._cubeMapImages = null;
+        this._cubeMapData = {
+          width: w,
+          height: h,
+          posX: posX,
+          negX: negX,
+          posY: posY,
+          negY: negY,
+          posZ: posZ,
+          negZ: negZ
+        };
+        this._video = null;
       },
       setVideo: function(video, flipY) {
         if (flipY === undefined)
@@ -4617,6 +4688,10 @@ bg.Axis = {
         this._size.height = video.videoHeight;
         bg.Engine.Get().texture.setVideo(this.context, this._target, this._texture, video, flipY);
         this._video = video;
+        this._image = null;
+        this._imageData = null;
+        this._cubeMapImages = null;
+        this._cubeMapData = null;
       },
       destroy: function() {
         bg.Engine.Get().texture.destroy(this.context, this._texture);
