@@ -2352,22 +2352,31 @@ bg.Axis = {
     return new bg.Vector4(channel == 0 ? 1 : 0, channel == 1 ? 1 : 0, channel == 2 ? 1 : 0, channel == 3 ? 1 : 0);
   }
   function readVector(data) {
+    if (!data)
+      return null;
     switch (data.length) {
       case 2:
         return new bg.Vector2(data[0], data[1]);
       case 3:
-        return new bg.Vector2(data[0], data[1], data[2]);
+        return new bg.Vector3(data[0], data[1], data[2]);
       case 4:
-        return new bg.Vector2(data[0], data[1], data[2], data[3]);
+        return new bg.Vector4(data[0], data[1], data[2], data[3]);
     }
     return null;
   }
+  var g_base64Images = {};
   function readTexture(context, basePath, texData, mat, property) {
     return new Promise(function(resolve) {
       if (!texData) {
         resolve();
       } else if (/data\:image\/[a-z]+\;base64\,/.test(texData)) {
-        mat[property] = bg.base.Texture.FromBase64Image(context, texData);
+        var hash = bg.utils.md5(texData);
+        if (g_base64Images[hash]) {
+          mat[property] = g_base64Images[hash];
+        } else {
+          mat[property] = bg.base.Texture.FromBase64Image(context, texData);
+          g_base64Images[hash] = mat[property];
+        }
         resolve(mat[property]);
       } else {
         var fullPath = basePath + texData;
@@ -4498,6 +4507,7 @@ bg.Axis = {
     CUBEMAP_DATA: 4,
     VIDEO: 5
   };
+  var g_base64TexturePreventRemove = [];
   var Texture = function($__super) {
     function Texture(context) {
       $traceurRuntime.superConstructor(Texture).call(this, context);
@@ -4710,11 +4720,21 @@ bg.Axis = {
       FromBase64Image: function(context, imgData) {
         var tex = new bg.base.Texture(context);
         tex.img = new Image();
+        g_base64TexturePreventRemove.push(tex);
+        tex.onload = function(evt, img) {
+          tex.create();
+          tex.bind();
+          tex.minFilter = bg.base.TextureFilter.LINEAR_MIPMAP_LINEAR;
+          tex.magFilter = bg.base.TextureFilter.LINEAR;
+          tex.setImage(tex.img);
+          tex.unbind();
+          var index = g_base64TexturePreventRemove.indexOf(tex);
+          if (index != -1) {
+            g_base64TexturePreventRemove.splice(index, 1);
+          }
+          bg.emitImageLoadEvent();
+        };
         tex.img.src = imgData;
-        tex.create();
-        tex.bind();
-        tex.setImage(tex.img);
-        tex.unbind();
         return tex;
       },
       ColorTexture: function(context, color, size) {
@@ -9037,7 +9057,56 @@ bg.scene = {};
       }
     }, {}, $__super);
   }(bg.base.LoaderPlugin);
+  var Bg2LoaderPlugin = function($__super) {
+    function Bg2LoaderPlugin() {
+      $traceurRuntime.superConstructor(Bg2LoaderPlugin).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(Bg2LoaderPlugin, {load: function(context, url, data) {
+        var promise = $traceurRuntime.superGet(this, Bg2LoaderPlugin.prototype, "load").call(this, context, url, data);
+        return new Promise(function(resolve, reject) {
+          promise.then(function(node) {
+            var basePath = url.split("/");
+            basePath.pop();
+            basePath = basePath.join("/") + '/';
+            var matUrl = url.split(".");
+            matUrl.pop();
+            matUrl.push("bg2mat");
+            matUrl = matUrl.join(".");
+            bg.utils.Resource.LoadJson(matUrl).then(function(matData) {
+              var promises = [];
+              try {
+                var drw = node.component("bg.scene.Drawable");
+                drw.forEach(function(plist, mat) {
+                  var matDef = null;
+                  matData.some(function(defItem) {
+                    if (defItem.name == plist.name) {
+                      matDef = defItem;
+                      return true;
+                    }
+                  });
+                  if (matDef) {
+                    var p = bg.base.Material.FromMaterialDefinition(context, matDef, basePath);
+                    promises.push(p);
+                    p.then(function(newMat) {
+                      mat.assign(newMat);
+                    });
+                  }
+                });
+              } catch (err) {}
+              return Promise.all(promises);
+            }).then(function() {
+              resolve(node);
+            }).catch(function() {
+              resolve(node);
+            });
+          }).catch(function(err) {
+            reject(err);
+          });
+        });
+      }}, {}, $__super);
+  }(VWGLBLoaderPlugin);
   bg.base.VWGLBLoaderPlugin = VWGLBLoaderPlugin;
+  bg.base.Bg2LoaderPlugin = Bg2LoaderPlugin;
 })();
 
 "use strict";
