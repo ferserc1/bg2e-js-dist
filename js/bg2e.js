@@ -7194,7 +7194,6 @@ bg.scene = {};
       },
       set near(n) {
         this._near = n;
-        apply();
       },
       get far() {
         return this._far;
