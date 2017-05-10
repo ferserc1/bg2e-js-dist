@@ -1932,8 +1932,8 @@ bg.Axis = {
         texture = new bg.base.Texture(context);
         texture.create();
         texture.bind();
-        texture.minFilter = bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST;
-        texture.magFilter = bg.base.TextureFilter.LINEAR;
+        texture.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+        texture.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
         texture.setImage(image);
         texture.fileName = url;
         bg.base.TextureCache.Get(context).register(url, texture);
@@ -4329,6 +4329,8 @@ bg.Axis = {
     });
   }();
   bg.base.TextureCache = TextureCache;
+  var g_minFilter = null;
+  var g_magFilter = null;
   var TextureLoaderPlugin = function($__super) {
     function TextureLoaderPlugin() {
       $traceurRuntime.superConstructor(TextureLoaderPlugin).apply(this, arguments);
@@ -4358,7 +4360,20 @@ bg.Axis = {
           }
         });
       }
-    }, {}, $__super);
+    }, {
+      GetMinFilter: function() {
+        return g_minFilter || bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST;
+      },
+      GetMagFilter: function() {
+        return g_magFilter || bg.base.TextureFilter.LINEAR;
+      },
+      SetMinFilter: function(f) {
+        g_minFilter = f;
+      },
+      SetMagFilter: function(f) {
+        g_magFilter = f;
+      }
+    }, $__super);
   }(bg.base.LoaderPlugin);
   bg.base.TextureLoaderPlugin = TextureLoaderPlugin;
   var VideoTextureLoaderPlugin = function($__super) {
@@ -4724,8 +4739,8 @@ bg.Axis = {
         tex.onload = function(evt, img) {
           tex.create();
           tex.bind();
-          tex.minFilter = bg.base.TextureFilter.LINEAR_MIPMAP_LINEAR;
-          tex.magFilter = bg.base.TextureFilter.LINEAR;
+          tex.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+          tex.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
           tex.setImage(tex.img);
           tex.unbind();
           var index = g_base64TexturePreventRemove.indexOf(tex);
