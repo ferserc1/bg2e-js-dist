@@ -5122,6 +5122,15 @@ bg.Axis = {
         }
         return this;
       },
+      multVector: function(vec) {
+        if ($traceurRuntime.typeof((vec)) == 'object' && vec._v && vec._v.length >= 2) {
+          vec = vec._v;
+        }
+        var x = vec[0];
+        var y = vec[1];
+        var z = 1.0;
+        return new bg.Vector3(this._m[0] * x + this._m[3] * y + this._m[6] * z, this._m[1] * x + this._m[4] * y + this._m[7] * z, this._m[2] * x + this._m[5] * y + this._m[8] * z);
+      },
       isNan: function() {
         return !Math.isNaN(_m[0]) && !Math.isNaN(_m[1]) && !Math.isNaN(_m[2]) && !Math.isNaN(_m[3]) && !Math.isNaN(_m[4]) && !Math.isNaN(_m[5]) && !Math.isNaN(_m[6]) && !Math.isNaN(_m[7]) && !Math.isNaN(_m[8]);
       },
