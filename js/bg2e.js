@@ -2335,8 +2335,8 @@ bg.Axis = {
         (function(path, tex) {
           bg.utils.Resource.Load(path).then(function(imgData) {
             tex.bind();
-            texture.minFilter = bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST;
-            texture.magFilter = bg.base.TextureFilter.LINEAR;
+            texture.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+            texture.magFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
             tex.fileName = path;
             tex.setImage(imgData);
           });
@@ -4348,8 +4348,8 @@ bg.Axis = {
               texture = new bg.base.Texture(context);
               texture.create();
               texture.bind();
-              texture.minFilter = bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST;
-              texture.magFilter = bg.base.TextureFilter.LINEAR;
+              texture.minFilter = TextureLoaderPlugin.GetMinFilter();
+              texture.magFilter = TextureLoaderPlugin.GetMagFilter();
               texture.setImage(data);
               texture.fileName = url;
               bg.base.TextureCache.Get(context).register(url, texture);
