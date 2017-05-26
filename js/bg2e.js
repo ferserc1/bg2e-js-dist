@@ -8215,7 +8215,7 @@ bg.scene = {};
               resolve(drawable);
             }).catch(function() {
               bg.log("Warning: no such material library file for obj model " + $__2.url);
-              buildDrawable.apply($__2, [$__2._plistArray]);
+              buildDrawable.apply($__2, [$__2._plistArray, {}]);
               resolve(drawable);
             });
           } else {
