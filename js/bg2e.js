@@ -8238,10 +8238,45 @@ bg.scene = {};
           if (data) {
             try {
               var parser = new OBJParser(context, url);
+              var resultNode = null;
+              var basePath = url.split("/");
+              basePath.pop();
+              basePath = basePath.join("/") + '/';
+              var matUrl = url.split(".");
+              matUrl.pop();
+              matUrl.push("bg2mat");
+              matUrl = matUrl.join(".");
               parser.loadDrawable(data).then(function(drawable) {
                 var node = new bg.scene.Node(context, drawable.name);
                 node.addComponent(drawable);
-                resolve(node);
+                resultNode = node;
+                return bg.utils.Resource.LoadJson(matUrl);
+              }).then(function(matData) {
+                var promises = [];
+                try {
+                  var drw = resultNode.component("bg.scene.Drawable");
+                  drw.forEach(function(plist, mat) {
+                    var matDef = null;
+                    matData.some(function(defItem) {
+                      if (defItem.name == plist.name) {
+                        matDef = defItem;
+                        return true;
+                      }
+                    });
+                    if (matDef) {
+                      var p = bg.base.Material.FromMaterialDefinition(context, matDef, basePath);
+                      promises.push(p);
+                      p.then(function(newMat) {
+                        mat.assign(newMat);
+                      });
+                    }
+                  });
+                } catch (err) {}
+                return Promise.all(promises);
+              }).then(function() {
+                resolve(resultNode);
+              }).catch(function() {
+                resolve(resultNode);
               });
             } catch (e) {
               reject(e);
