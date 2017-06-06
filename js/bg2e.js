@@ -729,8 +729,23 @@ bg.app = {};
     INSERT: 45,
     DELETE: 46
   };
-  var KeyboardEvent = function() {
+  var EventBase = function() {
+    function EventBase() {
+      this._executeDefault = false;
+    }
+    return ($traceurRuntime.createClass)(EventBase, {
+      get executeDefault() {
+        return this._executeDefault;
+      },
+      set executeDefault(d) {
+        this._executeDefault = d;
+      }
+    }, {});
+  }();
+  bg.app.EventBase = EventBase;
+  var KeyboardEvent = function($__super) {
     function KeyboardEvent(key) {
+      $traceurRuntime.superConstructor(KeyboardEvent).call(this);
       this.key = key;
     }
     return ($traceurRuntime.createClass)(KeyboardEvent, {isSpecialKey: function() {
@@ -739,8 +754,8 @@ bg.app = {};
         Object.keys(bg.app.SpecialKey).some(function(k) {
           return bg.app.SpecialKey[k] == code;
         });
-      }});
-  }();
+      }}, $__super);
+  }(EventBase);
   bg.app.KeyboardEvent = KeyboardEvent;
   bg.app.MouseButton = {
     LEFT: 0,
@@ -748,26 +763,28 @@ bg.app = {};
     RIGHT: 2,
     NONE: -1
   };
-  var MouseEvent = function() {
+  var MouseEvent = function($__super) {
     function MouseEvent() {
       var button = arguments[0] !== (void 0) ? arguments[0] : bg.app.MouseButton.NONE;
       var x = arguments[1] !== (void 0) ? arguments[1] : -1;
       var y = arguments[2] !== (void 0) ? arguments[2] : -1;
       var delta = arguments[3] !== (void 0) ? arguments[3] : 0;
+      $traceurRuntime.superConstructor(MouseEvent).call(this);
       this.button = button;
       this.x = x;
       this.y = y;
       this.delta = delta;
     }
-    return ($traceurRuntime.createClass)(MouseEvent, {}, {});
-  }();
+    return ($traceurRuntime.createClass)(MouseEvent, {}, {}, $__super);
+  }(EventBase);
   bg.app.MouseEvent = MouseEvent;
-  var TouchEvent = function() {
+  var TouchEvent = function($__super) {
     function TouchEvent(touches) {
+      $traceurRuntime.superConstructor(TouchEvent).call(this);
       this.touches = touches;
     }
-    return ($traceurRuntime.createClass)(TouchEvent, {}, {});
-  }();
+    return ($traceurRuntime.createClass)(TouchEvent, {}, {}, $__super);
+  }(EventBase);
   bg.app.TouchEvent = TouchEvent;
 })();
 
@@ -872,50 +889,59 @@ bg.app = {};
     if (s_mainLoop.canvas) {
       var c = s_mainLoop.canvas.domElement;
       c.addEventListener("mousedown", function(evt) {
-        onMouseDown(evt);
-        evt.preventDefault();
-        return false;
+        if (!onMouseDown(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       c.addEventListener("mousemove", function(evt) {
-        onMouseMove(evt);
-        evt.preventDefault();
-        return false;
+        if (!onMouseMove(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       c.addEventListener("mouseout", function(evt) {
-        onMouseOut(evt);
-        evt.preventDefault();
-        return false;
+        if (!onMouseOut(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       c.addEventListener("mouseover", function(evt) {
-        onMouseOver(evt);
-        evt.preventDefault();
-        return false;
+        if (!onMouseOver(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       c.addEventListener("mouseup", function(evt) {
-        onMouseUp(evt);
-        evt.preventDefault();
-        return false;
+        if (!onMouseUp(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       c.addEventListener("touchstart", function(evt) {
-        onTouchStart(evt);
-        evt.preventDefault();
-        return false;
+        if (!onTouchStart(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       c.addEventListener("touchmove", function(evt) {
-        onTouchMove(evt);
-        evt.preventDefault();
-        return false;
+        if (!onTouchMove(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       c.addEventListener("touchend", function(evt) {
-        onTouchEnd(evt);
-        evt.preventDefault();
-        return false;
+        if (!onTouchEnd(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       var mouseWheelEvt = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
       c.addEventListener(mouseWheelEvt, function(evt) {
-        onMouseWheel(evt);
-        evt.preventDefault();
-        return false;
+        if (!onMouseWheel(evt).executeDefault) {
+          evt.preventDefault();
+          return false;
+        }
       });
       window.addEventListener("keydown", function(evt) {
         onKeyDown(evt);
@@ -964,7 +990,9 @@ bg.app = {};
         s_mouseStatus.rightButton = true;
         break;
     }
-    s_mainLoop.windowController.mouseDown(new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y));
+    var bgEvent = new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+    s_mainLoop.windowController.mouseDown(bgEvent);
+    return bgEvent;
   }
   function onMouseMove(event) {
     var offset = s_mainLoop.canvas.domElement.getBoundingClientRect();
@@ -976,24 +1004,30 @@ bg.app = {};
     if (s_mouseStatus.anyButton) {
       s_mainLoop.windowController.mouseDrag(evt);
     }
+    return evt;
   }
   function onMouseOut() {
-    s_mainLoop.windowController.mouseOut(new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y));
+    var bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+    s_mainLoop.windowController.mouseOut(bgEvt);
     if (s_mouseStatus.leftButton) {
       s_mouseStatus.leftButton = false;
-      s_mainLoop.windowController.mouseUp(new bg.app.MouseEvent(bg.app.MouseButton.LEFT, s_mouseStatus.pos.x, s_mouseStatus.pos.y));
+      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.LEFT, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+      s_mainLoop.windowController.mouseUp(bgEvt);
     }
     if (s_mouseStatus.middleButton) {
       s_mouseStatus.middleButton = false;
-      s_mainLoop.windowController.mouseUp(new bg.app.MouseEvent(bg.app.MouseButton.MIDDLE, s_mouseStatus.pos.x, s_mouseStatus.pos.y));
+      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.MIDDLE, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+      s_mainLoop.windowController.mouseUp(bgEvt);
     }
     if (s_mouseStatus.rightButton) {
-      s_mainLoop.windowController.mouseUp(new bg.app.MouseEvent(bg.app.MouseButton.RIGHT, s_mouseStatus.pos.x, s_mouseStatus.pos.y));
+      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.RIGHT, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+      s_mainLoop.windowController.mouseUp(bgEvt);
       s_mouseStatus.rightButton = false;
     }
+    return bgEvt;
   }
   function onMouseOver(event) {
-    onMouseMove(event);
+    return onMouseMove(event);
   }
   function onMouseUp(event) {
     switch (event.button) {
@@ -1011,7 +1045,9 @@ bg.app = {};
     var multisample = s_mainLoop.canvas.multisample;
     s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
     s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
-    s_mainLoop.windowController.mouseUp(new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y));
+    var bgEvt = new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+    s_mainLoop.windowController.mouseUp(bgEvt);
+    return bgEvt;
   }
   function onMouseWheel(event) {
     var offset = s_mainLoop.canvas.domElement.getBoundingClientRect();
@@ -1019,7 +1055,9 @@ bg.app = {};
     s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
     s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
     var delta = event.wheelDelta ? event.wheelDelta * -1 : event.detail * 10;
-    s_mainLoop.windowController.mouseWheel(new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, delta));
+    var bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, delta);
+    s_mainLoop.windowController.mouseWheel(bgEvt);
+    return bgEvt;
   }
   function getTouchEvent(event) {
     var offset = s_mainLoop.canvas.domElement.getBoundingClientRect();
@@ -1039,13 +1077,19 @@ bg.app = {};
     return new bg.app.TouchEvent(touches);
   }
   function onTouchStart(event) {
-    s_mainLoop.windowController.touchStart(getTouchEvent(event));
+    var bgEvt = getTouchEvent(event);
+    s_mainLoop.windowController.touchStart(bgEvt);
+    return bgEvt;
   }
   function onTouchMove(event) {
-    s_mainLoop.windowController.touchMove(getTouchEvent(event));
+    var bgEvt = getTouchEvent(event);
+    s_mainLoop.windowController.touchMove(bgEvt);
+    return bgEvt;
   }
   function onTouchEnd(event) {
-    s_mainLoop.windowController.touchEnd(getTouchEvent(event));
+    var bgEvt = getTouchEvent(event);
+    s_mainLoop.windowController.touchEnd(bgEvt);
+    return bgEvt;
   }
   function onKeyDown(event) {
     var code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? event.keyCode : String.fromCharCode(event.keyCode);
