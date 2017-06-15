@@ -360,10 +360,25 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
         urlArray.forEach(function(url) {
           resources.push(Resource.Load(url));
         });
-        return Promise.all(resources).then(function(loadedData) {
+        var resolvingPromises = resources.map(function(promise) {
+          return new Promise(function(resolve) {
+            var payload = new Array(2);
+            promise.then(function(result) {
+              payload[0] = result;
+            }).catch(function(error) {
+              payload[1] = error;
+            }).then(function() {
+              resolve(payload);
+            });
+          });
+        });
+        var errors = [];
+        var results = [];
+        return Promise.all(resolvingPromises).then(function(loadedData) {
           var result = {};
           urlArray.forEach(function(url, index) {
-            result[url] = loadedData[index];
+            var pl = loadedData[index];
+            result[url] = pl[1] ? null : pl[0];
           });
           return result;
         });
