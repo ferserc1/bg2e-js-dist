@@ -310,8 +310,13 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function() {
   var s_preventImageDump = [];
   var s_preventVideoDump = [];
-  function getRequest(url, onSuccess, onFail) {
+  function getRequest(url, onSuccess, onFail, onProgress) {
     var req = new XMLHttpRequest();
+    if (!onProgress) {
+      onProgress = function(progress) {
+        console.log(("Loading " + progress.file + ": " + progress.loaded / progress.total * 100 + " %"));
+      };
+    }
     req.open("GET", url, true);
     req.addEventListener("load", function() {
       if (req.status === 200) {
@@ -322,6 +327,13 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
     }, false);
     req.addEventListener("error", function() {
       onFail(new Error(("Cannot make AJAX request. Url: " + url)));
+    }, false);
+    req.addEventListener("progress", function(evt) {
+      onProgress({
+        file: url,
+        loaded: evt.loaded,
+        total: evt.total
+      });
     }, false);
     return req;
   }
@@ -355,10 +367,30 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
         var videoFormats = arguments[1] !== (void 0) ? arguments[1] : ["mp4", "m4v", "ogg", "ogv", "m3u8", "webm"];
         return Resource.IsFormat(url, videoFormats);
       },
-      LoadMultiple: function(urlArray) {
+      LoadMultiple: function(urlArray, onProgress) {
+        var progressFiles = {};
+        var progressFunc = function(progress) {
+          progressFiles[progress.file] = progress;
+          var total = 0;
+          var loaded = 0;
+          for (var key in progressFiles) {
+            var file = progressFiles[key];
+            total += file.total;
+            loaded += file.loaded;
+          }
+          if (onProgress) {
+            onProgress({
+              fileList: urlArray,
+              total: total,
+              loaded: loaded
+            });
+          } else {
+            console.log(("Loading " + Object.keys(progressFiles).length + " files: " + loaded / total * 100 + "% completed"));
+          }
+        };
         var resources = [];
         urlArray.forEach(function(url) {
-          resources.push(Resource.Load(url));
+          resources.push(Resource.Load(url, progressFunc));
         });
         var resolvingPromises = resources.map(function(promise) {
           return new Promise(function(resolve) {
@@ -383,7 +415,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
           return result;
         });
       },
-      Load: function(url) {
+      Load: function(url, onProgress) {
         var loader = null;
         switch (true) {
           case url.constructor === Array:
@@ -404,18 +436,18 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
           default:
             loader = Resource.LoadText;
         }
-        return loader(url);
+        return loader(url, onProgress);
       },
-      LoadText: function(url) {
+      LoadText: function(url, onProgress) {
         return new Promise(function(resolve, reject) {
           getRequest(url, function(req) {
             resolve(req.responseText);
           }, function(error) {
             reject(error);
-          }).send();
+          }, onProgress).send();
         });
       },
-      LoadVideo: function(url) {
+      LoadVideo: function(url, onProgress) {
         return new Promise(function(resolve, reject) {
           var video = document.createElement('video');
           s_preventVideoDump.push(video);
@@ -439,13 +471,13 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
           video.src = url;
         });
       },
-      LoadBinary: function(url) {
+      LoadBinary: function(url, onProgress) {
         return new Promise(function(resolve, reject) {
           var req = getRequest(url, function(req) {
             resolve(req.response);
           }, function(error) {
             reject(error);
-          });
+          }, onProgress);
           req.responseType = "arraybuffer";
           req.send();
         });
@@ -1368,9 +1400,9 @@ bg.Axis = {
       RegisterPlugin: function(p) {
         s_loaderPlugins.push(p);
       },
-      Load: function(context, url) {
+      Load: function(context, url, onProgress) {
         return new Promise(function(accept, reject) {
-          bg.utils.Resource.Load(url).then(function(data) {
+          bg.utils.Resource.Load(url, onProgress).then(function(data) {
             return Loader.LoadData(context, url, data);
           }).then(function(result, extendedData) {
             accept(result, extendedData);
