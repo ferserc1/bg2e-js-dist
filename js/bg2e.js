@@ -310,36 +310,100 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function() {
   var s_preventImageDump = [];
   var s_preventVideoDump = [];
-  function getRequest(url, onSuccess, onFail, onProgress) {
-    var req = new XMLHttpRequest();
-    if (!onProgress) {
-      onProgress = function(progress) {
-        console.log(("Loading " + progress.file + ": " + progress.loaded / progress.total * 100 + " %"));
-      };
+  var ResourceProvider = function() {
+    function ResourceProvider() {}
+    return ($traceurRuntime.createClass)(ResourceProvider, {
+      getRequest: function(url, onSuccess, onFail, onProgress) {},
+      loadImage: function(url, onSucces, onFail) {},
+      loadVideo: function(url, onSuccess, onFail) {}
+    }, {});
+  }();
+  var HTTPResourceProvider = function($__super) {
+    function HTTPResourceProvider() {
+      $traceurRuntime.superConstructor(HTTPResourceProvider).apply(this, arguments);
     }
-    req.open("GET", url, true);
-    req.addEventListener("load", function() {
-      if (req.status === 200) {
-        onSuccess(req);
-      } else {
-        onFail(new Error(("Error receiving data: " + req.status + ", url: " + url)));
+    return ($traceurRuntime.createClass)(HTTPResourceProvider, {
+      getRequest: function(url, onSuccess, onFail, onProgress) {
+        var req = new XMLHttpRequest();
+        if (!onProgress) {
+          onProgress = function(progress) {
+            console.log(("Loading " + progress.file + ": " + progress.loaded / progress.total * 100 + " %"));
+          };
+        }
+        req.open("GET", url, true);
+        req.addEventListener("load", function() {
+          if (req.status === 200) {
+            onSuccess(req);
+          } else {
+            onFail(new Error(("Error receiving data: " + req.status + ", url: " + url)));
+          }
+        }, false);
+        req.addEventListener("error", function() {
+          onFail(new Error(("Cannot make AJAX request. Url: " + url)));
+        }, false);
+        req.addEventListener("progress", function(evt) {
+          onProgress({
+            file: url,
+            loaded: evt.loaded,
+            total: evt.total
+          });
+        }, false);
+        return req;
+      },
+      loadImage: function(url, onSuccess, onFail) {
+        var img = new Image();
+        s_preventImageDump.push(img);
+        img.crossOrigin = "";
+        img.addEventListener("load", function(event) {
+          var imageIndex = s_preventImageDump.indexOf(event.target);
+          if (imageIndex != -1) {
+            s_preventImageDump.splice(imageIndex, 1);
+          }
+          onSuccess(event.target);
+        });
+        img.addEventListener("error", function(event) {
+          onFail(new Error(("Error loading image: " + url)));
+        });
+        img.addEventListener("abort", function(event) {
+          onFail(new Error(("Image load aborted: " + url)));
+        });
+        img.src = url;
+      },
+      loadVideo: function(url, onSuccess, onFail) {
+        var video = document.createElement('video');
+        s_preventVideoDump.push(video);
+        video.crossOrigin = "";
+        video.autoplay = true;
+        video.setAttribute("playsinline", null);
+        video.addEventListener('canplay', function(evt) {
+          var videoIndex = s_preventVideoDump.indexOf(evt.target);
+          if (videoIndex != -1) {
+            s_preventVideoDump.splice(videoIndex, 1);
+          }
+          onSuccess(event.target);
+        });
+        video.addEventListener("error", function(evt) {
+          onFail(new Error(("Error loading video: " + url)));
+        });
+        video.addEventListener("abort", function(evt) {
+          onFail(new Error(("Error loading video: " + url)));
+        });
+        video.src = url;
       }
-    }, false);
-    req.addEventListener("error", function() {
-      onFail(new Error(("Cannot make AJAX request. Url: " + url)));
-    }, false);
-    req.addEventListener("progress", function(evt) {
-      onProgress({
-        file: url,
-        loaded: evt.loaded,
-        total: evt.total
-      });
-    }, false);
-    return req;
-  }
+    }, {}, $__super);
+  }(ResourceProvider);
+  bg.utils.ResourceProvider = ResourceProvider;
+  bg.utils.HTTPResourceProvider = HTTPResourceProvider;
+  var g_resourceProvider = new HTTPResourceProvider();
   var Resource = function() {
     function Resource() {}
     return ($traceurRuntime.createClass)(Resource, {}, {
+      SetResourceProvider: function(provider) {
+        g_resourceProvider = provider;
+      },
+      GetResourceProvider: function() {
+        return g_resourceProvider;
+      },
       GetExtension: function(url) {
         var match = /\.([a-z0-9-_]*)$/i.exec(url);
         return (match && match[1].toLowerCase()) || "";
@@ -440,7 +504,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       },
       LoadText: function(url, onProgress) {
         return new Promise(function(resolve, reject) {
-          getRequest(url, function(req) {
+          g_resourceProvider.getRequest(url, function(req) {
             resolve(req.responseText);
           }, function(error) {
             reject(error);
@@ -449,31 +513,17 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       },
       LoadVideo: function(url, onProgress) {
         return new Promise(function(resolve, reject) {
-          var video = document.createElement('video');
-          s_preventVideoDump.push(video);
-          video.crossOrigin = "";
-          video.autoplay = true;
-          video.setAttribute("playsinline", null);
-          video.addEventListener('canplay', function(evt) {
-            var videoIndex = s_preventVideoDump.indexOf(evt.target);
-            if (videoIndex != -1) {
-              s_preventVideoDump.splice(videoIndex, 1);
-            }
-            resolve(event.target);
-            bg.emitImageLoadEvent(event.target);
+          g_resourceProvider.loadVideo(url, function(target) {
+            resolve(target);
+            bg.emitImageLoadEvent(target);
+          }, function(err) {
+            reject(err);
           });
-          video.addEventListener("error", function(evt) {
-            reject(new Error(("Error loading video: " + url)));
-          });
-          video.addEventListener("abort", function(evt) {
-            reject(new Error(("Error loading video: " + url)));
-          });
-          video.src = url;
         });
       },
       LoadBinary: function(url, onProgress) {
         return new Promise(function(resolve, reject) {
-          var req = getRequest(url, function(req) {
+          var req = g_resourceProvider.getRequest(url, function(req) {
             resolve(req.response);
           }, function(error) {
             reject(error);
@@ -484,29 +534,17 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       },
       LoadImage: function(url) {
         return new Promise(function(resolve, reject) {
-          var img = new Image();
-          s_preventImageDump.push(img);
-          img.crossOrigin = "";
-          img.addEventListener("load", function(event) {
-            var imageIndex = s_preventImageDump.indexOf(event.target);
-            if (imageIndex != -1) {
-              s_preventImageDump.splice(imageIndex, 1);
-            }
-            resolve(event.target);
-            bg.emitImageLoadEvent(event.target);
+          g_resourceProvider.loadImage(url, function(target) {
+            resolve(target);
+            bg.emitImageLoadEvent(target);
+          }, function(err) {
+            reject(err);
           });
-          img.addEventListener("error", function(event) {
-            reject(new Error(("Error loading image: " + url)));
-          });
-          img.addEventListener("abort", function(event) {
-            reject(new Error(("Image load aborted: " + url)));
-          });
-          img.src = url;
         });
       },
       LoadJson: function(url) {
         return new Promise(function(resolve, reject) {
-          getRequest(url, function(req) {
+          g_resourceProvider.getRequest(url, function(req) {
             try {
               resolve(JSON.parse(req.responseText));
             } catch (e) {
@@ -1732,10 +1770,11 @@ bg.Axis = {
           var lightTransform = this.shadowMap ? this.shadowMap.viewMatrix : new bg.Matrix4(this._lightTransform);
           this.shader.setMatrix4("inLightProjectionMatrix", this.shadowMap ? this.shadowMap.projection : this._light.projection);
           var shadowColor = this.shadowMap ? this.shadowMap.shadowColor : bg.Color.Transparent();
+          var blackTex = bg.base.TextureCache.BlackTexture(this.context);
           this.shader.setMatrix4("inLightViewMatrix", lightTransform);
-          this.shader.setValueInt("inShadowType", this._shadowMap.shadowType);
-          this.shader.setTexture("inShadowMap", this._shadowMap.texture, bg.base.TextureUnit.TEXTURE_5);
-          this.shader.setVector2("inShadowMapSize", this._shadowMap.size);
+          this.shader.setValueInt("inShadowType", this._shadowMap ? this._shadowMap.shadowType : 0);
+          this.shader.setTexture("inShadowMap", this._shadowMap ? this._shadowMap.texture : blackTex, bg.base.TextureUnit.TEXTURE_5);
+          this.shader.setVector2("inShadowMapSize", this._shadowMap ? this._shadowMap.size : new bg.Vector2(32, 32));
           this.shader.setValueFloat("inShadowStrength", this._light.shadowStrength);
           this.shader.setVector4("inShadowColor", shadowColor);
           this.shader.setValueFloat("inShadowBias", this._light.shadowBias);
@@ -2508,6 +2547,7 @@ bg.Axis = {
       this._reflectionMaskChannel = 0;
       this._reflectionMaskInvert = false;
       this._cullFace = true;
+      this._selectMode = false;
     }
     return ($traceurRuntime.createClass)(Material, {
       clone: function() {
@@ -2718,6 +2758,12 @@ bg.Axis = {
       },
       set cullFace(newVal) {
         this._cullFace = newVal;
+      },
+      get selectMode() {
+        return this._selectMode;
+      },
+      set selectMode(s) {
+        this._selectMode = s;
       },
       get lightEmissionMaskChannelVector() {
         return channelVector(this.lightEmissionMaskChannel);
@@ -4040,6 +4086,7 @@ bg.Axis = {
       setInputBuffer: function(context, shader, varName, vertexBuffer, itemSize) {},
       setValueInt: function(context, shader, name, v) {},
       setValueFloat: function(context, shader, name, v) {},
+      setValueFloatPtr: function(context, shader, name, v) {},
       setValueVector2: function(context, shader, name, v) {},
       setValueVector3: function(context, shader, name, v) {},
       setValueVector4: function(context, shader, name, v) {},
@@ -4130,6 +4177,9 @@ bg.Axis = {
       },
       setValueFloat: function(name, v) {
         bg.Engine.Get().shader.setValueFloat(this.context, this._shader, name, v);
+      },
+      setValueFloatPtr: function(name, v) {
+        bg.Engine.Get().shader.setValueFloatPtr(this.context, this._shader, name, v);
       },
       setVector2: function(name, v) {
         bg.Engine.Get().shader.setValueVector2(this.context, this._shader, name, v);
@@ -4933,6 +4983,7 @@ bg.Axis = {
 "use strict";
 (function() {
   bg.Math = {
+    seed: 1,
     PI: 3.141592653589793,
     DEG_TO_RAD: 0.01745329251994,
     RAD_TO_DEG: 57.29577951308233,
@@ -4974,6 +5025,13 @@ bg.Axis = {
     },
     random: function() {
       return Math.random();
+    },
+    seededRandom: function() {
+      var max = 1;
+      var min = 0;
+      this.seed = (this.seed * 9301 + 49297) % 233280;
+      var rnd = this.seed / 233280;
+      return min + rnd * (max - min);
     },
     max: function(a, b) {
       return Math.fround(Math.max(a, b));
@@ -10060,6 +10118,202 @@ bg.manipulation = {};
 
 "use strict";
 (function() {
+  function lib() {
+    return bg.base.ShaderLibrary.Get();
+  }
+  var BorderDetectionEffect = function($__super) {
+    function BorderDetectionEffect(context) {
+      $traceurRuntime.superConstructor(BorderDetectionEffect).call(this, context);
+      var vertex = new bg.base.ShaderSource(bg.base.ShaderType.VERTEX);
+      var fragment = new bg.base.ShaderSource(bg.base.ShaderType.FRAGMENT);
+      vertex.addParameter([lib().inputs.buffers.vertex, lib().inputs.buffers.tex0, {
+        name: "fsTexCoord",
+        dataType: "vec2",
+        role: "out"
+      }]);
+      fragment.addParameter([lib().inputs.material.texture, {
+        name: "inTexSize",
+        dataType: "vec2",
+        role: "value"
+      }, {
+        name: "inConvMatrix",
+        dataType: "float",
+        role: "value",
+        vec: 9
+      }, {
+        name: "inBorderColor",
+        dataType: "vec4",
+        role: "value"
+      }, {
+        name: "inBorderWidth",
+        dataType: "float",
+        role: "value"
+      }, {
+        name: "fsTexCoord",
+        dataType: "vec2",
+        role: "in"
+      }]);
+      if (bg.Engine.Get().id == "webgl1") {
+        vertex.setMainBody("\n                gl_Position = vec4(inVertex,1.0);\n                fsTexCoord = inTex0;\n                ");
+        fragment.addFunction(lib().functions.utils.applyConvolution);
+        fragment.setMainBody("\n                vec4 selectionColor = applyConvolution(inTexture,fsTexCoord,inTexSize,inConvMatrix,inBorderWidth);\n                if (selectionColor.r!=0.0 && selectionColor.g!=0.0 && selectionColor.b!=0.0) {\n                    gl_FragColor = inBorderColor;\n                }\n                else {\n                    discard;\n                }\n                ");
+      }
+      this.setupShaderSource([vertex, fragment]);
+      this._highlightColor = bg.Color.White();
+      this._borderWidth = 2;
+    }
+    return ($traceurRuntime.createClass)(BorderDetectionEffect, {
+      get highlightColor() {
+        return this._highlightColor;
+      },
+      set highlightColor(c) {
+        this._highlightColor = c;
+      },
+      get borderWidth() {
+        return this._borderWidth;
+      },
+      set borderWidth(w) {
+        this._borderWidth = w;
+      },
+      setupVars: function() {
+        var texture = null;
+        if (this._surface instanceof bg.base.Texture) {
+          texture = this._surface;
+        } else if (this._surface instanceof bg.base.RenderSurface) {
+          texture = this._surface.getTexture(0);
+        }
+        if (texture) {
+          this.shader.setTexture("inTexture", texture, bg.base.TextureUnit.TEXTURE_0);
+          this.shader.setVector2("inTexSize", texture.size);
+        }
+        var convMatrix = [0, 1, 0, 1, -4, 1, 0, 1, 0];
+        this.shader.setValueFloatPtr("inConvMatrix", convMatrix);
+        this.shader.setVector4("inBorderColor", this._highlightColor);
+        this.shader.setValueFloat("inBorderWidth", this._borderWidth);
+      }
+    }, {}, $__super);
+  }(bg.base.TextureEffect);
+  bg.manipulation.BorderDetectionEffect = BorderDetectionEffect;
+  var s_plainColorVertex = null;
+  var s_plainColorFragment = null;
+  function plainColorVertex() {
+    if (!s_plainColorVertex) {
+      s_plainColorVertex = new bg.base.ShaderSource(bg.base.ShaderType.VERTEX);
+      s_plainColorVertex.addParameter(lib().inputs.buffers.vertex);
+      s_plainColorVertex.addParameter(lib().inputs.matrix.all);
+      if (bg.Engine.Get().id == "webgl1") {
+        s_plainColorVertex.setMainBody("\n                    gl_Position = inProjectionMatrix * inViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n                ");
+      }
+    }
+    return s_plainColorVertex;
+  }
+  function plainColorFragment() {
+    if (!s_plainColorFragment) {
+      s_plainColorFragment = new bg.base.ShaderSource(bg.base.ShaderType.FRAGMENT);
+      s_plainColorFragment.addParameter([{
+        name: "inColor",
+        dataType: "vec4",
+        role: "value"
+      }, {
+        name: "inSelectMode",
+        dataType: "int",
+        role: "value"
+      }]);
+      if (bg.Engine.Get().id == "webgl1") {
+        s_plainColorFragment.setMainBody("\n                    if (inSelectMode==0) {\n                        discard;\n                    }\n                    else {\n                        gl_FragColor = inColor;\n                    }\n                ");
+      }
+    }
+    return s_plainColorFragment;
+  }
+  var PlainColorEffect = function($__super) {
+    function PlainColorEffect(context) {
+      $traceurRuntime.superConstructor(PlainColorEffect).call(this, context);
+      var sources = [plainColorVertex(), plainColorFragment()];
+      this.setupShaderSource(sources);
+    }
+    return ($traceurRuntime.createClass)(PlainColorEffect, {
+      beginDraw: function() {
+        bg.Math.seed = 1;
+      },
+      setupVars: function() {
+        this._baseColor = new bg.Color(bg.Math.seededRandom(), bg.Math.seededRandom(), bg.Math.seededRandom(), 1);
+        var matrixState = bg.base.MatrixState.Current();
+        var viewMatrix = new bg.Matrix4(matrixState.viewMatrixStack.matrixConst);
+        this.shader.setMatrix4('inModelMatrix', matrixState.modelMatrixStack.matrixConst);
+        this.shader.setMatrix4('inViewMatrix', viewMatrix);
+        this.shader.setMatrix4('inProjectionMatrix', matrixState.projectionMatrixStack.matrixConst);
+        this.shader.setVector4('inColor', this._baseColor);
+        this.shader.setValueInt("inSelectMode", this.material.selectMode);
+      }
+    }, {}, $__super);
+  }(bg.base.Effect);
+  bg.manipulation.PlainColorEffect = PlainColorEffect;
+  function buildOffscreenPipeline() {
+    var offscreenPipeline = new bg.base.Pipeline(this.context);
+    var renderSurface = new bg.base.TextureSurface(this.context);
+    offscreenPipeline.effect = new bg.manipulation.PlainColorEffect(this.context);
+    var colorAttachments = [{
+      type: bg.base.RenderSurfaceType.RGBA,
+      format: bg.base.RenderSurfaceFormat.UNSIGNED_BYTE
+    }, {
+      type: bg.base.RenderSurfaceType.DEPTH,
+      format: bg.base.RenderSurfaceFormat.RENDERBUFFER
+    }];
+    renderSurface.create(colorAttachments);
+    offscreenPipeline.renderSurface = renderSurface;
+    return offscreenPipeline;
+  }
+  var SelectionHighlight = function($__super) {
+    function SelectionHighlight(context) {
+      $traceurRuntime.superConstructor(SelectionHighlight).call(this, context);
+      this._offscreenPipeline = buildOffscreenPipeline.apply(this);
+      this._pipeline = new bg.base.Pipeline(this.context);
+      this._pipeline.textureEffect = new bg.manipulation.BorderDetectionEffect(this.context);
+      this._matrixState = new bg.base.MatrixState();
+      this._drawVisitor = new bg.scene.DrawVisitor(this._offscreenPipeline, this._matrixState);
+    }
+    return ($traceurRuntime.createClass)(SelectionHighlight, {
+      get highlightColor() {
+        return this._pipeline.textureEffect.highlightColor;
+      },
+      set highlightColor(c) {
+        this._pipeline.textureEffect.highlightColor = c;
+      },
+      get borderWidth() {
+        return this._pipeline.textureEffect.borderWidth;
+      },
+      set borderWidth(w) {
+        this._pipeline.textureEffect.borderWidth = w;
+      },
+      drawSelection: function(sceneRoot, camera) {
+        var restorePipeline = bg.base.Pipeline.Current();
+        var restoreMatrixState = bg.base.MatrixState.Current();
+        this._offscreenPipeline.viewport = camera.viewport;
+        this._pipeline.viewport = camera.viewport;
+        bg.base.Pipeline.SetCurrent(this._offscreenPipeline);
+        bg.base.MatrixState.SetCurrent(this._matrixState);
+        this._offscreenPipeline.clearBuffers(bg.base.ClearBuffers.COLOR | bg.base.ClearBuffers.DEPTH);
+        this._matrixState.projectionMatrixStack.set(camera.projection);
+        this._matrixState.viewMatrixStack.set(camera.viewMatrix);
+        this._matrixState.modelMatrixStack.identity();
+        sceneRoot.accept(this._drawVisitor);
+        var texture = this._offscreenPipeline.renderSurface.getTexture(0);
+        bg.base.Pipeline.SetCurrent(this._pipeline);
+        this._pipeline.drawTexture(texture);
+        if (restorePipeline) {
+          bg.base.Pipeline.SetCurrent(restorePipeline);
+        }
+        if (restoreMatrixState) {
+          bg.base.MatrixState.SetCurrent(restoreMatrixState);
+        }
+      }
+    }, {}, $__super);
+  }(bg.app.ContextObject);
+  bg.manipulation.SelectionHighlight = SelectionHighlight;
+})();
+
+"use strict";
+(function() {
   var Action = {
     ROTATE: 0,
     PAN: 1,
@@ -13172,6 +13426,18 @@ bg.webgl1 = {};
         frameSize: 'vec2'
       },
       body: "\n\t\t\t\tfloat s00 = luminance(texOffset(sampler,texCoord,vec2(-1.0, 1.0),frameSize).rgb);\n\t\t\t\tfloat s10 = luminance(texOffset(sampler,texCoord,vec2(-1.0, 0.0),frameSize).rgb);\n\t\t\t\tfloat s20 = luminance(texOffset(sampler,texCoord,vec2(-1.0,-1.0),frameSize).rgb);\n\t\t\t\tfloat s01 = luminance(texOffset(sampler,texCoord,vec2(-1.0, 1.0),frameSize).rgb);\n\t\t\t\tfloat s21 = luminance(texOffset(sampler,texCoord,vec2( 0.0,-1.0),frameSize).rgb);\n\t\t\t\tfloat s02 = luminance(texOffset(sampler,texCoord,vec2( 1.0, 1.0),frameSize).rgb);\n\t\t\t\tfloat s12 = luminance(texOffset(sampler,texCoord,vec2( 1.0, 0.0),frameSize).rgb);\n\t\t\t\tfloat s22 = luminance(texOffset(sampler,texCoord,vec2( 1.0,-1.0),frameSize).rgb);\n\n\t\t\t\tfloat sx = s00 + 2.0 * s10 + s20 - (s02 + 2.0 * s12 + s22);\n\t\t\t\tfloat sy = s00 + 2.0 * s01 + s02 - (s20 + 2.0 * s21 + s22);\n\n\t\t\t\treturn sx * sx + sy * sy;\n\t\t\t\t"
+    },
+    applyConvolution: {
+      returnType: 'vec4',
+      name: 'applyConvolution',
+      params: {
+        texture: 'sampler2D',
+        texCoord: 'vec2',
+        texSize: 'vec2',
+        convMatrix: 'float[9]',
+        radius: 'float'
+      },
+      body: "\n\t\t\t\tvec2 onePixel = vec2(1.0,1.0) / texSize * radius;\n\t\t\t\tvec4 colorSum = \n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2(-1, -1)) * convMatrix[0] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2( 0, -1)) * convMatrix[1] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2( 1, -1)) * convMatrix[2] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2(-1,  0)) * convMatrix[3] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2( 0,  0)) * convMatrix[4] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2( 1,  0)) * convMatrix[5] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2(-1,  1)) * convMatrix[6] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2( 0,  1)) * convMatrix[7] +\n\t\t\t\t\ttexture2D(texture, texCoord + onePixel * vec2( 1,  1)) * convMatrix[8];\n\t\t\t\tfloat kernelWeight =\n\t\t\t\t\tconvMatrix[0] +\n\t\t\t\t\tconvMatrix[1] +\n\t\t\t\t\tconvMatrix[2] +\n\t\t\t\t\tconvMatrix[3] +\n\t\t\t\t\tconvMatrix[4] +\n\t\t\t\t\tconvMatrix[5] +\n\t\t\t\t\tconvMatrix[6] +\n\t\t\t\t\tconvMatrix[7] +\n\t\t\t\t\tconvMatrix[8];\n\t\t\t\tif (kernelWeight <= 0.0) {\n\t\t\t\t\tkernelWeight = 1.0;\n\t\t\t\t}\n\t\t\t\treturn vec4((colorSum / kernelWeight).rgb, 1.0);\n\t\t\t\t"
     }
   };
 })();
@@ -13252,6 +13518,9 @@ bg.webgl1 = {};
       },
       setValueFloat: function(context, shader, name, v) {
         context.uniform1f(shader.uniformLocations[name], v);
+      },
+      setValueFloatPtr: function(context, shader, name, v) {
+        context.uniform1fv(shader.uniformLocations[name], v);
       },
       setValueVector2: function(context, shader, name, v) {
         context.uniform2fv(shader.uniformLocations[name], v.v);
