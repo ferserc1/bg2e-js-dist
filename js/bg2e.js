@@ -9489,6 +9489,10 @@ bg.manipulation = {};
     TRANSLATE: 1,
     ROTATE: 2,
     ROTATE_FINE: 3,
+    SCALE_X: 4,
+    SCALE_Y: 5,
+    SCALE_Z: 6,
+    SCALE: 7,
     NONE: 99
   };
   function getAction(plist) {
@@ -9498,6 +9502,14 @@ bg.manipulation = {};
       return bg.manipulation.GizmoAction.ROTATE;
     } else if (/translate/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.TRANSLATE;
+    } else if (/scale_x/i.text(plist.name)) {
+      return bg.manipulation.GizmoAction.SCALE_X;
+    } else if (/scale_y/i.text(plist.name)) {
+      return bg.manipulation.GizmoAction.SCALE_Y;
+    } else if (/scale_z/i.text(plist.name)) {
+      return bg.manipulation.GizmoAction.SCALE_Z;
+    } else if (/scale/i.text(plist.name)) {
+      return bg.manipulation.GizmoAction.SCALE;
     }
   }
   var s_gizmoCache = {};
@@ -9585,6 +9597,8 @@ bg.manipulation = {};
       this._visible = visible;
       this._gizmoTransform = bg.Matrix4.Identity();
       this._gizmoP = bg.Matrix4.Identity();
+      this._scale = 5;
+      this._minSize = 0.5;
     }
     return ($traceurRuntime.createClass)(Gizmo, {
       clone: function() {
@@ -9639,8 +9653,12 @@ bg.manipulation = {};
       display: function(pipeline, matrixState) {
         if (!this._gizmoItems || !this.visible)
           return;
+        var modelview = new bg.Matrix4(matrixState.viewMatrixStack.matrix);
+        modelview.mult(matrixState.modelMatrixStack.matrix);
+        var s = modelview.position.magnitude() / this._scale;
+        s = s < this._minSize ? this._minSize : s;
         matrixState.modelMatrixStack.push();
-        matrixState.modelMatrixStack.set(this._gizmoP).mult(this.gizmoTransform);
+        matrixState.modelMatrixStack.set(this._gizmoP).mult(this.gizmoTransform).scale(s, s, s);
         if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS) {
           var dt = pipeline.depthTest;
           pipeline.depthTest = false;
