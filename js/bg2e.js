@@ -10035,9 +10035,70 @@ bg.manipulation = {};
       }
     }, {}, $__super);
   }(Gizmo);
+  bg.manipulation.GizmoMode = {
+    SELECT: 0,
+    TRANSLATE: 1,
+    ROTATE: 2,
+    SCALE: 3,
+    TRANSFORM: 4
+  };
+  var MultiModeGizmo = function($__super) {
+    function MultiModeGizmo(unified, translate, rotate, scale) {
+      $traceurRuntime.superConstructor(MultiModeGizmo).call(this, unified);
+      this.mode = bg.manipulation.GizmoMode.TRANSFORM;
+      this._transformPath = unified;
+      this._translatePath = translate;
+      this._rotatePath = rotate;
+      this._scalePath = scale;
+      this._gizmoPath = unified;
+    }
+    return ($traceurRuntime.createClass)(MultiModeGizmo, {
+      get visible() {
+        return this._mode != bg.manipulation.GizmoMode.SELECT && this._visible;
+      },
+      set visible(v) {
+        this._visible = v;
+      },
+      get mode() {
+        return this._mode;
+      },
+      set mode(m) {
+        var $__1 = this;
+        this._mode = m;
+        this._gizmoItems = [];
+        switch (m) {
+          case bg.manipulation.GizmoMode.SELECT:
+            this._gizmoPath = "";
+            break;
+          case bg.manipulation.GizmoMode.TRANSLATE:
+            this._gizmoPath = this._translatePath;
+            break;
+          case bg.manipulation.GizmoMode.ROTATE:
+            this._gizmoPath = this._rotatePath;
+            break;
+          case bg.manipulation.GizmoMode.SCALE:
+            this._gizmoPath = this._scalePath;
+            break;
+          case bg.manipulation.GizmoMode.TRANSFORM:
+            this._gizmoPath = this._transformPath;
+            break;
+        }
+        if (this._gizmoPath) {
+          loadGizmo(this.node.context, this._gizmoPath, this.node).then(function(gizmoItems) {
+            $__1._gizmoItems = gizmoItems;
+            bg.emitImageLoadEvent();
+          }).catch(function(err) {
+            $__1._error = true;
+            throw err;
+          });
+        }
+      }
+    }, {}, $__super);
+  }(UnifiedGizmo);
   bg.scene.registerComponent(bg.manipulation, Gizmo, "bg.manipulation.Gizmo");
   bg.scene.registerComponent(bg.manipulation, PlaneGizmo, "bg.manipulation.Gizmo");
   bg.scene.registerComponent(bg.manipulation, UnifiedGizmo, "bg.manipulation.Gizmo");
+  bg.scene.registerComponent(bg.manipulation, MultiModeGizmo, "bg.manipulation.Gizmo");
 })();
 
 "use strict";
