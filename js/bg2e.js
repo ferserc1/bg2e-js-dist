@@ -3197,6 +3197,11 @@ bg.Axis = {
         this._changed = true;
         return this;
       },
+      setScale: function(x, y, z) {
+        this._matrix.setScale(x, y, z);
+        this._changed = true;
+        return this;
+      },
       perspective: function(fov, aspect, near, far) {
         this._matrix.identity().perspective(fov, aspect, near, far);
         this._changed = true;
@@ -3314,6 +3319,7 @@ bg.Axis = {
     OPAQUE: 2,
     GIZMOS: 4,
     SELECTION: 8,
+    GIZMOS_SELECTION: 16,
     ALL: 15,
     NONE: 0
   };
@@ -5198,6 +5204,15 @@ bg.Axis = {
         this._m[i * 3 + 2] = row._v[2];
         return this;
       },
+      setScale: function(x, y, z) {
+        this._m[0] = x;
+        this._m[4] = y;
+        this._m[8] = z;
+        return this;
+      },
+      getScale: function() {
+        return new bg.Vector3(this._m[0], this._m[4], this._m[8]);
+      },
       get length() {
         return this._m.length;
       },
@@ -5501,6 +5516,15 @@ bg.Axis = {
         this._m[i * 4 + 2] = row._v[2];
         this._m[i * 4 + 3] = row._v[3];
         return this;
+      },
+      setScale: function(x, y, z) {
+        this._m[0] = x;
+        this._m[5] = y;
+        this._m[10] = z;
+        return this;
+      },
+      getScale: function() {
+        return new bg.Vector3(this._m[0], this._m[5], this._m[10]);
       },
       get length() {
         return this._m.length;
@@ -9426,7 +9450,7 @@ bg.manipulation = {};
   function initShaders() {
     shaders[bg.webgl1.EngineId] = {
       vertex: "\n\t\t\tattribute vec3 inVertex;\n\t\t\tattribute vec2 inTexCoord;\n\t\t\t\n\t\t\tuniform mat4 inModelMatrix;\n\t\t\tuniform mat4 inViewMatrix;\n\t\t\tuniform mat4 inProjectionMatrix;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tfsTexCoord = inTexCoord;\n\t\t\t\tgl_Position = inProjectionMatrix * inViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n\t\t\t}\n\t\t\t",
-      fragment: "\n\t\t\tprecision highp float;\n\t\t\t\n\t\t\tuniform sampler2D inTexture;\n\t\t\tuniform float inOpacity;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tgl_FragColor = vec4(texture2D(inTexture,fsTexCoord).rgb,inOpacity);\n\t\t\t}\n\t\t\t"
+      fragment: "\n\t\t\tprecision highp float;\n\t\t\t\n\t\t\tuniform vec4 inColor;\n\t\t\tuniform sampler2D inTexture;\n\t\t\tuniform float inOpacity;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tgl_FragColor = vec4(texture2D(inTexture,fsTexCoord).rgb * inColor.rgb,inOpacity);\n\t\t\t}\n\t\t\t"
     };
   }
   var GizmoEffect = function($__super) {
@@ -9454,6 +9478,12 @@ bg.manipulation = {};
       get texture() {
         return this._texture;
       },
+      set color(c) {
+        this._color = c;
+      },
+      get color() {
+        return this._color;
+      },
       set gizmoOpacity(o) {
         this._gizmoOpacity = o;
       },
@@ -9470,16 +9500,18 @@ bg.manipulation = {};
             console.log(this._shader.compileError);
             console.log(this._shader.linkError);
           } else {
-            this._shader.initVars(['inVertex', 'inTexCoord'], ['inModelMatrix', 'inViewMatrix', 'inProjectionMatrix', 'inTexture', 'inOpacity']);
+            this._shader.initVars(['inVertex', 'inTexCoord'], ['inModelMatrix', 'inViewMatrix', 'inProjectionMatrix', 'inColor', 'inTexture', 'inOpacity']);
           }
         }
         return this._shader;
       },
       setupVars: function() {
+        var whiteTexture = bg.base.TextureCache.WhiteTexture(this.context);
         this.shader.setMatrix4('inModelMatrix', this.matrixState.modelMatrixStack.matrixConst);
         this.shader.setMatrix4('inViewMatrix', new bg.Matrix4(this.matrixState.viewMatrixStack.matrixConst));
         this.shader.setMatrix4('inProjectionMatrix', this.matrixState.projectionMatrixStack.matrixConst);
-        this.shader.setTexture('inTexture', this.texture, bg.base.TextureUnit.TEXTURE_0);
+        this.shader.setVector4('inColor', this.color);
+        this.shader.setTexture('inTexture', this.texture ? this.texture : whiteTexture, bg.base.TextureUnit.TEXTURE_0);
         this.shader.setValueFloat('inOpacity', this.gizmoOpacity);
       }
     }, {}, $__super);
@@ -9489,26 +9521,47 @@ bg.manipulation = {};
     TRANSLATE: 1,
     ROTATE: 2,
     ROTATE_FINE: 3,
-    SCALE_X: 4,
-    SCALE_Y: 5,
-    SCALE_Z: 6,
-    SCALE: 7,
+    SCALE: 4,
+    TRANSLATE_X: 5,
+    TRANSLATE_Y: 6,
+    TRANSLATE_Z: 7,
+    ROTATE_X: 8,
+    ROTATE_Y: 9,
+    ROTATE_Z: 10,
+    SCALE_X: 11,
+    SCALE_Y: 12,
+    SCALE_Z: 13,
     NONE: 99
   };
   function getAction(plist) {
     if (/rotate.*fine/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.ROTATE_FINE;
+    }
+    if (/rotate.*x/i.test(plist.name)) {
+      return bg.manipulation.GizmoAction.ROTATE_X;
+    }
+    if (/rotate.*y/i.test(plist.name)) {
+      return bg.manipulation.GizmoAction.ROTATE_Y;
+    }
+    if (/rotate.*z/i.test(plist.name)) {
+      return bg.manipulation.GizmoAction.ROTATE_Z;
     } else if (/rotate/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.ROTATE;
+    } else if (/translate.*x/i.test(plist.name)) {
+      return bg.manipulation.GizmoAction.TRANSLATE_X;
+    } else if (/translate.*y/i.test(plist.name)) {
+      return bg.manipulation.GizmoAction.TRANSLATE_Y;
+    } else if (/translate.*z/i.test(plist.name)) {
+      return bg.manipulation.GizmoAction.TRANSLATE_Z;
     } else if (/translate/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.TRANSLATE;
-    } else if (/scale_x/i.text(plist.name)) {
+    } else if (/scale.*x/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.SCALE_X;
-    } else if (/scale_y/i.text(plist.name)) {
+    } else if (/scale.*y/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.SCALE_Y;
-    } else if (/scale_z/i.text(plist.name)) {
+    } else if (/scale.*z/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.SCALE_Z;
-    } else if (/scale/i.text(plist.name)) {
+    } else if (/scale/i.test(plist.name)) {
       return bg.manipulation.GizmoAction.SCALE;
     }
   }
@@ -9659,9 +9712,13 @@ bg.manipulation = {};
         s = s < this._minSize ? this._minSize : s;
         matrixState.modelMatrixStack.push();
         matrixState.modelMatrixStack.set(this._gizmoP).mult(this.gizmoTransform).scale(s, s, s);
-        if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS) {
+        if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS || pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION)) {
           var dt = pipeline.depthTest;
-          pipeline.depthTest = false;
+          if (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION) {
+            pipeline.depthTest = true;
+          } else {
+            pipeline.depthTest = false;
+          }
           this._gizmoItems.forEach(function(item) {
             pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
             pipeline.draw(item.plist);
@@ -9670,6 +9727,7 @@ bg.manipulation = {};
         } else if (pipeline.effect instanceof bg.manipulation.GizmoEffect) {
           this._gizmoItems.forEach(function(item) {
             pipeline.effect.texture = item.material.texture;
+            pipeline.effect.color = item.material.diffuse;
             pipeline.draw(item.plist);
           });
         }
@@ -9868,8 +9926,118 @@ bg.manipulation = {};
       }
     }, {}, $__super);
   }(Gizmo);
+  var UnifiedGizmo = function($__super) {
+    function UnifiedGizmo(path) {
+      var visible = arguments[1] !== (void 0) ? arguments[1] : true;
+      $traceurRuntime.superConstructor(UnifiedGizmo).call(this, path, visible);
+      this._translateSpeed = 0.01;
+      this._rotateSpeed = 0.005;
+      this._scaleSpeed = 0.001;
+    }
+    return ($traceurRuntime.createClass)(UnifiedGizmo, {
+      get gizmoTransform() {
+        return bg.Matrix4.Identity();
+      },
+      get translateSpeed() {
+        return this._translateSpeed;
+      },
+      set translateSpeed(s) {
+        this._translateSpeed = s;
+      },
+      get rotateSpeed() {
+        return this._rotateSpeed;
+      },
+      set rotateSpeed(s) {
+        this._rotateSpeed = s;
+      },
+      get scaleSpeed() {
+        return this._scaleSpeed;
+      },
+      set scaleSpeed(s) {
+        this._scaleSpeed = s;
+      },
+      clone: function() {
+        var newGizmo = new PlaneGizmo(this._gizmoPath);
+        newGizmo.offset.assign(this._offset);
+        newGizmo.visible = this._visible;
+        return newGizmo;
+      },
+      init: function() {
+        $traceurRuntime.superGet(this, UnifiedGizmo.prototype, "init").call(this);
+        this._gizmoP = bg.Matrix4.Translation(this.transform.matrix.position);
+      },
+      display: function(pipeline, matrixState) {
+        if (!this._gizmoItems || !this.visible)
+          return;
+        $traceurRuntime.superGet(this, UnifiedGizmo.prototype, "display").call(this, pipeline, matrixState);
+      },
+      beginDrag: function(action, pos) {
+        this._lastPickPoint = null;
+      },
+      drag: function(action, startPos, endPos, camera) {
+        if (this.transform) {
+          if (!this._lastPickPoint) {
+            this._lastPickPoint = endPos;
+          }
+          var matrix = new bg.Matrix4(this.transform.matrix);
+          var rotMatrix = this._gizmoP.rotation;
+          this._gizmoP = bg.Matrix4.Translation(this.transform.matrix.position);
+          this._gizmoP.mult(rotMatrix);
+          var diff = new bg.Vector2(this._lastPickPoint);
+          diff.sub(endPos);
+          var matrixState = bg.base.MatrixState.Current();
+          var modelview = new bg.Matrix4(matrixState.viewMatrixStack.matrix);
+          modelview.mult(matrixState.modelMatrixStack.matrix);
+          var s = modelview.position.magnitude() / this._scale;
+          s = s < this._minSize ? this._minSize : s;
+          var scaleFactor = 1 - ((diff.x + diff.y) * this.scaleSpeed);
+          switch (action) {
+            case bg.manipulation.GizmoAction.SCALE:
+              matrix.scale(scaleFactor, scaleFactor, scaleFactor);
+              break;
+            case bg.manipulation.GizmoAction.TRANSLATE_X:
+              matrix.translate(-(diff.x + diff.y) * this.translateSpeed * s, 0, 0);
+              break;
+            case bg.manipulation.GizmoAction.TRANSLATE_Y:
+              matrix.translate(0, -(diff.x + diff.y) * this.translateSpeed * s, 0);
+              break;
+            case bg.manipulation.GizmoAction.TRANSLATE_Z:
+              matrix.translate(0, 0, -(diff.x + diff.y) * this.translateSpeed * s);
+              break;
+            case bg.manipulation.GizmoAction.ROTATE_X:
+              matrix.rotate((diff.x + diff.y) * this.rotateSpeed, 1, 0, 0);
+              this._gizmoP.rotate((diff.x + diff.y) * this.rotateSpeed, 1, 0, 0);
+              break;
+            case bg.manipulation.GizmoAction.ROTATE_Y:
+              matrix.rotate((diff.x + diff.y) * this.rotateSpeed, 0, 1, 0);
+              this._gizmoP.rotate((diff.x + diff.y) * this.rotateSpeed, 0, 1, 0);
+              break;
+            case bg.manipulation.GizmoAction.ROTATE_Z:
+              matrix.rotate((diff.x + diff.y) * this.rotateSpeed, 0, 0, 1);
+              this._gizmoP.rotate((diff.x + diff.y) * this.rotateSpeed, 0, 0, 1);
+              break;
+            case bg.manipulation.GizmoAction.SCALE_X:
+              matrix.scale(scaleFactor, 1, 1);
+              break;
+            case bg.manipulation.GizmoAction.SCALE_Y:
+              matrix.scale(1, scaleFactor, 1);
+              break;
+            case bg.manipulation.GizmoAction.SCALE_Z:
+              matrix.scale(1, 1, scaleFactor);
+              break;
+          }
+          this.transform.matrix = matrix;
+          this._lastPickPoint = endPos;
+        }
+      },
+      endDrag: function(action) {
+        this._lastPickPoint = null;
+      }
+    }, {}, $__super);
+  }(Gizmo);
   bg.scene.registerComponent(bg.manipulation, Gizmo, "bg.manipulation.Gizmo");
   bg.scene.registerComponent(bg.manipulation, PlaneGizmo, "bg.manipulation.Gizmo");
+  bg.scene.registerComponent(bg.manipulation, UnifiedGizmo, "bg.manipulation.Gizmo");
 })();
 
 "use strict";
@@ -9994,7 +10162,8 @@ bg.manipulation = {};
         var opacityLayer = this.pipeline.opacityLayer;
         this.pipeline.opacityLayer = bg.base.OpacityLayer.SELECTION;
         sceneRoot.accept(this.drawVisitor);
-        this.pipeline.opacityLayer = bg.base.OpacityLayer.GIZMOS;
+        this.pipeline.opacityLayer = bg.base.OpacityLayer.GIZMOS_SELECTION;
+        this.pipeline.clearBuffers(bg.base.ClearBuffers.DEPTH);
         sceneRoot.accept(this.drawVisitor);
         this.pipeline.opacityLayer = opacityLayer;
         var buffer = this.pipeline.renderSurface.readBuffer(new bg.Viewport(mousePosition.x, mousePosition.y, 1, 1));
