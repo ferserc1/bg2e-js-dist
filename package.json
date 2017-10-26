@@ -1,23 +1,24 @@
 {
-  "name": "bg2e-js",
-  "version": "1.0.38",
-  "description": "Advanced JavaScript and C++ graphic engine",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://ferserc1@github.com/ferserc1/bg2e-js-dist.git"
-  },
-  "keywords": [
-    "webgl",
-    "graphics"
-  ],
-  "author": "Fernando Serrano Carpena",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/ferserc1/bg2e-js-dist/issues"
-  },
-  "homepage": "https://github.com/ferserc1/bg2e-js-dist#readme"
-}
+	"name": "bg2e-js",
+    "version": "1.1.0",
+    "description": "Advanced JavaScript and C++ graphic engine",
+    "main": "index.js",
+    "scripts": {
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://ferserc1@github.com/ferserc1/bg2e-js-dist.git"
+    },
+    "keywords": [
+      "webgl",
+      "graphics"
+    ],
+    "author": "Fernando Serrano Carpena",
+    "license": "MIT",
+    "bugs": {
+      "url": "https://github.com/ferserc1/bg2e-js-dist/issues"
+    },
+    "homepage": "https://github.com/ferserc1/bg2e-js-dist#readme"
+  }
+  

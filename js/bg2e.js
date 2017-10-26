@@ -1,5 +1,6 @@
 "use strict";
 var bg = {};
+bg.version = "1.1.0 - build: 388c5ea";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
