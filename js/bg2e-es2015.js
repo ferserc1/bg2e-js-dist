@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.1.0 - build: 388c5ea";
+bg.version = "1.1.1 - build: 77711b2";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -3048,7 +3048,7 @@ bg.Axis = {
 (function() {
 	class MatrixStack {
 		constructor() {
-			this._matrix = new bg.Matrix4.Identity();
+			this._matrix = bg.Matrix4.Identity();
 			this._stack = [];
 			this._changed = true;
 		}
@@ -3176,8 +3176,8 @@ bg.Axis = {
 			this._modelMatrixStack = new MatrixStack();
 			this._viewMatrixStack = new MatrixStack();
 			this._projectionMatrixStack = new MatrixStack();
-			this._modelViewMatrix = new bg.Matrix4.Identity();
-			this._normalMatrix = new bg.Matrix4.Identity();
+			this._modelViewMatrix = bg.Matrix4.Identity();
+			this._normalMatrix = bg.Matrix4.Identity();
 		}
 		
 		get modelMatrixStack() {
@@ -6787,6 +6787,9 @@ bg.scene = {};
 	
 	bg.scene.registerComponent = function(namespace,componentClass,identifier) {
 		let result = /function (.+)\(/.exec(componentClass.toString());
+		if (!result) {
+			result = /class ([a-zA-Z0-9_]+) /.exec(componentClass.toString());
+		}
 		let funcName = (result && result.length>1) ? result[1] : "";
 		
 		namespace[funcName] = componentClass;
