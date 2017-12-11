@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.1.1 - build: 77711b2";
+bg.version = "1.1.7 - build: a89ec43";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -305,6 +305,34 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
   }();
   bg.utils.UserAgent = UserAgent;
   bg.utils.userAgent = new UserAgent();
+  var Path = function() {
+    function Path() {}
+    return ($traceurRuntime.createClass)(Path, {
+      get sep() {
+        return "/";
+      },
+      join: function(a, b) {
+        if (a.lastIndexOf(this.sep) != a.length - 1) {
+          return a + this.sep + b;
+        } else {
+          return a + b;
+        }
+      },
+      extension: function(path) {
+        return path.split(".").pop();
+      },
+      fileName: function(path) {
+        return path.split(this.sep).pop();
+      },
+      removeFileName: function(path) {
+        var result = path.split(this.sep);
+        result.pop();
+        return result.join(this.sep);
+      }
+    }, {});
+  }();
+  bg.utils.Path = Path;
+  bg.utils.path = new Path();
 })(window);
 
 "use strict";
@@ -706,6 +734,20 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
   }("undefined" == typeof global ? window : global);
   bg.utils.md5 = md5;
 })();
+(function() {
+  function generateUUID() {
+    var d = new Date().getTime();
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      d += performance.now();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = (d + Math.random() * 16) % 16 | 0;
+      d = Math.floor(d / 16);
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+  bg.utils.generateUUID = generateUUID;
+})();
 
 "use strict";
 bg.app = {};
@@ -830,9 +872,10 @@ bg.app = {};
   }();
   bg.app.EventBase = EventBase;
   var KeyboardEvent = function($__super) {
-    function KeyboardEvent(key) {
+    function KeyboardEvent(key, event) {
       $traceurRuntime.superConstructor(KeyboardEvent).call(this);
       this.key = key;
+      this.event = event;
     }
     return ($traceurRuntime.createClass)(KeyboardEvent, {isSpecialKey: function() {
         return KeyboardEvent.IsSpecialKey(this.key);
@@ -855,19 +898,22 @@ bg.app = {};
       var x = arguments[1] !== (void 0) ? arguments[1] : -1;
       var y = arguments[2] !== (void 0) ? arguments[2] : -1;
       var delta = arguments[3] !== (void 0) ? arguments[3] : 0;
+      var event = arguments[4] !== (void 0) ? arguments[4] : null;
       $traceurRuntime.superConstructor(MouseEvent).call(this);
       this.button = button;
       this.x = x;
       this.y = y;
       this.delta = delta;
+      this.event = event;
     }
     return ($traceurRuntime.createClass)(MouseEvent, {}, {}, $__super);
   }(EventBase);
   bg.app.MouseEvent = MouseEvent;
   var TouchEvent = function($__super) {
-    function TouchEvent(touches) {
+    function TouchEvent(touches, event) {
       $traceurRuntime.superConstructor(TouchEvent).call(this);
       this.touches = touches;
+      this.event = event;
     }
     return ($traceurRuntime.createClass)(TouchEvent, {}, {}, $__super);
   }(EventBase);
@@ -1076,7 +1122,7 @@ bg.app = {};
         s_mouseStatus.rightButton = true;
         break;
     }
-    var bgEvent = new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+    var bgEvent = new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y, 0, event);
     s_mainLoop.windowController.mouseDown(bgEvent);
     return bgEvent;
   }
@@ -1085,7 +1131,7 @@ bg.app = {};
     var multisample = s_mainLoop.canvas.multisample;
     s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
     s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
-    var evt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+    var evt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, 0, event);
     s_mainLoop.windowController.mouseMove(evt);
     if (s_mouseStatus.anyButton) {
       s_mainLoop.windowController.mouseDrag(evt);
@@ -1093,20 +1139,20 @@ bg.app = {};
     return evt;
   }
   function onMouseOut() {
-    var bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+    var bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, 0, {});
     s_mainLoop.windowController.mouseOut(bgEvt);
     if (s_mouseStatus.leftButton) {
       s_mouseStatus.leftButton = false;
-      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.LEFT, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.LEFT, s_mouseStatus.pos.x, s_mouseStatus.pos.y, 0, {});
       s_mainLoop.windowController.mouseUp(bgEvt);
     }
     if (s_mouseStatus.middleButton) {
       s_mouseStatus.middleButton = false;
-      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.MIDDLE, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.MIDDLE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, 0, {});
       s_mainLoop.windowController.mouseUp(bgEvt);
     }
     if (s_mouseStatus.rightButton) {
-      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.RIGHT, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+      bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.RIGHT, s_mouseStatus.pos.x, s_mouseStatus.pos.y, 0, {});
       s_mainLoop.windowController.mouseUp(bgEvt);
       s_mouseStatus.rightButton = false;
     }
@@ -1131,7 +1177,7 @@ bg.app = {};
     var multisample = s_mainLoop.canvas.multisample;
     s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
     s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
-    var bgEvt = new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y);
+    var bgEvt = new bg.app.MouseEvent(event.button, s_mouseStatus.pos.x, s_mouseStatus.pos.y, 0, event);
     s_mainLoop.windowController.mouseUp(bgEvt);
     return bgEvt;
   }
@@ -1141,7 +1187,7 @@ bg.app = {};
     s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
     s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
     var delta = event.wheelDelta ? event.wheelDelta * -1 : event.detail * 10;
-    var bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, delta);
+    var bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE, s_mouseStatus.pos.x, s_mouseStatus.pos.y, delta, event);
     s_mainLoop.windowController.mouseWheel(bgEvt);
     return bgEvt;
   }
@@ -1160,7 +1206,7 @@ bg.app = {};
         radiusY: touch.radiusY
       });
     }
-    return new bg.app.TouchEvent(touches);
+    return new bg.app.TouchEvent(touches, event);
   }
   function onTouchStart(event) {
     var bgEvt = getTouchEvent(event);
@@ -1179,11 +1225,11 @@ bg.app = {};
   }
   function onKeyDown(event) {
     var code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? event.keyCode : String.fromCharCode(event.keyCode);
-    s_mainLoop.windowController.keyDown(new bg.app.KeyboardEvent(code));
+    s_mainLoop.windowController.keyDown(new bg.app.KeyboardEvent(code, event));
   }
   function onKeyUp(event) {
     var code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? event.keyCode : String.fromCharCode(event.keyCode);
-    s_mainLoop.windowController.keyUp(new bg.app.KeyboardEvent(code));
+    s_mainLoop.windowController.keyUp(new bg.app.KeyboardEvent(code, event));
   }
   bg.app.MainLoop = {};
   Object.defineProperty(bg.app.MainLoop, "singleton", {get: function() {
@@ -1250,6 +1296,9 @@ bg.Axis = {
   Y: 2,
   Z: 3
 };
+Object.defineProperty(bg, "isElectronApp", {get: function() {
+    return typeof module !== 'undefined' && module.exports && true;
+  }});
 
 "use strict";
 (function() {
@@ -1433,6 +1482,53 @@ bg.Axis = {
   }();
   bg.base.LoaderPlugin = LoaderPlugin;
   var s_loaderPlugins = [];
+  function loadUrl(context, url, onProgress) {
+    return new Promise(function(accept, reject) {
+      bg.utils.Resource.Load(url, onProgress).then(function(data) {
+        return Loader.LoadData(context, url, data);
+      }).then(function(result, extendedData) {
+        accept(result, extendedData);
+      }).catch(function(err) {
+        reject(err);
+      });
+    });
+  }
+  function loadUrlArray(context, url, onProgress) {
+    return new Promise(function(accept, reject) {
+      bg.utils.Resource.LoadMultiple(url, onProgress).then(function(result) {
+        var promises = [];
+        for (var itemUrl in result) {
+          var data = result[itemUrl];
+          promises.push(loadData(context, itemUrl, data));
+        }
+        return Promise.all(promises);
+      }).then(function(loadedResults) {
+        var resolvedData = {};
+        url.forEach(function(itemUrl, index) {
+          resolvedData[itemUrl] = loadedResults[index];
+        });
+        accept(resolvedData);
+      }).catch(function(err) {
+        reject(err);
+      });
+    });
+  }
+  function loadData(context, url, data) {
+    return new Promise(function(accept, reject) {
+      var selectedPlugin = null;
+      s_loaderPlugins.some(function(plugin) {
+        if (plugin.acceptType(url, data)) {
+          selectedPlugin = plugin;
+          return true;
+        }
+      });
+      if (selectedPlugin) {
+        accept(selectedPlugin.load(context, url, data));
+      } else {
+        return reject(new Error("No suitable plugin found for load " + url));
+      }
+    });
+  }
   var Loader = function() {
     function Loader() {}
     return ($traceurRuntime.createClass)(Loader, {}, {
@@ -1440,35 +1536,374 @@ bg.Axis = {
         s_loaderPlugins.push(p);
       },
       Load: function(context, url, onProgress) {
-        return new Promise(function(accept, reject) {
-          bg.utils.Resource.Load(url, onProgress).then(function(data) {
-            return Loader.LoadData(context, url, data);
-          }).then(function(result, extendedData) {
-            accept(result, extendedData);
-          }).catch(function(err) {
-            reject(err);
-          });
-        });
+        if (Array.isArray(url)) {
+          return loadUrlArray(context, url, onProgress);
+        } else {
+          return loadUrl(context, url, onProgress);
+        }
       },
       LoadData: function(context, url, data) {
-        return new Promise(function(accept, reject) {
+        return loadData(context, url, data);
+      }
+    });
+  }();
+  bg.base.Loader = Loader;
+})();
+
+"use strict";
+(function() {
+  if (!bg.isElectronApp) {
+    return false;
+  }
+  var WriterPlugin = function() {
+    function WriterPlugin() {}
+    return ($traceurRuntime.createClass)(WriterPlugin, {
+      acceptType: function(url, data) {
+        return false;
+      },
+      write: function(url, data) {}
+    }, {});
+  }();
+  bg.base.WriterPlugin = WriterPlugin;
+  var s_writerPlugins = [];
+  var Writer = function() {
+    function Writer() {}
+    return ($traceurRuntime.createClass)(Writer, {}, {
+      RegisterPlugin: function(p) {
+        s_writerPlugins.push(p);
+      },
+      Write: function(url, data) {
+        return new Promise(function(resolve, reject) {
           var selectedPlugin = null;
-          s_loaderPlugins.some(function(plugin) {
+          s_writerPlugins.some(function(plugin) {
             if (plugin.acceptType(url, data)) {
               selectedPlugin = plugin;
               return true;
             }
           });
           if (selectedPlugin) {
-            accept(selectedPlugin.load(context, url, data));
+            resolve(selectedPlugin.write(url, data));
           } else {
-            return reject(new Error("No suitable plugin found for load " + url));
+            reject(new Error("No suitable plugin found for write " + url));
+          }
+        });
+      },
+      PrepareDirectory: function(dir) {
+        var targetDir = Writer.ToSystemPath(dir);
+        var fs = require('fs');
+        var path = require('path');
+        var sep = path.sep;
+        var initDir = path.isAbsolute(targetDir) ? sep : '';
+        targetDir.split(sep).reduce(function(parentDir, childDir) {
+          var curDir = path.resolve(parentDir, childDir);
+          if (!fs.existsSync(curDir)) {
+            fs.mkdirSync(curDir);
+          }
+          return curDir;
+        }, initDir);
+      },
+      StandarizePath: function(inPath) {
+        return inPath.replace(/\\/g, '/');
+      },
+      ToSystemPath: function(inPath) {
+        var path = require('path');
+        var sep = path.sep;
+        return inPath.replace(/\\/g, sep).replace(/\//g, sep);
+      },
+      CopyFile: function(source, target) {
+        return new Promise(function(resolve, reject) {
+          var fs = require("fs");
+          var cbCalled = false;
+          var rd = fs.createReadStream(source);
+          rd.on("error", function(err) {
+            done(err);
+          });
+          var wr = fs.createWriteStream(target);
+          wr.on("error", function(err) {
+            done(err);
+          });
+          wr.on("close", function(ex) {
+            done();
+          });
+          rd.pipe(wr);
+          function done(err) {
+            if (!cbCalled) {
+              err ? reject(err) : resolve();
+              cbCalled = true;
+            }
           }
         });
       }
     });
   }();
-  bg.base.Loader = Loader;
+  bg.base.Writer = Writer;
+})();
+
+"use strict";
+(function() {
+  if (!bg.isElectronApp) {
+    return false;
+  }
+  var fs = require('fs');
+  var path = require('path');
+  function writeTexture(texture, fileData) {
+    if (texture) {
+      var dstPath = bg.base.Writer.StandarizePath(fileData.path).split("/");
+      dstPath.pop();
+      var srcFileName = texture.fileName.split("/").pop();
+      dstPath.push(srcFileName);
+      dstPath = dstPath.join("/");
+      var paths = {
+        src: texture.fileName,
+        dst: dstPath
+      };
+      if (paths.src != paths.dst) {
+        fileData.copyFiles.push(paths);
+      }
+      return srcFileName;
+    } else {
+      return "";
+    }
+  }
+  function getMaterialString(fileData) {
+    var mat = [];
+    fileData.node.drawable.forEach(function(plist, material) {
+      mat.push({
+        "name": plist.name,
+        "class": "GenericMaterial",
+        "diffuseR": material.diffuse.r,
+        "diffuseG": material.diffuse.g,
+        "diffuseB": material.diffuse.b,
+        "diffuseA": material.diffuse.a,
+        "specularR": material.specular.r,
+        "specularG": material.specular.g,
+        "specularB": material.specular.b,
+        "specularA": material.specular.a,
+        "shininess": material.shininess,
+        "refractionAmount": material.refractionAmount,
+        "reflectionAmount": material.reflectionAmount,
+        "lightEmission": material.lightEmission,
+        "textureOffsetX": material.textureOffset.x,
+        "textureOffsetY": material.textureOffset.y,
+        "textureScaleX": material.textureScale.x,
+        "textureScaleY": material.textureScale.y,
+        "lightmapOffsetX": material.lightmapOffset.x,
+        "lightmapOffsetY": material.lightmapOffset.y,
+        "lightmapScaleX": material.lightmapScale.x,
+        "lightmapScaleY": material.lightmapScale.y,
+        "normalMapOffsetX": material.normalMapOffset.x,
+        "normalMapOffsetY": material.normalMapOffset.y,
+        "normalMapScaleX": material.normalMapScale.x,
+        "normalMapScaleY": material.normalMapScale.y,
+        "castShadows": material.castShadows,
+        "receiveShadows": material.receiveShadows,
+        "alphaCutoff": material.alphaCutoff,
+        "shininessMaskChannel": material.shininessMaskChannel,
+        "invertShininessMask": material.shininessMaskInvert,
+        "lightEmissionMaskChannel": material.lightEmissionMaskChannel,
+        "invertLightEmissionMask": material.lightEmissionMaskInvert,
+        "displacementFactor": 0,
+        "displacementUV": 0,
+        "tessDistanceFarthest": 40.0,
+        "tessDistanceFar": 30.0,
+        "tessDistanceNear": 15.0,
+        "tessDistanceNearest": 8.0,
+        "tessFarthestLevel": 1,
+        "tessFarLevel": 1,
+        "tessNearLevel": 1,
+        "tessNearestLevel": 1,
+        "reflectionMaskChannel": material.reflectionMaskChannel,
+        "invertReflectionMask": material.reflectionMaskInvert,
+        "cullFace": material.cullFace,
+        "texture": writeTexture(material.texture, fileData),
+        "lightmap": writeTexture(material.lightmap, fileData),
+        "normalMap": writeTexture(material.normalMap, fileData),
+        "shininessMask": writeTexture(material.shininessMask, fileData),
+        "lightEmissionMask": writeTexture(material.lightEmissionMask, fileData),
+        "displacementMap": "",
+        "reflectionMask": writeTexture(material.reflectionMask, fileData),
+        "visible": plist.visible,
+        "groupName": material.groupName
+      });
+    });
+    return JSON.stringify(mat);
+  }
+  function getJointString(fileData) {
+    var joints = {};
+    var inJoint = fileData.node.component("bg.scene.InputChainJoint");
+    var outJoint = fileData.node.component("bg.scene.OutputChainJoint");
+    if (inJoint) {
+      joints.input = {
+        "type": "LinkJoint",
+        "offset": [inJoint.joint.offset.x, inJoint.joint.offset.y, inJoint.joint.offset.z],
+        "pitch": inJoint.joint.pitch,
+        "roll": inJoint.joint.roll,
+        "yaw": inJoint.joint.yaw
+      };
+    }
+    if (outJoint) {
+      joints.output = [{
+        "type": "LinkJoint",
+        "offset": [outJoint.joint.offset.x, outJoint.joint.offset.y, outJoint.joint.offset.z],
+        "pitch": outJoint.joint.pitch,
+        "roll": outJoint.joint.roll,
+        "yaw": outJoint.joint.yaw
+      }];
+    }
+    return JSON.stringify(joints);
+  }
+  function ensurePolyListName(fileData) {
+    var plistNames = [];
+    var plIndex = 0;
+    fileData.node.drawable.forEach(function(plist, matName) {
+      var plName = plist.name;
+      if (!plName || plistNames.indexOf(plName) != -1) {
+        do {
+          plName = "polyList_" + plIndex;
+          ++plIndex;
+        } while (plistNames.indexOf(plName) != -1);
+        plist.name = plName;
+      }
+      plistNames.push(plName);
+    });
+  }
+  var FileData = function() {
+    function FileData(path, node) {
+      this._path = path;
+      this._node = node;
+      this._copyFiles = [];
+      this._stream = fs.createWriteStream(path);
+    }
+    return ($traceurRuntime.createClass)(FileData, {
+      get path() {
+        return this._path;
+      },
+      get node() {
+        return this._node;
+      },
+      get copyFiles() {
+        return this._copyFiles;
+      },
+      get stream() {
+        return this._stream;
+      },
+      writeUInt: function(number) {
+        var buffer = new Buffer(4);
+        buffer.writeUInt32BE(number, 0);
+        this.stream.write(buffer);
+      },
+      writeBlock: function(blockName) {
+        this.stream.write(Buffer.from(blockName, "utf-8"));
+      },
+      writeString: function(stringData) {
+        this.writeUInt(stringData.length);
+        this.stream.write(Buffer.from(stringData, "utf-8"));
+      },
+      writeBuffer: function(name, arrayBuffer) {
+        this.writeBlock(name);
+        this.writeUInt(arrayBuffer.length);
+        var buffer = new Buffer(4 * arrayBuffer.length);
+        if (name == "indx") {
+          arrayBuffer.forEach(function(d, i) {
+            return buffer.writeUInt32BE(d, i * 4);
+          });
+        } else {
+          arrayBuffer.forEach(function(d, i) {
+            return buffer.writeFloatBE(d, i * 4);
+          });
+        }
+        this.stream.write(buffer);
+      },
+      writeTextures: function() {
+        var promises = [];
+        this.copyFiles.forEach(function(copyData) {
+          promises.push(new Promise(function(resolve) {
+            var rd = fs.createReadStream(copyData.src);
+            rd.on('error', rejectCleanup);
+            var wr = fs.createWriteStream(copyData.dst);
+            wr.on('error', rejectCleanup);
+            function rejectCleanup(err) {
+              rd.destroy();
+              wr.end();
+              reject(err);
+            }
+            wr.on('finish', resolve);
+            rd.pipe(wr);
+          }));
+        });
+        return Promise.all(promises);
+      }
+    }, {});
+  }();
+  function writeHeader(fileData) {
+    var buffer = new Buffer(4);
+    [0, 1, 2, 0].forEach(function(d, i) {
+      return buffer.writeInt8(d, i);
+    });
+    fileData.stream.write(buffer);
+    fileData.writeBlock("hedr");
+    ensurePolyListName(fileData);
+    var drw = fileData.node.drawable;
+    var plistItems = 0;
+    drw.forEach(function() {
+      return plistItems++;
+    });
+    fileData.writeUInt(plistItems);
+    fileData.writeBlock("mtrl");
+    fileData.writeString(getMaterialString(fileData));
+    fileData.writeBlock("join");
+    fileData.writeString(getJointString(fileData));
+  }
+  function writePolyList(fileData, plist, material, trx) {
+    fileData.writeBlock("plst");
+    fileData.writeBlock("pnam");
+    fileData.writeString(plist.name);
+    fileData.writeBlock("mnam");
+    fileData.writeString(plist.name);
+    fileData.writeBuffer("varr", plist.vertex);
+    fileData.writeBuffer("narr", plist.normal);
+    fileData.writeBuffer("t0ar", plist.texCoord0);
+    fileData.writeBuffer("t1ar", plist.texCoord1);
+    fileData.writeBuffer("indx", plist.index);
+  }
+  function writeNode(fileData) {
+    writeHeader(fileData);
+    fileData.node.drawable.forEach(function(plist, mat, trx) {
+      writePolyList(fileData, plist, mat, trx);
+    });
+    fileData.writeBlock("endf");
+    fileData.stream.end();
+  }
+  var Bg2WriterPlugin = function($__super) {
+    function Bg2WriterPlugin() {
+      $traceurRuntime.superConstructor(Bg2WriterPlugin).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(Bg2WriterPlugin, {
+      acceptType: function(url, data) {
+        var ext = url.split(".").pop();
+        return /bg2/i.test(ext) || /vwglb/i.test(ext);
+      },
+      write: function(url, data) {
+        return new Promise(function(resolve, reject) {
+          if (!data || !data instanceof bg.scene.Node || !data.drawable) {
+            reject(new Error("Invalid data format. Expecting scene node."));
+          }
+          var fileData = new FileData(url, data);
+          try {
+            writeNode(fileData);
+            fileData.writeTextures().then(function() {
+              return resolve();
+            }).catch(function(err) {
+              return reject(err);
+            });
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    }, {}, $__super);
+  }(bg.base.WriterPlugin);
+  bg.base.Bg2WriterPlugin = Bg2WriterPlugin;
 })();
 
 "use strict";
@@ -2016,6 +2451,26 @@ bg.Axis = {
         this._cutoffDistance = sceneData.cutoffDistance;
         this._projection = new bg.Matrix4(sceneData.projection);
         this._castShadows = sceneData.castShadows;
+      },
+      serialize: function(sceneData) {
+        var lightTypes = [];
+        lightTypes[bg.base.LightType.DIRECTIONAL] = "kTypeDirectional";
+        lightTypes[bg.base.LightType.SPOT] = "kTypeSpot";
+        lightTypes[bg.base.LightType.POINT] = "kTypePoint";
+        sceneData.lightType = lightTypes[this._type];
+        sceneData.ambient = this._ambient.toArray();
+        sceneData.diffuse = this._diffuse.toArray();
+        sceneData.specular = this._specular.toArray();
+        sceneData.intensity = 1;
+        sceneData.constantAtt = this._attenuation.x;
+        sceneData.linearAtt = this._attenuation.y;
+        sceneData.expAtt = this._attenuation.z;
+        sceneData.spotCutoff = this._spotCutoff || 20;
+        sceneData.shadowStrength = this._shadowStrength;
+        sceneData.cutoffDistance = this._cutoffDistance;
+        sceneData.projection = this._projection.toArray();
+        sceneData.castShadows = this._castShadows;
+        sceneData.shadowBias = this._shadowBias || 0.0029;
       }
     }, {}, $__super);
   }(bg.app.ContextObject);
@@ -3248,6 +3703,7 @@ bg.Axis = {
       this._projectionMatrixStack = new MatrixStack();
       this._modelViewMatrix = bg.Matrix4.Identity();
       this._normalMatrix = bg.Matrix4.Identity();
+      this._cameraDistanceScale = null;
     }
     return ($traceurRuntime.createClass)(MatrixState, {
       get modelMatrixStack() {
@@ -3283,6 +3739,9 @@ bg.Axis = {
           this._viewMatrixInvert.invert();
         }
         return this._viewMatrixInvert;
+      },
+      get cameraDistanceScale() {
+        return this._cameraDistanceScale = this._viewMatrixStack.matrix.position.magnitude();
       }
     }, {
       Current: function() {
@@ -3937,6 +4396,85 @@ bg.Axis = {
       }}, $__super);
   }(RenderSurface);
   bg.base.TextureSurface = TextureSurface;
+})();
+
+"use strict";
+(function() {
+  if (!bg.isElectronApp) {
+    return false;
+  }
+  var fs = require('fs');
+  var path = require('path');
+  var SaveSceneHelper = function() {
+    function SaveSceneHelper() {}
+    return ($traceurRuntime.createClass)(SaveSceneHelper, {
+      save: function(filePath, sceneRoot) {
+        var $__3 = this;
+        filePath = bg.base.Writer.StandarizePath(filePath);
+        return new Promise(function(resolve, reject) {
+          $__3._url = {};
+          $__3._url.path = filePath.split('/');
+          $__3._url.fileName = $__3._url.path.pop();
+          $__3._url.path = $__3._url.path.join('/');
+          $__3._sceneData = {
+            fileType: "vwgl::scene",
+            version: {
+              major: 2,
+              minor: 0,
+              rev: 0
+            },
+            scene: []
+          };
+          $__3._promises = [];
+          bg.base.Writer.PrepareDirectory($__3._url.path);
+          var rootNode = {};
+          $__3._sceneData.scene.push(rootNode);
+          $__3.buildSceneNode(sceneRoot, rootNode);
+          fs.writeFileSync(path.join($__3._url.path, $__3._url.fileName), JSON.stringify($__3._sceneData, "", "\t"), "utf-8");
+          Promise.all($__3._promises).then(function() {
+            return resolve();
+          }).catch(function(err) {
+            return reject(err);
+          });
+        });
+      },
+      buildSceneNode: function(node, sceneData) {
+        var $__3 = this;
+        sceneData.type = "Node";
+        sceneData.name = node.name;
+        sceneData.enabled = node.enabled;
+        sceneData.children = [];
+        sceneData.components = [];
+        node.forEachComponent(function(component) {
+          var componentData = {};
+          component.serialize(componentData, $__3._promises, $__3._url);
+          sceneData.components.push(componentData);
+        });
+        node.children.forEach(function(child) {
+          var childData = {};
+          $__3.buildSceneNode(child, childData);
+          sceneData.children.push(childData);
+        });
+      }
+    }, {});
+  }();
+  ;
+  var SceneWriterPlugin = function($__super) {
+    function SceneWriterPlugin() {
+      $traceurRuntime.superConstructor(SceneWriterPlugin).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(SceneWriterPlugin, {
+      acceptType: function(url, data) {
+        var ext = url.split(".").pop(".");
+        return /vitscnj/i.test(ext) && data instanceof bg.scene.Node;
+      },
+      write: function(url, data) {
+        var saveSceneHelper = new SaveSceneHelper();
+        return saveSceneHelper.save(url, data);
+      }
+    }, {}, $__super);
+  }(bg.base.WriterPlugin);
+  bg.base.SceneWriterPlugin = SceneWriterPlugin;
 })();
 
 "use strict";
@@ -5120,6 +5658,9 @@ bg.Axis = {
       get m() {
         return this._m;
       },
+      toArray: function() {
+        return [this._m[0], this._m[1], this._m[2], this._m[3], this._m[4], this._m[5], this._m[6], this._m[7], this._m[8]];
+      },
       get m00() {
         return this._m[0];
       },
@@ -5206,13 +5747,22 @@ bg.Axis = {
         return this;
       },
       setScale: function(x, y, z) {
-        this._m[0] = x;
-        this._m[4] = y;
-        this._m[8] = z;
+        var rx = new bg.Vector3(this._m[0], this._m[3], this._m[6]).normalize().scale(x);
+        var ry = new bg.Vector3(this._m[1], this._m[4], this._m[7]).normalize().scale(y);
+        var rz = new bg.Vector3(this._m[2], this._m[5], this._m[8]).normalize().scale(z);
+        this._m[0] = rx.x;
+        this._m[3] = rx.y;
+        this._m[6] = rx.z;
+        this._m[1] = ry.x;
+        this._m[4] = ry.y;
+        this._m[7] = ry.z;
+        this._m[2] = rz.x;
+        this._m[5] = rz.y;
+        this._m[8] = rz.z;
         return this;
       },
       getScale: function() {
-        return new bg.Vector3(this._m[0], this._m[4], this._m[8]);
+        return new bg.Vector3(new bg.Vector3(this._m[0], this._m[3], this._m[6]).module, new bg.Vector3(this._m[1], this._m[4], this._m[7]).module, new bg.Vector3(this._m[2], this._m[5], this._m[8]).module);
       },
       get length() {
         return this._m.length;
@@ -5368,6 +5918,9 @@ bg.Axis = {
       get m() {
         return this._m;
       },
+      toArray: function() {
+        return [this._m[0], this._m[1], this._m[2], this._m[3], this._m[4], this._m[5], this._m[6], this._m[7], this._m[8], this._m[9], this._m[10], this._m[11], this._m[12], this._m[13], this._m[14], this._m[15]];
+      },
       get m00() {
         return this._m[0];
       },
@@ -5519,13 +6072,41 @@ bg.Axis = {
         return this;
       },
       setScale: function(x, y, z) {
-        this._m[0] = x;
-        this._m[5] = y;
-        this._m[10] = z;
+        var rx = new bg.Vector3(this._m[0], this._m[4], this._m[8]).normalize().scale(x);
+        var ry = new bg.Vector3(this._m[1], this._m[5], this._m[9]).normalize().scale(y);
+        var rz = new bg.Vector3(this._m[2], this._m[6], this._m[10]).normalize().scale(z);
+        this._m[0] = rx.x;
+        this._m[4] = rx.y;
+        this._m[8] = rx.z;
+        this._m[1] = ry.x;
+        this._m[5] = ry.y;
+        this._m[9] = ry.z;
+        this._m[2] = rz.x;
+        this._m[6] = rz.y;
+        this._m[10] = rz.z;
         return this;
       },
       getScale: function() {
-        return new bg.Vector3(this._m[0], this._m[5], this._m[10]);
+        return new bg.Vector3(new bg.Vector3(this._m[0], this._m[4], this._m[8]).module, new bg.Vector3(this._m[1], this._m[5], this._m[9]).module, new bg.Vector3(this._m[2], this._m[6], this._m[10]).module);
+      },
+      setPosition: function(pos, y, z) {
+        if (typeof(pos) == "number") {
+          this._m[12] = pos;
+          this._m[13] = y;
+          this._m[14] = z;
+        } else {
+          this._m[12] = pos.x;
+          this._m[13] = pos.y;
+          this._m[14] = pos.z;
+        }
+        return this;
+      },
+      get rotation() {
+        var scale = this.getScale();
+        return new bg.Matrix4(this._m[0] / scale.x, this._m[1] / scale.y, this._m[2] / scale.z, 0, this._m[4] / scale.x, this._m[5] / scale.y, this._m[6] / scale.z, 0, this._m[8] / scale.x, this._m[9] / scale.y, this._m[10] / scale.z, 0, 0, 0, 0, 1);
+      },
+      get position() {
+        return new bg.Vector3(this._m[12], this._m[13], this._m[14]);
       },
       get length() {
         return this._m.length;
@@ -5563,11 +6144,6 @@ bg.Axis = {
       },
       elemAtIndex: function(i) {
         return this._m[i];
-      },
-      setScale: function(x, y, z) {
-        this._m[0] = x;
-        this._m[5] = y;
-        this._m[10] = z;
       },
       assign: function(a) {
         if (a.length == 9) {
@@ -5729,12 +6305,6 @@ bg.Axis = {
         this.setRow(2, r2);
         this.setRow(3, r3);
         return this;
-      },
-      get rotation() {
-        return new bg.Matrix4(this._m[0], this._m[1], this._m[2], 0, this._m[4], this._m[5], this._m[6], 0, this._m[8], this._m[9], this._m[10], 0, 0, 0, 0, 1);
-      },
-      get position() {
-        return new bg.Vector3(this._m[12], this._m[13], this._m[14]);
       },
       transformDirection: function(dir) {
         var direction = new bg.Vector3(dir);
@@ -5908,13 +6478,15 @@ bg.Axis = {
       set y(v) {
         this._v[1] = v;
       },
-      magnitude: function() {
-        var v = 0;
-        for (var i = 0; i < this._v.length; ++i) {
-          var n = this._v[i];
-          v += bg.Math.square(n);
+      get module() {
+        return this.magnitude();
+      },
+      toArray: function() {
+        var result = [];
+        for (var i = 0; i < this.v.length; ++i) {
+          result.push(this.v[i]);
         }
-        return bg.Math.sqrt(v);
+        return result;
       }
     }, {
       MinComponents: function(v1, v2) {
@@ -6006,6 +6578,9 @@ bg.Axis = {
         this._v[1] *= scale;
         return this;
       },
+      magnitude: function() {
+        return Math.sqrt(this._v[0] * this._v[0] + this._v[1] * this._v[1]);
+      },
       elemAtIndex: function(i) {
         return this._v[i];
       },
@@ -6090,6 +6665,9 @@ bg.Axis = {
       },
       set z(v) {
         this._v[2] = v;
+      },
+      magnitude: function() {
+        return Math.sqrt(this._v[0] * this._v[0] + this._v[1] * this._v[1] + this._v[2] * this._v[2]);
       },
       normalize: function() {
         var m = this.magnitude();
@@ -6247,6 +6825,9 @@ bg.Axis = {
       },
       set w(v) {
         this._v[3] = v;
+      },
+      magnitude: function() {
+        return Math.sqrt(this._v[0] * this._v[0] + this._v[1] * this._v[1] + this._v[2] * this._v[2] + this._v[3] * this._v[3]);
       },
       normalize: function() {
         var m = this.magnitude();
@@ -6671,7 +7252,14 @@ bg.physics = {};
       },
       applyTransform: function(matrix) {},
       calculateTransform: function() {}
-    }, {});
+    }, {Factory: function(linkData) {
+        switch (linkData.type) {
+          case 'LinkJoint':
+            return LinkJoint.Factory(linkData);
+            break;
+        }
+        return null;
+      }});
   }();
   bg.physics.Joint = Joint;
   bg.physics.LinkTransformOrder = {
@@ -6758,8 +7346,23 @@ bg.physics = {};
         this.transform.identity();
         this.multTransform(this.transform);
       },
-      deserialize: function(sceneData) {}
-    }, {}, $__super);
+      serialize: function(data) {
+        data.type = "LinkJoint";
+        data.offset = [this.offset.x, this.offset.y, this.offset.z];
+        data.yaw = this.yaw;
+        data.pitch = this.pitch;
+        data.roll = this.roll;
+        data.order = this.order;
+      }
+    }, {Factory: function(data) {
+        var result = new LinkJoint();
+        result.offset = new bg.Vector3(data.offset[0] || 0, data.offset[1] || 0, data.offset[2] || 0);
+        result.yaw = data.yaw || 0;
+        result.pitch = data.pitch || 0;
+        result.roll = data.roll || 0;
+        result.order = data.order || 1;
+        return result;
+      }}, $__super);
   }(Joint);
   bg.physics.LinkJoint = LinkJoint;
 })();
@@ -6931,6 +7534,9 @@ bg.scene = {};
       addedToNode: function(node) {},
       deserialize: function(context, sceneData, url) {
         return Promise.resolve(this);
+      },
+      serialize: function(componentData, promises, url) {
+        componentData.type = this.typeId.split(".").pop();
       },
       component: function(typeId) {
         return this._node && this._node.component(typeId);
@@ -7276,6 +7882,23 @@ bg.scene = {};
       return isNodeAncient(node._parent, ancient);
     }
   }
+  function cleanupNode(sceneNode) {
+    var components = [];
+    var children = [];
+    sceneNode.forEachComponent(function(c) {
+      return components.push(c);
+    });
+    sceneNode.children.forEach(function(child) {
+      return children.push(child);
+    });
+    components.forEach(function(c) {
+      return sceneNode.removeComponent(c);
+    });
+    children.forEach(function(child) {
+      sceneNode.removeChild(child);
+      cleanupNode(child);
+    });
+  }
   var Node = function($__super) {
     function Node(context) {
       var name = arguments[1] !== (void 0) ? arguments[1] : "";
@@ -7341,7 +7964,9 @@ bg.scene = {};
         });
         this._children = [];
       }
-    }, {}, $__super);
+    }, {CleanupNode: function(node) {
+        cleanupNode(node);
+      }}, $__super);
   }(bg.scene.SceneObject);
   bg.scene.Node = Node;
   var NodeVisitor = function() {
@@ -7392,6 +8017,10 @@ bg.scene = {};
       },
       set viewport(vp) {
         this._viewport = vp;
+      },
+      serialize: function(jsonData) {
+        jsonData.near = this.near;
+        jsonData.far = this.far;
       }
     }, {Factory: function(jsonData) {
         var result = null;
@@ -7438,6 +8067,11 @@ bg.scene = {};
         this.near = jsonData.near;
         this.far = jsonData.far;
         this.fov = jsonData.fov;
+      },
+      serialize: function(jsonData) {
+        jsonData.type = "PerspectiveProjectionMethod";
+        jsonData.fov = this.fov;
+        $traceurRuntime.superGet(this, PerspectiveProjectionStrategy.prototype, "serialize").call(this, jsonData);
       }
     }, {}, $__super);
   }(ProjectionStrategy);
@@ -7482,6 +8116,12 @@ bg.scene = {};
         this.focalLength = jsonData.focalLength;
         this.near = jsonData.near;
         this.far = jsonData.far;
+      },
+      serialize: function(jsonData) {
+        jsonData.type = "OpticalProjectionMethod";
+        jsonData.frameSize = this.frameSize;
+        jsonData.focalLength = this.focalLength;
+        $traceurRuntime.superGet(this, OpticalProjectionStrategy.prototype, "serialize").call(this, jsonData);
       }
     }, {}, $__super);
   }(ProjectionStrategy);
@@ -7561,6 +8201,17 @@ bg.scene = {};
       },
       frame: function(delta) {
         this._rebuildTransform = true;
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, Camera.prototype, "serialize").call(this, componentData, promises, url);
+        if (this.projectionStrategy) {
+          var projMethod = {};
+          componentData.projectionMethod = projMethod;
+          this.projectionStrategy.serialize(projMethod);
+        }
+      },
+      deserialize: function(context, sceneData, url) {
+        this.projectionStrategy = ProjectionStrategy.Factory(sceneData.projectionMethod || {});
       }
     }, {}, $__super);
   }(bg.scene.Component);
@@ -7597,8 +8248,7 @@ bg.scene = {};
             }
           });
         }
-      },
-      deserialize: function(sceneData) {}
+      }
     }, {}, $__super);
   }(bg.scene.Component);
   bg.scene.registerComponent(bg.scene, Chain, "bg.scene.Chain");
@@ -7614,7 +8264,11 @@ bg.scene = {};
       set joint(j) {
         this._joint = j;
       },
-      deserialize: function(sceneData) {}
+      deserialize: function(context, sceneData, url) {
+        if (sceneData.joint) {
+          this.joint = bg.physics.Joint.Factory(sceneData.joint);
+        }
+      }
     }, {}, $__super);
   }(bg.scene.Component);
   bg.scene.ChainJoint = ChainJoint;
@@ -7627,11 +8281,18 @@ bg.scene = {};
         this.joint.transformOrder = bg.physics.LinkTransformOrder.ROTATE_TRANSLATE;
       }
     }
-    return ($traceurRuntime.createClass)(InputChainJoint, {clone: function() {
+    return ($traceurRuntime.createClass)(InputChainJoint, {
+      clone: function() {
         var newJoint = new bg.scene.InputChainJoint();
         newJoint.joint.assign(this.joint);
         return newJoint;
-      }}, {}, $__super);
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, InputChainJoint.prototype, "serialize").call(this, componentData, promises, url);
+        componentData.joint = {};
+        this.joint.serialize(componentData.joint);
+      }
+    }, {}, $__super);
   }(ChainJoint);
   bg.scene.registerComponent(bg.scene, InputChainJoint, "bg.scene.InputChainJoint");
   var OutputChainJoint = function($__super) {
@@ -7643,11 +8304,18 @@ bg.scene = {};
         this.joint.transformOrder = bg.physics.LinkTransformOrder.TRANSLATE_ROTATE;
       }
     }
-    return ($traceurRuntime.createClass)(OutputChainJoint, {clone: function() {
+    return ($traceurRuntime.createClass)(OutputChainJoint, {
+      clone: function() {
         var newJoint = new bg.scene.OutputChainJoint();
         newJoint.joint.assign(this.joint);
         return newJoint;
-      }}, {}, $__super);
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, OutputChainJoint.prototype, "serialize").call(this, componentData, promises, url);
+        componentData.joint = {};
+        this.joint.serialize(componentData.joint);
+      }
+    }, {}, $__super);
   }(ChainJoint);
   bg.scene.registerComponent(bg.scene, OutputChainJoint, "bg.scene.OutputChainJoint");
 })();
@@ -7663,6 +8331,33 @@ bg.scene = {};
     NEGATIVE_Z: 5
   };
   var g_currentCubemap = null;
+  function copyCubemapImage(componentData, cubemapImage, dstPath) {
+    var path = require("path");
+    var src = bg.base.Writer.StandarizePath(this.getImageUrl(cubemapImage));
+    var file = src.split('/').pop();
+    var dst = bg.base.Writer.StandarizePath(path.join(dstPath, file));
+    switch (cubemapImage) {
+      case bg.scene.CubemapImage.POSITIVE_X:
+        componentData.positiveX = file;
+        break;
+      case bg.scene.CubemapImage.NEGATIVE_X:
+        componentData.negativeX = file;
+        break;
+      case bg.scene.CubemapImage.POSITIVE_Y:
+        componentData.positiveY = file;
+        break;
+      case bg.scene.CubemapImage.NEGATIVE_Y:
+        componentData.negativeY = file;
+        break;
+      case bg.scene.CubemapImage.POSITIVE_Z:
+        componentData.positiveZ = file;
+        break;
+      case bg.scene.CubemapImage.NEGATIVE_Z:
+        componentData.negativeZ = file;
+        break;
+    }
+    return bg.base.Writer.CopyFile(src, dst);
+  }
   var Cubemap = function($__super) {
     function Cubemap() {
       $traceurRuntime.superConstructor(Cubemap).call(this);
@@ -7714,6 +8409,17 @@ bg.scene = {};
         this.setImageUrl(bg.scene.CubemapImage.POSITIVE_Z, bg.utils.Resource.JoinUrl(url, sceneData["positiveZ"]));
         this.setImageUrl(bg.scene.CubemapImage.NEGATIVE_Z, bg.utils.Resource.JoinUrl(url, sceneData["negativeZ"]));
         return this.loadCubemap(context);
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, Cubemap.prototype, "serialize").call(this, componentData, promises, url);
+        if (!bg.isElectronApp)
+          return;
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.POSITIVE_X, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.NEGATIVE_X, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.POSITIVE_Y, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.NEGATIVE_Y, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.POSITIVE_Z, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.NEGATIVE_Z, url.path]));
       }
     }, {Current: function(context) {
         if (!g_currentCubemap) {
@@ -7987,11 +8693,31 @@ bg.scene = {};
           var modelUrl = bg.utils.Resource.JoinUrl(url, sceneData.name + '.vwglb');
           bg.base.Loader.Load(context, modelUrl).then(function(node) {
             var drw = node.component("bg.scene.Drawable");
-            $__2._name = drw._name;
+            $__2._name = sceneData.name;
             $__2._items = drw._items;
             resolve($__2);
           });
         });
+      },
+      serialize: function(componentData, promises, url) {
+        var $__2 = this;
+        if (!bg.isElectronApp) {
+          return;
+        }
+        $traceurRuntime.superGet(this, Drawable.prototype, "serialize").call(this, componentData, promises, url);
+        if (!this.name) {
+          this.name = bg.utils.generateUUID();
+        }
+        componentData.name = this.name;
+        var path = require('path');
+        var dst = path.join(url.path, componentData.name + ".vwglb");
+        promises.push(new Promise(function(resolve, reject) {
+          bg.base.Writer.Write(dst, $__2.node).then(function() {
+            return resolve();
+          }).catch(function(err) {
+            return reject(err);
+          });
+        }));
       }
     }, {InstanceNode: function(node) {
         var newNode = new bg.scene.Node(node.context, node.name ? ("copy of " + node.name) : "");
@@ -8067,6 +8793,10 @@ bg.scene = {};
           $__1._light.deserialize(sceneData);
           resolve($__1);
         });
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, Light.prototype, "serialize").call(this, componentData, promises, url);
+        this.light.serialize(componentData);
       }
     }, {GetActiveLights: function() {
         return s_lightRegister;
@@ -8484,10 +9214,21 @@ bg.scene = {};
     return plist;
   }
   function createPlane(context, w, d) {
+    var plane = arguments[3] !== (void 0) ? arguments[3] : 'y';
     var x = w / 2.0;
     var y = d / 2.0;
     var plist = new bg.base.PolyList(context);
-    plist.vertex = [-x, 0.000000, -y, x, 0.000000, -y, x, 0.000000, y, x, 0.000000, y, -x, 0.000000, y, -x, 0.000000, -y];
+    switch (plane.toLowerCase()) {
+      case 'x':
+        plist.vertex = [0.000000, -x, -y, 0.000000, x, -y, 0.000000, x, y, 0.000000, x, y, 0.000000, -x, y, 0.000000, -x, -y];
+        break;
+      case 'y':
+        plist.vertex = [-x, 0.000000, -y, x, 0.000000, -y, x, 0.000000, y, x, 0.000000, y, -x, 0.000000, y, -x, 0.000000, -y];
+        break;
+      case 'z':
+        plist.vertex = [-x, -y, 0.000000, x, -y, 0.000000, x, y, 0.000000, x, y, 0.000000, -x, y, 0.000000, -x, -y, 0.000000];
+        break;
+    }
     plist.normal = [0.000000, 1.000000, 0.000000, 0.000000, 1.000000, 0.000000, 0.000000, 1.000000, 0.000000, 0.000000, 1.000000, 0.000000, 0.000000, 1.000000, 0.000000, 0.000000, 1.000000, 0.000000];
     plist.texCoord0 = [0.000000, 0.000000, 1.000000, 0.000000, 1.000000, 1.000000, 1.000000, 1.000000, 0.000000, 1.000000, 0.000000, 0.000000];
     plist.texCoord1 = [0.000000, 0.000000, 1.000000, 0.000000, 1.000000, 1.000000, 1.000000, 1.000000, 0.000000, 1.000000, 0.000000, 0.000000];
@@ -8545,6 +9286,28 @@ bg.scene = {};
   var PrimitiveFactory = function() {
     function PrimitiveFactory() {}
     return ($traceurRuntime.createClass)(PrimitiveFactory, {}, {
+      CubePolyList: function(context) {
+        var w = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var h = arguments[2];
+        var d = arguments[3];
+        h = h || w;
+        d = d || w;
+        return createCube(context, w, h, d);
+      },
+      PlanePolyList: function(context) {
+        var w = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var d = arguments[2];
+        var plane = arguments[3] !== (void 0) ? arguments[3] : 'y';
+        d = d || w;
+        return createPlane(context, w, d, plane);
+      },
+      SpherePolyList: function(context) {
+        var r = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var slices = arguments[2] !== (void 0) ? arguments[2] : 20;
+        var stacks = arguments[3];
+        stacks = stacks || slices;
+        return createSphere(context, r, slices, stacks);
+      },
       Cube: function(context) {
         var w = arguments[1] !== (void 0) ? arguments[1] : 1;
         var h = arguments[2];
@@ -8556,15 +9319,16 @@ bg.scene = {};
       Plane: function(context) {
         var w = arguments[1] !== (void 0) ? arguments[1] : 1;
         var d = arguments[2];
+        var plane = arguments[3] !== (void 0) ? arguments[3] : 'y';
         d = d || w;
-        return createDrawable(createPlane(context, w, d), "Cube");
+        return createDrawable(createPlane(context, w, d, plane), "Plane");
       },
       Sphere: function(context) {
         var r = arguments[1] !== (void 0) ? arguments[1] : 1;
         var slices = arguments[2] !== (void 0) ? arguments[2] : 20;
         var stacks = arguments[3];
         stacks = stacks || slices;
-        return createDrawable(createSphere(context, r, slices, stacks), "Cube");
+        return createDrawable(createSphere(context, r, slices, stacks), "Sphere");
       }
     });
   }();
@@ -8769,6 +9533,10 @@ bg.scene = {};
           }
           resolve($__1);
         });
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, Transform.prototype, "serialize").call(this, componentData, promises, url);
+        componentData.transformMatrix = this._matrix.toArray();
       },
       willDisplay: function(pipeline, matrixState) {
         if (this.node && this.node.enabled) {
@@ -9349,6 +10117,86 @@ bg.manipulation = {};
 
 "use strict";
 (function() {
+  var DrawGizmoVisitor = function($__super) {
+    function DrawGizmoVisitor(pipeline, matrixState) {
+      $traceurRuntime.superConstructor(DrawGizmoVisitor).call(this, pipeline, matrixState);
+      this._sprite = bg.scene.PrimitiveFactory.PlanePolyList(pipeline.context, 1, 1, "z");
+      this._gizmoScale = 1;
+      this._gizmoIcons = [];
+    }
+    return ($traceurRuntime.createClass)(DrawGizmoVisitor, {
+      get gizmoScale() {
+        return this._gizmoScale;
+      },
+      set gizmoScale(s) {
+        this._gizmoScale = s;
+      },
+      clearGizmoIcons: function() {
+        this._gizmoIcons = [];
+      },
+      addGizmoIcon: function(type, icon) {
+        var visible = arguments[2] !== (void 0) ? arguments[2] : true;
+        this._gizmoIcons.push({
+          type: type,
+          icon: icon,
+          visible: visible
+        });
+      },
+      setGizmoIconVisibility: function(type, visible) {
+        this._gizmoIcons.some(function(iconData) {
+          if (iconData.type == type) {
+            iconData.visible = visible;
+          }
+        });
+      },
+      get gizmoIcons() {
+        return this._gizmoIcons;
+      },
+      getGizmoIcon: function(node) {
+        var icon = null;
+        this._gizmoIcons.some(function(iconData) {
+          if (node.component(iconData.type) && iconData.visible) {
+            icon = iconData.icon;
+            return true;
+          }
+        });
+        return icon;
+      },
+      visit: function(node) {
+        $traceurRuntime.superGet(this, DrawGizmoVisitor.prototype, "visit").call(this, node);
+        var icon = this.getGizmoIcon(node);
+        var gizmoOpacity = this.pipeline.effect.gizmoOpacity;
+        var gizmoColor = this.pipeline.effect.color;
+        if (icon) {
+          this.pipeline.effect.texture = icon;
+          this.pipeline.effect.color = bg.Color.White();
+          this.pipeline.effect.gizmoOpacity = 1;
+          this.matrixState.viewMatrixStack.push();
+          this.matrixState.modelMatrixStack.push();
+          this.matrixState.viewMatrixStack.mult(this.matrixState.modelMatrixStack.matrix);
+          this.matrixState.modelMatrixStack.identity();
+          this.matrixState.viewMatrixStack.matrix.setRow(0, new bg.Vector4(1, 0, 0, 0));
+          this.matrixState.viewMatrixStack.matrix.setRow(1, new bg.Vector4(0, 1, 0, 0));
+          this.matrixState.viewMatrixStack.matrix.setRow(2, new bg.Vector4(0, 0, 1, 0));
+          var s = this.matrixState.cameraDistanceScale * 0.05 * this._gizmoScale;
+          this.matrixState.viewMatrixStack.rotate(bg.Math.PI, 0, 1, 0);
+          this.matrixState.viewMatrixStack.scale(s, s, s);
+          this.pipeline.draw(this._sprite);
+          this.matrixState.viewMatrixStack.pop();
+          this.matrixState.modelMatrixStack.pop();
+          this.pipeline.effect.gizmoOpacity = gizmoOpacity;
+          this.pipeline.effect.texture = null;
+          this.pipeline.effect.color = gizmoColor;
+        }
+      }
+    }, {}, $__super);
+  }(bg.scene.DrawVisitor);
+  bg.manipulation = bg.manipulation || {};
+  bg.manipulation.DrawGizmoVisitor = DrawGizmoVisitor;
+})();
+
+"use strict";
+(function() {
   var GizmoManager = function($__super) {
     function GizmoManager(context) {
       $traceurRuntime.superConstructor(GizmoManager).call(this, context);
@@ -9371,7 +10219,7 @@ bg.manipulation = {};
       },
       get drawVisitor() {
         if (!this._drawVisitor) {
-          this._drawVisitor = new bg.scene.DrawVisitor(this.pipeline, this.matrixState);
+          this._drawVisitor = new bg.manipulation.DrawGizmoVisitor(this.pipeline, this.matrixState);
         }
         return this._drawVisitor;
       },
@@ -9383,6 +10231,57 @@ bg.manipulation = {};
       },
       get working() {
         return this._working;
+      },
+      addGizmoIcon: function(type, iconTexture) {
+        this.drawVisitor.addGizmoIcon(type, iconTexture);
+      },
+      get gizmoIconScale() {
+        return this.drawVisitor.gizmoScale;
+      },
+      set gizmoIconScale(s) {
+        this.drawVisitor.gizmoScale = s;
+      },
+      setGizmoIconVisibility: function(type, visible) {
+        this.drawVisitor.setGizmoIconVisibility(type, visible);
+      },
+      hideGizmoIcon: function(type) {
+        this.drawVisitor.setGizmoIconVisibility(type, false);
+      },
+      showGizmoIcon: function(type) {
+        this.drawVisitor.setGizmoIconVisibility(type, true);
+      },
+      get gizmoIcons() {
+        return this.drawVisitor.gizmoIcons;
+      },
+      loadGizmoIcons: function(iconData) {
+        var basePath = arguments[1] !== (void 0) ? arguments[1] : "";
+        var onProgress = arguments[2];
+        var $__2 = this;
+        return new Promise(function(resolve, reject) {
+          var urls = [];
+          var iconDataResult = [];
+          iconData.forEach(function(data) {
+            var itemData = {
+              type: data.type,
+              iconTexture: null
+            };
+            itemData.path = bg.utils.path.join(basePath, data.icon);
+            urls.push(itemData.path);
+            iconDataResult.push(itemData);
+          });
+          bg.base.Loader.Load($__2.context, urls, onProgress).then(function(result) {
+            iconDataResult.forEach(function(dataItem) {
+              dataItem.iconTexture = result[dataItem.path];
+              $__2.addGizmoIcon(dataItem.type, dataItem.iconTexture);
+            });
+            resolve(iconDataResult);
+          }).catch(function(err) {
+            reject(err);
+          });
+        });
+      },
+      clearGizmoIcons: function() {
+        this.drawVisitor.clearGizmoIcons();
       },
       startAction: function(gizmoPickData, pos) {
         this._working = true;
@@ -9454,7 +10353,7 @@ bg.manipulation = {};
   function initShaders() {
     shaders[bg.webgl1.EngineId] = {
       vertex: "\n\t\t\tattribute vec3 inVertex;\n\t\t\tattribute vec2 inTexCoord;\n\t\t\t\n\t\t\tuniform mat4 inModelMatrix;\n\t\t\tuniform mat4 inViewMatrix;\n\t\t\tuniform mat4 inProjectionMatrix;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tfsTexCoord = inTexCoord;\n\t\t\t\tgl_Position = inProjectionMatrix * inViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n\t\t\t}\n\t\t\t",
-      fragment: "\n\t\t\tprecision highp float;\n\t\t\t\n\t\t\tuniform vec4 inColor;\n\t\t\tuniform sampler2D inTexture;\n\t\t\tuniform float inOpacity;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tgl_FragColor = vec4(texture2D(inTexture,fsTexCoord).rgb * inColor.rgb,inOpacity);\n\t\t\t}\n\t\t\t"
+      fragment: "\n\t\t\tprecision highp float;\n\t\t\t\n\t\t\tuniform vec4 inColor;\n\t\t\tuniform sampler2D inTexture;\n\t\t\tuniform float inOpacity;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tvec4 tex = texture2D(inTexture,fsTexCoord);\n\t\t\t\tgl_FragColor = vec4(tex.rgb * inColor.rgb,inOpacity * tex.a);\n\t\t\t}\n\t\t\t"
     };
   }
   var GizmoEffect = function($__super) {
@@ -9462,6 +10361,7 @@ bg.manipulation = {};
       $traceurRuntime.superConstructor(GizmoEffect).call(this, context);
       initShaders();
       this._gizmoOpacity = 1;
+      this._color = bg.Color.White();
     }
     return ($traceurRuntime.createClass)(GizmoEffect, {
       get inputVars() {
@@ -9600,6 +10500,10 @@ bg.manipulation = {};
   bg.manipulation.GizmoCache = GizmoCache;
   function loadGizmo(context, gizmoUrl, gizmoNode) {
     return new Promise(function(accept, reject) {
+      if (!gizmoUrl) {
+        accept([]);
+        return;
+      }
       bg.base.Loader.Load(context, gizmoUrl).then(function(node) {
         var drw = node.component("bg.scene.Drawable");
         var gizmoItems = [];
@@ -9714,8 +10618,11 @@ bg.manipulation = {};
         modelview.mult(matrixState.modelMatrixStack.matrix);
         var s = modelview.position.magnitude() / this._scale;
         s = s < this._minSize ? this._minSize : s;
+        var gizmoTransform = this.transform ? new bg.Matrix4(this.transform.matrix) : bg.Matrix4.Identity();
+        gizmoTransform.setScale(s, s, s);
+        gizmoTransform.setPosition(0, 0, 0);
         matrixState.modelMatrixStack.push();
-        matrixState.modelMatrixStack.set(this._gizmoP).mult(this.gizmoTransform).scale(s, s, s);
+        matrixState.modelMatrixStack.set(this._gizmoP).mult(gizmoTransform);
         if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS || pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION)) {
           var dt = pipeline.depthTest;
           if (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION) {
@@ -9897,7 +10804,36 @@ bg.manipulation = {};
         if (this.autoPlaneMode) {
           calculateClosestPlane(this, matrixState);
         }
-        $traceurRuntime.superGet(this, PlaneGizmo.prototype, "display").call(this, pipeline, matrixState);
+        if (!this._gizmoItems || !this.visible)
+          return;
+        var modelview = new bg.Matrix4(matrixState.viewMatrixStack.matrix);
+        modelview.mult(matrixState.modelMatrixStack.matrix);
+        var s = modelview.position.magnitude() / this._scale;
+        s = s < this._minSize ? this._minSize : s;
+        var gizmoTransform = this.gizmoTransform;
+        gizmoTransform.setScale(s, s, s);
+        matrixState.modelMatrixStack.push();
+        matrixState.modelMatrixStack.mult(gizmoTransform);
+        if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS || pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION)) {
+          var dt = pipeline.depthTest;
+          if (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION) {
+            pipeline.depthTest = true;
+          } else {
+            pipeline.depthTest = false;
+          }
+          this._gizmoItems.forEach(function(item) {
+            pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
+            pipeline.draw(item.plist);
+          });
+          pipeline.depthTest = dt;
+        } else if (pipeline.effect instanceof bg.manipulation.GizmoEffect) {
+          this._gizmoItems.forEach(function(item) {
+            pipeline.effect.texture = item.material.texture;
+            pipeline.effect.color = item.material.diffuse;
+            pipeline.draw(item.plist);
+          });
+        }
+        matrixState.modelMatrixStack.pop();
       },
       beginDrag: function(action, pos) {
         this._lastPickPoint = null;
@@ -9934,13 +10870,14 @@ bg.manipulation = {};
     function UnifiedGizmo(path) {
       var visible = arguments[1] !== (void 0) ? arguments[1] : true;
       $traceurRuntime.superConstructor(UnifiedGizmo).call(this, path, visible);
-      this._translateSpeed = 0.01;
+      this._translateSpeed = 0.005;
       this._rotateSpeed = 0.005;
       this._scaleSpeed = 0.001;
+      this._gizmoTransform = bg.Matrix4.Identity();
     }
     return ($traceurRuntime.createClass)(UnifiedGizmo, {
       get gizmoTransform() {
-        return bg.Matrix4.Identity();
+        return this._gizmoTransform;
       },
       get translateSpeed() {
         return this._translateSpeed;
@@ -9969,6 +10906,7 @@ bg.manipulation = {};
       init: function() {
         $traceurRuntime.superGet(this, UnifiedGizmo.prototype, "init").call(this);
         this._gizmoP = bg.Matrix4.Translation(this.transform.matrix.position);
+        this._gizmoTransform = this.transform.matrix.rotation;
       },
       display: function(pipeline, matrixState) {
         if (!this._gizmoItems || !this.visible)
@@ -9984,9 +10922,7 @@ bg.manipulation = {};
             this._lastPickPoint = endPos;
           }
           var matrix = new bg.Matrix4(this.transform.matrix);
-          var rotMatrix = this._gizmoP.rotation;
           this._gizmoP = bg.Matrix4.Translation(this.transform.matrix.position);
-          this._gizmoP.mult(rotMatrix);
           var diff = new bg.Vector2(this._lastPickPoint);
           diff.sub(endPos);
           var matrixState = bg.base.MatrixState.Current();
@@ -9994,19 +10930,20 @@ bg.manipulation = {};
           modelview.mult(matrixState.modelMatrixStack.matrix);
           var s = modelview.position.magnitude() / this._scale;
           s = s < this._minSize ? this._minSize : s;
+          var scale = matrix.getScale();
           var scaleFactor = 1 - ((diff.x + diff.y) * this.scaleSpeed);
           switch (action) {
             case bg.manipulation.GizmoAction.SCALE:
               matrix.scale(scaleFactor, scaleFactor, scaleFactor);
               break;
             case bg.manipulation.GizmoAction.TRANSLATE_X:
-              matrix.translate(-(diff.x + diff.y) * this.translateSpeed * s, 0, 0);
+              matrix.translate(-(diff.x + diff.y) * this.translateSpeed * s / scale.x, 0, 0);
               break;
             case bg.manipulation.GizmoAction.TRANSLATE_Y:
-              matrix.translate(0, -(diff.x + diff.y) * this.translateSpeed * s, 0);
+              matrix.translate(0, -(diff.x + diff.y) * this.translateSpeed * s / scale.y, 0);
               break;
             case bg.manipulation.GizmoAction.TRANSLATE_Z:
-              matrix.translate(0, 0, -(diff.x + diff.y) * this.translateSpeed * s);
+              matrix.translate(0, 0, -(diff.x + diff.y) * this.translateSpeed * s / scale.z);
               break;
             case bg.manipulation.GizmoAction.ROTATE_X:
               matrix.rotate((diff.x + diff.y) * this.rotateSpeed, 1, 0, 0);
@@ -10303,8 +11240,17 @@ bg.manipulation = {};
   var s_selectMode = false;
   bg.manipulation.SelectableType = {
     PLIST: 1,
-    GIZMO: 2
+    GIZMO: 2,
+    GIZMO_ICON: 3
   };
+  var s_selectionIconPlist = null;
+  function selectionIconPlist() {
+    if (!s_selectionIconPlist) {
+      s_selectionIconPlist = bg.scene.PrimitiveFactory.SpherePolyList(this.node.context, 0.5);
+    }
+    return s_selectionIconPlist;
+  }
+  var g_selectableIcons = ["bg.scene.Camera", "bg.scene.Light", "bg.scene.Transform"];
   var Selectable = function($__super) {
     function Selectable() {
       $traceurRuntime.superConstructor(Selectable).call(this);
@@ -10344,19 +11290,56 @@ bg.manipulation = {};
             });
           });
           this._initialized = true;
+        } else if (!this._initialized) {
+          var id = getIdentifier();
+          this._selectablePlist.push({
+            id: id,
+            type: bg.manipulation.SelectableType.GIZMO_ICON,
+            plist: null,
+            material: null,
+            drawable: null,
+            node: this.node
+          });
+          this._initialized = true;
         }
       },
       display: function(pipeline, matrixState) {
+        var $__1 = this;
         if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && pipeline.opacityLayer & bg.base.OpacityLayer.SELECTION) {
+          var selectableByIcon = g_selectableIcons.some(function(componentType) {
+            return $__1.node.component(componentType) != null;
+          });
           this._selectablePlist.forEach(function(item) {
-            if (item.plist.visible) {
-              pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
+            var pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
+            if (item.plist && item.plist.visible) {
+              pipeline.effect.pickId = pickId;
               pipeline.draw(item.plist);
+            } else if (!item.plist && selectableByIcon) {
+              var s = matrixState.cameraDistanceScale * 0.1;
+              pipeline.effect.pickId = pickId;
+              matrixState.modelMatrixStack.push();
+              matrixState.modelMatrixStack.scale(s, s, s);
+              pipeline.draw(selectionIconPlist.apply($__1));
+              matrixState.modelMatrixStack.pop();
             }
           });
         }
       }
     }, {
+      SetSelectableIcons: function(sel) {
+        g_selectableIcons = sel;
+      },
+      AddSelectableIcon: function(sel) {
+        if (g_selectableIcons.indexOf(sel) == -1) {
+          g_selectableIcons.push(sel);
+        }
+      },
+      RemoveSelectableIcon: function(sel) {
+        var index = g_selectableIcons.indexOf(sel);
+        if (index >= 0) {
+          g_selectableIcons.splice(index, 1);
+        }
+      },
       SetSelectMode: function(m) {
         s_selectMode = m;
       },
@@ -10883,10 +11866,12 @@ bg.tools = {};
       addDrawable: function(drawable, trxBase) {
         var $__1 = this;
         drawable.forEach(function(plist, mat, elemTrx) {
-          var trx = new bg.Matrix4(trxBase);
-          if (elemTrx)
-            trx.mult(elemTrx);
-          $__1.addPolyList(plist, trx);
+          if (plist.visible) {
+            var trx = new bg.Matrix4(trxBase);
+            if (elemTrx)
+              trx.mult(elemTrx);
+            $__1.addPolyList(plist, trx);
+          }
         });
       }
     }, {});
@@ -12051,6 +13036,10 @@ bg.render = {};
             dataType: "vec2",
             role: "value"
           }, {
+            name: "inBorderAntiAlias",
+            dataType: "int",
+            role: "value"
+          }, {
             name: "fsTexCoord",
             dataType: "vec2",
             role: "in"
@@ -12061,7 +13050,7 @@ bg.render = {};
             this._fragmentShaderSource.addFunction(lib().functions.utils.borderDetection);
             this._fragmentShaderSource.addFunction(lib().functions.blur.gaussianBlur);
             this._fragmentShaderSource.addFunction(lib().functions.blur.antiAlias);
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\t\tgl_FragColor = antiAlias(inTexture,fsTexCoord,inFrameSize,0.1,3);\n\t\t\t\t\t\t");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\t\tvec4 result = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tif (inBorderAntiAlias==1) {\n\t\t\t\t\t\t\tresult = antiAlias(inTexture,fsTexCoord,inFrameSize,0.1,3);\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tresult = texture2D(inTexture,fsTexCoord);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t");
           }
         }
         return this._fragmentShaderSource;
@@ -12069,6 +13058,7 @@ bg.render = {};
       setupVars: function() {
         this.shader.setTexture("inTexture", this._surface.texture, bg.base.TextureUnit.TEXTURE_0);
         this.shader.setVector2("inFrameSize", this._surface.texture.size);
+        this.shader.setValueInt("inBorderAntiAlias", 0);
       },
       get settings() {
         if (!this._settings) {

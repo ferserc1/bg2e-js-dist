@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.1.1 - build: 77711b2";
+bg.version = "1.1.7 - build: a89ec43";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -355,6 +355,36 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 	
 	bg.utils.UserAgent = UserAgent;
 	bg.utils.userAgent = new UserAgent();
+
+	class Path {
+		get sep() { return "/"; }
+
+		join(a,b) {
+			if (a.lastIndexOf(this.sep)!=a.length-1) {
+				return a + this.sep + b;
+			}
+			else {
+				return a + b;
+			}
+		}
+
+		extension(path) {
+			return path.split(".").pop();
+		}
+
+		fileName(path) {
+			return path.split(this.sep).pop();
+		}
+
+		removeFileName(path) {
+			let result = path.split(this.sep);
+			result.pop();
+			return result.join(this.sep);
+		}
+	}
+
+	bg.utils.Path = Path;
+	bg.utils.path = new Path();
 })(window);
 
 (function() {
@@ -689,6 +719,22 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 
     bg.utils.md5 = md5;
 })();
+
+(function() {
+    function generateUUID () { // Public Domain/MIT
+        var d = new Date().getTime();
+        if (typeof performance !== 'undefined' && typeof performance.now === 'function'){
+            d += performance.now(); //use high-precision timer if available
+        }
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var r = (d + Math.random() * 16) % 16 | 0;
+            d = Math.floor(d / 16);
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    }
+
+    bg.utils.generateUUID = generateUUID;
+})();
 bg.app = {};
 (function() {
 	
@@ -821,9 +867,10 @@ bg.app = {};
 			});
 		}
 		
-		constructor(key) {
+		constructor(key,event) {
 			super();
 			this.key = key;
+			this.event = event;
 		}
 		
 		isSpecialKey() {
@@ -842,22 +889,24 @@ bg.app = {};
 	
 	class MouseEvent extends EventBase {
 		
-		constructor(button = bg.app.MouseButton.NONE, x=-1, y=-1, delta=0) {
+		constructor(button = bg.app.MouseButton.NONE, x=-1, y=-1, delta=0,event=null) {
 			super();
 
 			this.button = button;
 			this.x = x;
 			this.y = y;
 			this.delta = delta;
+			this.event = event;
 		}
 	}
 	
 	bg.app.MouseEvent = MouseEvent;
 	
 	class TouchEvent extends EventBase  {
-		constructor(touches) {
+		constructor(touches,event) {
 			super();
 			this.touches = touches;
+			this.event = event;
 		}
 	}
 	
@@ -1055,7 +1104,7 @@ bg.app = {};
 				break;
 		}
 
-		let bgEvent = new bg.app.MouseEvent(event.button,s_mouseStatus.pos.x,s_mouseStatus.pos.y);
+		let bgEvent = new bg.app.MouseEvent(event.button,s_mouseStatus.pos.x,s_mouseStatus.pos.y,0,event);
 		s_mainLoop.windowController.mouseDown(bgEvent);
 		return bgEvent;
 	}
@@ -1066,8 +1115,10 @@ bg.app = {};
 		s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
 		s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
 		let evt = new bg.app.MouseEvent(bg.app.MouseButton.NONE,
-										  s_mouseStatus.pos.x,
-										  s_mouseStatus.pos.y);
+										s_mouseStatus.pos.x,
+										s_mouseStatus.pos.y,
+										0,
+										event);
 		s_mainLoop.windowController.mouseMove(evt);
 		if (s_mouseStatus.anyButton) {
 			s_mainLoop.windowController.mouseDrag(evt);
@@ -1076,20 +1127,20 @@ bg.app = {};
 	}
 	
 	function onMouseOut() {
-		let bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE,s_mouseStatus.pos.x,s_mouseStatus.pos.y)
+		let bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE,s_mouseStatus.pos.x,s_mouseStatus.pos.y,0,{});
 		s_mainLoop.windowController.mouseOut(bgEvt);
 		if (s_mouseStatus.leftButton) {
 			s_mouseStatus.leftButton = false;
-			bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.LEFT,s_mouseStatus.pos.x,s_mouseStatus.pos.y)
+			bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.LEFT,s_mouseStatus.pos.x,s_mouseStatus.pos.y,0,{});
 			s_mainLoop.windowController.mouseUp(bgEvt);
 		}
 		if (s_mouseStatus.middleButton) {
 			s_mouseStatus.middleButton = false;
-			bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.MIDDLE,s_mouseStatus.pos.x,s_mouseStatus.pos.y)
+			bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.MIDDLE,s_mouseStatus.pos.x,s_mouseStatus.pos.y,0,{});
 			s_mainLoop.windowController.mouseUp(bgEvt);
 		}
 		if (s_mouseStatus.rightButton) {
-			bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.RIGHT,s_mouseStatus.pos.x,s_mouseStatus.pos.y)
+			bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.RIGHT,s_mouseStatus.pos.x,s_mouseStatus.pos.y,0,{});
 			s_mainLoop.windowController.mouseUp(bgEvt);
 			s_mouseStatus.rightButton = false;
 		}
@@ -1116,7 +1167,7 @@ bg.app = {};
 		let multisample = s_mainLoop.canvas.multisample;
 		s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
 		s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
-		let bgEvt = new bg.app.MouseEvent(event.button,s_mouseStatus.pos.x,s_mouseStatus.pos.y)
+		let bgEvt = new bg.app.MouseEvent(event.button,s_mouseStatus.pos.x,s_mouseStatus.pos.y,0,event)
 		s_mainLoop.windowController.mouseUp(bgEvt);
 		return bgEvt;
 	}
@@ -1127,7 +1178,7 @@ bg.app = {};
 		s_mouseStatus.pos.x = (event.clientX - offset.left) * multisample;
 		s_mouseStatus.pos.y = (event.clientY - offset.top) * multisample;
 		let delta = event.wheelDelta ? event.wheelDelta * -1:event.detail * 10;
-		let bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE,s_mouseStatus.pos.x,s_mouseStatus.pos.y,delta)
+		let bgEvt = new bg.app.MouseEvent(bg.app.MouseButton.NONE,s_mouseStatus.pos.x,s_mouseStatus.pos.y,delta,event)
 		s_mainLoop.windowController.mouseWheel(bgEvt);
 		return bgEvt;
 	}
@@ -1147,7 +1198,7 @@ bg.app = {};
                 radiusY: touch.radiusY
             });
         }
-        return new bg.app.TouchEvent(touches);
+        return new bg.app.TouchEvent(touches,event);
     }
     
 	function onTouchStart(event) {
@@ -1171,13 +1222,13 @@ bg.app = {};
 	function onKeyDown(event) {
 		let code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? 	event.keyCode:
 																	String.fromCharCode(event.keyCode);
-		s_mainLoop.windowController.keyDown(new bg.app.KeyboardEvent(code));
+		s_mainLoop.windowController.keyDown(new bg.app.KeyboardEvent(code,event));
 	}
 	
 	function onKeyUp(event) {
 		let code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? 	event.keyCode:
 																	String.fromCharCode(event.keyCode);
-		s_mainLoop.windowController.keyUp(new bg.app.KeyboardEvent(code));
+		s_mainLoop.windowController.keyUp(new bg.app.KeyboardEvent(code,event));
 	}
 	
 	bg.app.MainLoop = {};
@@ -1267,6 +1318,12 @@ bg.Axis = {
 	Y: 2,
 	Z: 3
 };
+
+Object.defineProperty(bg, "isElectronApp", {
+	get: function() {
+		return typeof module !== 'undefined' && module.exports && true;
+	}
+});
 
 
 (function() {
@@ -1510,48 +1567,487 @@ bg.Axis = {
 	
 	let s_loaderPlugins = [];
 	
+	function loadUrl(context,url,onProgress) {
+		return new Promise((accept,reject) => {
+			bg.utils.Resource.Load(url,onProgress)
+				.then(function(data) {
+					return Loader.LoadData(context,url,data);
+				})
+				
+				.then((result,extendedData) => {
+					accept(result,extendedData);
+				})
+				
+				.catch(function(err) {
+					reject(err);
+				});
+		});
+	}
+
+	function loadUrlArray(context,url,onProgress) {
+		return new Promise((accept,reject) => {
+			bg.utils.Resource.LoadMultiple(url,onProgress)
+				.then((result) => {
+					let promises = [];
+
+					for (let itemUrl in result) {
+						let data = result[itemUrl];
+						promises.push(loadData(context,itemUrl,data));
+					}
+
+					return Promise.all(promises);
+				})
+				.then((loadedResults) => {
+					let resolvedData = {}
+					url.forEach((itemUrl,index) => {
+						resolvedData[itemUrl] = loadedResults[index];
+					})
+					accept(resolvedData);
+				})
+				.catch((err) => {
+					reject(err);
+				})
+		})
+	}
+
+	function loadData(context,url,data) {
+		return new Promise((accept,reject) => {
+			let selectedPlugin = null;
+			s_loaderPlugins.some((plugin) => {
+				if (plugin.acceptType(url,data)) {
+					selectedPlugin = plugin;
+					return true;
+				}
+			})
+			
+			if (selectedPlugin) {
+				accept(selectedPlugin.load(context,url,data));
+			}
+			else {
+				return reject(new Error("No suitable plugin found for load " + url));
+			}
+		});
+	}
+
 	class Loader {
 		static RegisterPlugin(p) { s_loaderPlugins.push(p); }
 		
 		static Load(context,url,onProgress) {
-			return new Promise((accept,reject) => {
-				bg.utils.Resource.Load(url,onProgress)
-					.then(function(data) {
-						return Loader.LoadData(context,url,data);
-					})
-					
-					.then((result,extendedData) => {
-						accept(result,extendedData);
-					})
-					
-					.catch(function(err) {
-						reject(err);
-					});
-			});
+			if (Array.isArray(url)) {
+				return loadUrlArray(context,url,onProgress);
+			}
+			else {
+				return loadUrl(context,url,onProgress);
+			}
 		}
 		
 		static LoadData(context,url,data) {
-			return new Promise((accept,reject) => {
-				let selectedPlugin = null;
-				s_loaderPlugins.some((plugin) => {
-					if (plugin.acceptType(url,data)) {
-						selectedPlugin = plugin;
-						return true;
-					}
-				})
-				
-				if (selectedPlugin) {
-					accept(selectedPlugin.load(context,url,data));
-				}
-				else {
-					return reject(new Error("No suitable plugin found for load " + url));
-				}
-			});
+			return loadData(context,url,data);
 		}
 	}
 	
 	bg.base.Loader = Loader;
 	
+})();
+(function() {
+    // NOTE: All the writer functions and classes are intended to be used
+    // only in an Electron.js application
+    if (!bg.isElectronApp) {
+        return false;
+    }
+
+    class WriterPlugin {
+        acceptType(url,data) { return false; }
+        write(url,data) {}
+    }
+
+    bg.base.WriterPlugin = WriterPlugin;
+
+    let s_writerPlugins = [];
+
+    class Writer {
+        static RegisterPlugin(p) { s_writerPlugins.push(p); }
+
+        static Write(url,data) {
+            return new Promise((resolve,reject) => {
+                let selectedPlugin = null;
+                s_writerPlugins.some((plugin) => {
+                    if (plugin.acceptType(url,data)) {
+                        selectedPlugin = plugin;
+                        return true;
+                    }
+                });
+
+                if (selectedPlugin) {
+                    resolve(selectedPlugin.write(url,data));
+                }
+                else {
+                    reject(new Error("No suitable plugin found for write " + url));
+                }
+            })
+        }
+
+        static PrepareDirectory(dir) {
+            let targetDir = Writer.ToSystemPath(dir);
+            const fs = require('fs');
+            const path = require('path');
+            const sep = path.sep;
+            const initDir = path.isAbsolute(targetDir) ? sep : '';
+            targetDir.split(sep).reduce((parentDir,childDir) => {
+                const curDir = path.resolve(parentDir, childDir);
+                if (!fs.existsSync(curDir)) {
+                    fs.mkdirSync(curDir);
+                }
+                return curDir;
+            }, initDir);
+        }
+
+        static StandarizePath(inPath) {
+            return inPath.replace(/\\/g,'/');
+        }
+
+        static ToSystemPath(inPath) {
+            const path = require('path');
+            const sep = path.sep;
+            return inPath.replace(/\\/g,sep).replace(/\//g,sep);
+        }
+
+        static CopyFile(source,target) {
+            return new Promise((resolve,reject) => {
+                const fs = require("fs");
+                let cbCalled = false;
+                
+                let rd = fs.createReadStream(source);
+                rd.on("error", function(err) {
+                    done(err);
+                });
+                let wr = fs.createWriteStream(target);
+                wr.on("error", function(err) {
+                    done(err);
+                });
+                wr.on("close", function(ex) {
+                    done();
+                });
+                rd.pipe(wr);
+            
+                function done(err) {
+                    if (!cbCalled) {
+                        err ? reject(err) : resolve();
+                        cbCalled = true;
+                    }
+                }
+            })
+        }
+    }
+
+    bg.base.Writer = Writer;
+})();
+(function() {
+    // NOTE: this plugin is intended to be used only in an Electron.js app
+    if (!bg.isElectronApp) {
+        return false;
+    }
+
+    let fs = require('fs');
+    let path = require('path');
+
+    function writeTexture(texture,fileData) {
+        if (texture) {
+            let dstPath = bg.base.Writer.StandarizePath(fileData.path).split("/");
+            dstPath.pop();
+            let srcFileName = texture.fileName.split("/").pop();
+            dstPath.push(srcFileName);
+            dstPath = dstPath.join("/");
+            let paths = {
+                src: texture.fileName,
+                dst: dstPath
+            };
+            if (paths.src!=paths.dst) {
+                fileData.copyFiles.push(paths);
+            }
+            return srcFileName;
+        }
+        else {
+            return "";
+        }
+    }
+    function getMaterialString(fileData) {
+        let mat = [];
+        fileData.node.drawable.forEach((plist,material) => {
+            mat.push({
+                "name": plist.name,
+                "class": "GenericMaterial",
+
+                "diffuseR": material.diffuse.r,
+                "diffuseG": material.diffuse.g,
+                "diffuseB": material.diffuse.b,
+                "diffuseA": material.diffuse.a,
+
+                "specularR": material.specular.r,
+                "specularG": material.specular.g,
+                "specularB": material.specular.b,
+                "specularA": material.specular.a,
+
+                "shininess": material.shininess,
+                "refractionAmount": material.refractionAmount,
+                "reflectionAmount": material.reflectionAmount,
+                "lightEmission": material.lightEmission,
+
+                "textureOffsetX": material.textureOffset.x,
+                "textureOffsetY": material.textureOffset.y,
+                "textureScaleX": material.textureScale.x,
+                "textureScaleY": material.textureScale.y,
+
+                "lightmapOffsetX": material.lightmapOffset.x,
+                "lightmapOffsetY": material.lightmapOffset.y,
+                "lightmapScaleX": material.lightmapScale.x,
+                "lightmapScaleY": material.lightmapScale.y,
+
+                "normalMapOffsetX": material.normalMapOffset.x,
+                "normalMapOffsetY": material.normalMapOffset.y,
+                "normalMapScaleX": material.normalMapScale.x,
+                "normalMapScaleY": material.normalMapScale.y,
+
+                "castShadows": material.castShadows,
+                "receiveShadows": material.receiveShadows,
+
+                "alphaCutoff": material.alphaCutoff,
+
+                "shininessMaskChannel": material.shininessMaskChannel,
+                "invertShininessMask": material.shininessMaskInvert,
+                "lightEmissionMaskChannel": material.lightEmissionMaskChannel,
+                "invertLightEmissionMask": material.lightEmissionMaskInvert,
+
+                "displacementFactor": 0,
+                "displacementUV": 0,
+                "tessDistanceFarthest": 40.0,
+                "tessDistanceFar": 30.0,
+                "tessDistanceNear": 15.0,
+                "tessDistanceNearest": 8.0,
+                "tessFarthestLevel": 1,
+                "tessFarLevel": 1,
+                "tessNearLevel": 1,
+                "tessNearestLevel": 1,
+
+                "reflectionMaskChannel": material.reflectionMaskChannel,
+                "invertReflectionMask": material.reflectionMaskInvert,
+
+                "cullFace": material.cullFace,
+
+                "texture": writeTexture(material.texture,fileData),
+                "lightmap": writeTexture(material.lightmap,fileData),
+                "normalMap": writeTexture(material.normalMap,fileData),
+                "shininessMask": writeTexture(material.shininessMask,fileData),
+                "lightEmissionMask": writeTexture(material.lightEmissionMask,fileData),
+                "displacementMap": "",
+                "reflectionMask": writeTexture(material.reflectionMask,fileData),
+                "visible": plist.visible,
+                "groupName": material.groupName
+            });
+        });
+        return JSON.stringify(mat);
+    }
+
+    function getJointString(fileData) {
+        let joints = {};
+        let inJoint = fileData.node.component("bg.scene.InputChainJoint");
+        let outJoint = fileData.node.component("bg.scene.OutputChainJoint");
+        if (inJoint) {
+            joints.input = {
+                "type":"LinkJoint",
+                "offset":[
+                    inJoint.joint.offset.x,
+                    inJoint.joint.offset.y,
+                    inJoint.joint.offset.z
+                ],
+                "pitch": inJoint.joint.pitch,
+                "roll": inJoint.joint.roll,
+                "yaw": inJoint.joint.yaw
+            };
+        }
+        if (outJoint) {
+            joints.output = [{
+                "type":"LinkJoint",
+                "offset":[
+                    outJoint.joint.offset.x,
+                    outJoint.joint.offset.y,
+                    outJoint.joint.offset.z
+                ],
+                "pitch": outJoint.joint.pitch,
+                "roll": outJoint.joint.roll,
+                "yaw": outJoint.joint.yaw
+            }];
+        }
+        return JSON.stringify(joints);
+    }
+
+    function ensurePolyListName(fileData) {
+        let plistNames = [];
+        let plIndex = 0;
+        fileData.node.drawable.forEach((plist,matName) => {
+            let plName = plist.name;
+            if (!plName || plistNames.indexOf(plName)!=-1) {
+                do {
+                    plName = "polyList_" + plIndex;
+                    ++plIndex;
+                }
+                while (plistNames.indexOf(plName)!=-1);
+                plist.name = plName;
+            }
+            plistNames.push(plName);
+        });
+    }
+
+    class FileData {
+        constructor(path,node) {
+            this._path = path;
+            this._node = node;
+            this._copyFiles = [];
+            this._stream = fs.createWriteStream(path);
+        }
+
+        get path() { return this._path; }
+        get node() { return this._node; }
+        get copyFiles() { return this._copyFiles; }
+
+        get stream() { return this._stream; }
+
+        writeUInt(number) {
+            let buffer = new Buffer(4);
+            buffer.writeUInt32BE(number,0);
+            this.stream.write(buffer);
+        }
+        
+        writeBlock(blockName) {
+            this.stream.write(Buffer.from(blockName,"utf-8"));
+        }
+
+        writeString(stringData) {
+            this.writeUInt(stringData.length);
+            this.stream.write(Buffer.from(stringData,"utf-8"));
+        }
+
+        writeBuffer(name,arrayBuffer) {
+            this.writeBlock(name);
+            this.writeUInt(arrayBuffer.length);
+            let buffer = new Buffer(4 * arrayBuffer.length);
+            if (name=="indx") {
+                arrayBuffer.forEach((d,i) => buffer.writeUInt32BE(d,i * 4));
+            }
+            else {
+                arrayBuffer.forEach((d,i) => buffer.writeFloatBE(d,i * 4));
+            }
+            this.stream.write(buffer);
+        }
+
+        writeTextures() {
+            let promises = [];
+            this.copyFiles.forEach((copyData) => {
+                promises.push(new Promise((resolve) => {
+                    let rd = fs.createReadStream(copyData.src);
+                    rd.on('error',rejectCleanup);
+                    let wr = fs.createWriteStream(copyData.dst);
+                    wr.on('error',rejectCleanup);
+                    function rejectCleanup(err) {
+                        rd.destroy();
+                        wr.end();
+                        reject(err);
+                    }
+                    wr.on('finish',resolve);
+                    rd.pipe(wr);
+                }))
+            });
+            return Promise.all(promises);
+        }
+    }
+
+    function writeHeader(fileData) {
+        let buffer = new Buffer(4);
+        [
+            0,  // big endian
+            1,  // major version
+            2,  // minor version
+            0   // review
+        ].forEach((d,i) => buffer.writeInt8(d,i));
+        fileData.stream.write(buffer);
+        
+        // Header 
+        fileData.writeBlock("hedr");
+
+        // Ensure that all poly list have name and material name
+        ensurePolyListName(fileData);
+
+        // Number of polyLists
+        let drw = fileData.node.drawable;
+        let plistItems = 0;
+        drw.forEach(() => plistItems++);
+        fileData.writeUInt(plistItems);
+
+        // Material header
+        fileData.writeBlock("mtrl");
+        fileData.writeString(getMaterialString(fileData));
+
+        // Joints header
+        fileData.writeBlock("join");
+        fileData.writeString(getJointString(fileData));
+    }
+
+    function writePolyList(fileData,plist,material,trx) {
+        //let buffer = new Buffer(4);
+        //fileData.stream.write(Buffer.from("plst","utf-8")); // poly list
+        fileData.writeBlock("plst");
+
+        // Poly list name
+        fileData.writeBlock("pnam");
+        fileData.writeString(plist.name);
+
+        // Material name, the same as plist name in version 1.2.0
+        fileData.writeBlock("mnam");
+        fileData.writeString(plist.name);
+
+        fileData.writeBuffer("varr",plist.vertex);
+        fileData.writeBuffer("narr",plist.normal);
+        fileData.writeBuffer("t0ar",plist.texCoord0);
+        fileData.writeBuffer("t1ar",plist.texCoord1);
+        fileData.writeBuffer("indx",plist.index);
+    }
+
+    function writeNode(fileData) {
+       writeHeader(fileData);
+       fileData.node.drawable.forEach((plist,mat,trx) => {
+           writePolyList(fileData,plist,mat,trx);
+       });
+       fileData.writeBlock("endf");
+       fileData.stream.end();
+    }
+
+    class Bg2WriterPlugin extends bg.base.WriterPlugin {
+        acceptType(url,data) {
+            let ext = url.split(".").pop();
+            return /bg2/i.test(ext) || /vwglb/i.test(ext);
+        }
+
+        write(url,data) {
+            return new Promise((resolve,reject) => {
+                if (!data || !data instanceof bg.scene.Node || !data.drawable) {
+                    reject(new Error("Invalid data format. Expecting scene node."));
+                }
+                let fileData = new FileData(url,data);
+
+                try {
+                    writeNode(fileData);
+                    fileData.writeTextures()
+                        .then(() => resolve())
+                        .catch((err) => reject(err));
+                }
+                catch (err) {
+                    reject(err);
+                }
+            })
+        }
+    }
+
+    bg.base.Bg2WriterPlugin = Bg2WriterPlugin;
 })();
 (function() {
 
@@ -2087,6 +2583,27 @@ bg.Axis = {
 			this._cutoffDistance = sceneData.cutoffDistance;
 			this._projection = new bg.Matrix4(sceneData.projection);
 			this._castShadows = sceneData.castShadows;
+		}
+
+		serialize(sceneData) {
+			let lightTypes = [];
+			lightTypes[bg.base.LightType.DIRECTIONAL] = "kTypeDirectional";
+			lightTypes[bg.base.LightType.SPOT] = "kTypeSpot";
+			lightTypes[bg.base.LightType.POINT] = "kTypePoint";
+			sceneData.lightType = lightTypes[this._type];
+			sceneData.ambient = this._ambient.toArray();
+			sceneData.diffuse = this._diffuse.toArray();
+			sceneData.specular = this._specular.toArray();
+			sceneData.intensity = 1;
+			sceneData.constantAtt = this._attenuation.x;
+			sceneData.linearAtt = this._attenuation.y;
+			sceneData.expAtt = this._attenuation.z;
+			sceneData.spotCutoff = this._spotCutoff || 20;
+			sceneData.shadowStrength = this._shadowStrength;
+			sceneData.cutoffDistance = this._cutoffDistance;
+			sceneData.projection = this._projection.toArray();
+			sceneData.castShadows = this._castShadows;
+			sceneData.shadowBias = this._shadowBias || 0.0029;
 		}
 	}
 	
@@ -3178,6 +3695,7 @@ bg.Axis = {
 			this._projectionMatrixStack = new MatrixStack();
 			this._modelViewMatrix = bg.Matrix4.Identity();
 			this._normalMatrix = bg.Matrix4.Identity();
+			this._cameraDistanceScale = null;
 		}
 		
 		get modelMatrixStack() {
@@ -3218,6 +3736,12 @@ bg.Axis = {
 				this._viewMatrixInvert.invert();
 			}
 			return this._viewMatrixInvert;
+		}
+
+		// This function returns a number that represents the
+		// distance from the camera to the model.
+		get cameraDistanceScale() {
+			return this._cameraDistanceScale = this._viewMatrixStack.matrix.position.magnitude();
 		}
 	}
 	
@@ -3885,6 +4409,79 @@ bg.Axis = {
 	
 })();
 
+(function() {
+    if (!bg.isElectronApp) {
+        return false;
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+
+    class SaveSceneHelper {
+        save(filePath,sceneRoot) {
+            filePath = bg.base.Writer.StandarizePath(filePath);
+            return new Promise((resolve,reject) => {
+                this._url = {};
+                this._url.path = filePath.split('/');
+                this._url.fileName = this._url.path.pop();
+                this._url.path = this._url.path.join('/');
+                this._sceneData = {
+                    fileType:"vwgl::scene",
+                    version:{
+                        major:2,
+                        minor:0,
+                        rev:0
+                    },
+                    scene:[]
+                }
+                this._promises = [];
+                bg.base.Writer.PrepareDirectory(this._url.path);
+
+                let rootNode = {};
+                this._sceneData.scene.push(rootNode);
+                this.buildSceneNode(sceneRoot,rootNode);
+
+                fs.writeFileSync(path.join(this._url.path,this._url.fileName),JSON.stringify(this._sceneData,"","\t"),"utf-8");
+
+                Promise.all(this._promises)
+                    .then(() => resolve())
+                    .catch((err) => reject(err));
+            });
+        }
+
+        buildSceneNode(node,sceneData) {
+            sceneData.type = "Node";
+            sceneData.name = node.name;
+            sceneData.enabled = node.enabled;
+            sceneData.children = [];
+            sceneData.components = [];
+            node.forEachComponent((component) => {
+                let componentData = {};
+                component.serialize(componentData,this._promises,this._url);
+                sceneData.components.push(componentData)
+            });
+            node.children.forEach((child) => {
+                let childData = {}
+                this.buildSceneNode(child,childData);
+                sceneData.children.push(childData);
+            })
+        }
+    };
+
+    class SceneWriterPlugin extends bg.base.WriterPlugin {
+        acceptType(url,data) {
+            let ext = url.split(".").pop(".");
+            return /vitscnj/i.test(ext) && data instanceof bg.scene.Node;
+        }
+
+        write(url,data) {
+            let saveSceneHelper = new SaveSceneHelper();
+            return saveSceneHelper.save(url,data);
+        }
+    }
+
+    bg.base.SceneWriterPlugin = SceneWriterPlugin;
+})();
 (function() {
 	
 	let s_shaderLibrary = null;
@@ -5211,6 +5808,14 @@ class Matrix3 {
 	}
 	
 	get m() { return this._m; }
+
+	toArray() {
+		return [
+			this._m[0], this._m[1], this._m[2],
+			this._m[3], this._m[4], this._m[5],
+			this._m[6], this._m[7], this._m[8]
+		]
+	}
 	
 	get m00() { return this._m[0]; }
 	get m01() { return this._m[1]; }
@@ -5260,8 +5865,23 @@ class Matrix3 {
 
 	row(i) { return new bg.Vector3(this._m[i*3], this._m[i*3 + 1], this._m[i*3 + 2]); }
 	setRow(i, row) { this._m[i*3]=row._v[0]; this._m[i*3 + 1]=row._v[1]; this._m[i*3 + 2]=row._v[2]; return this; }
-	setScale(x,y,z) { this._m[0] = x; this._m[4] = y; this._m[8] = z; return this; }
-	getScale() { return new bg.Vector3(this._m[0], this._m[4], this._m[8]); }
+
+	setScale(x,y,z) { 
+		let rx = new bg.Vector3(this._m[0], this._m[3], this._m[6]).normalize().scale(x);
+		let ry = new bg.Vector3(this._m[1], this._m[4], this._m[7]).normalize().scale(y);
+		let rz = new bg.Vector3(this._m[2], this._m[5], this._m[8]).normalize().scale(z);
+		this._m[0] = rx.x; this._m[3] = rx.y; this._m[6] = rx.z;
+		this._m[1] = ry.x; this._m[4] = ry.y; this._m[7] = ry.z;
+		this._m[2] = rz.x; this._m[5] = rz.y; this._m[8] = rz.z;
+		return this;
+	}
+	getScale() {
+		return new bg.Vector3(
+			new bg.Vector3(this._m[0], this._m[3], this._m[6]).module,
+			new bg.Vector3(this._m[1], this._m[4], this._m[7]).module,
+			new bg.Vector3(this._m[2], this._m[5], this._m[8]).module
+		);
+	}
 	
 	get length() { return this._m.length; }
 	
@@ -5511,6 +6131,15 @@ class Matrix4 {
 	}
 	
 	get m() { return this._m; }
+
+	toArray() {
+		return [
+			this._m[ 0], this._m[ 1], this._m[ 2], this._m[ 3],
+			this._m[ 4], this._m[ 5], this._m[ 6], this._m[ 7],
+			this._m[ 8], this._m[ 9], this._m[10], this._m[11],
+			this._m[12], this._m[13], this._m[14], this._m[15]
+		]
+	}
 	
 	get m00() { return this._m[0]; }
 	get m01() { return this._m[1]; }
@@ -5579,8 +6208,50 @@ class Matrix4 {
 
 	row(i) { return new bg.Vector4(this._m[i*4],this._m[i*4 + 1],this._m[i*4 + 2],this._m[i*4 + 3]); }
 	setRow(i, row) { this._m[i*4]=row._v[0]; this._m[i*4 + 1]=row._v[1]; this._m[i*4 + 2]=row._v[2]; this._m[i*4 + 3]=row._v[3]; return this; }
-	setScale(x,y,z) { this._m[0] = x; this._m[5] = y; this._m[10] = z; return this; }
-	getScale() { return new bg.Vector3(this._m[0], this._m[5], this._m[10]); }
+	setScale(x,y,z) {
+		let rx = new bg.Vector3(this._m[0], this._m[4], this._m[8]).normalize().scale(x);
+		let ry = new bg.Vector3(this._m[1], this._m[5], this._m[9]).normalize().scale(y);
+		let rz = new bg.Vector3(this._m[2], this._m[6], this._m[10]).normalize().scale(z);
+		this._m[0] = rx.x; this._m[4] = rx.y; this._m[8] = rx.z;
+		this._m[1] = ry.x; this._m[5] = ry.y; this._m[9] = ry.z;
+		this._m[2] = rz.x; this._m[6] = rz.y; this._m[10] = rz.z;
+		return this;
+	}
+	getScale() {
+		return new bg.Vector3(
+			new bg.Vector3(this._m[0], this._m[4], this._m[8]).module,
+			new bg.Vector3(this._m[1], this._m[5], this._m[9]).module,
+			new bg.Vector3(this._m[2], this._m[6], this._m[10]).module
+		);
+	}
+
+	setPosition(pos,y,z) {
+		if (typeof(pos)=="number") {
+			this._m[12] = pos;
+			this._m[13] = y;
+			this._m[14] = z;
+		}
+		else {
+			this._m[12] = pos.x;
+			this._m[13] = pos.y;
+			this._m[14] = pos.z;
+		}
+		return this;
+	}
+
+	get rotation() {
+		let scale = this.getScale();
+		return new bg.Matrix4(
+				this._m[0]/scale.x, this._m[1]/scale.y, this._m[ 2]/scale.z, 0,
+				this._m[4]/scale.x, this._m[5]/scale.y, this._m[ 6]/scale.z, 0,
+				this._m[8]/scale.x, this._m[9]/scale.y, this._m[10]/scale.z, 0,
+				0,	   0,	  0, 	1
+			);
+	}
+
+	get position() {
+		return new bg.Vector3(this._m[12], this._m[13], this._m[14]);
+	}
 	
 	get length() { return this._m.length; }
 	
@@ -5627,12 +6298,6 @@ class Matrix4 {
 
 	elemAtIndex(i) { return this._m[i]; }
 
-	setScale(x, y, z) {
-		this._m[0] = x;
-		this._m[5] = y;
-		this._m[10] = z;
-	}
-	
 	assign(a) {
 		if (a.length==9) {
 			this._m[0]  = a._m[0]; this._m[1]  = a._m[1]; this._m[2]  = a._m[2]; this._m[3]  = 0;
@@ -5776,19 +6441,6 @@ class Matrix4 {
 		return this;
 	}
 	
-	get rotation() {
-		return new bg.Matrix4(
-				this._m[0], this._m[1], this._m[ 2], 0,
-				this._m[4], this._m[5], this._m[ 6], 0,
-				this._m[8], this._m[9], this._m[10], 0,
-				0,	   0,	  0, 	1
-			);
-	}
-
-	get position() {
-		return new bg.Vector3(this._m[12], this._m[13], this._m[14]);
-	}
-	
 	transformDirection(/* Vector3 */ dir) {
 		let direction = new bg.Vector3(dir);
 		let trx = new bg.Matrix4(this);
@@ -5915,14 +6567,15 @@ bg.Matrix4 = Matrix4;
 		set x(v) { this._v[0] = v; }
 		get y() { return this._v[1]; }
 		set y(v) { this._v[1] = v; }
-		
-		magnitude() {
-			let v = 0;
-			for (let i=0; i<this._v.length; ++i) {
-				let n = this._v[i];
-				v += bg.Math.square(n);
+
+		get module() { return this.magnitude(); }
+
+		toArray() {
+			let result = [];
+			for (let i=0; i<this.v.length; ++i) {
+				result.push(this.v[i]);
 			}
-			return bg.Math.sqrt(v);
+			return result;
 		}
 	}
 	
@@ -5988,6 +6641,13 @@ bg.Matrix4 = Matrix4;
 			return this;
 		}
 
+		magnitude() {
+			return Math.sqrt(
+				this._v[0] * this._v[0] +
+				this._v[1] * this._v[1]
+			)
+		}
+
 		elemAtIndex(i) { return this._v[i]; }
 		equals(v) { return this._v[0]==v._v[0] && this._v[1]==v._v[1]; }
 		notEquals(v) { return this._v[0]!=v._v[0] || this._v[1]!=v._v[1]; }
@@ -6051,6 +6711,14 @@ bg.Matrix4 = Matrix4;
 		
 		get z() { return this._v[2]; }
 		set z(v) { this._v[2] = v; }
+
+		magnitude() {
+			return Math.sqrt(
+				this._v[0] * this._v[0] +
+				this._v[1] * this._v[1] +
+				this._v[2] * this._v[2]
+			);
+		}
 		
 		normalize() {
 			let m = this.magnitude();
@@ -6193,9 +6861,21 @@ bg.Matrix4 = Matrix4;
 		get w() { return this._v[3]; }
 		set w(v) { this._v[3] = v; }
 		
+		magnitude() {
+			return Math.sqrt(
+				this._v[0] * this._v[0] +
+				this._v[1] * this._v[1] +
+				this._v[2] * this._v[2] +
+				this._v[3] * this._v[3]
+			);
+		}
+
 		normalize() {
 			let m = this.magnitude();
-			this._v[0] = this._v[0]/m; this._v[1]=this._v[1]/m; this._v[2]=this._v[2]/m; this._v[3]=this._v[3]/m;
+			this._v[0] = this._v[0]/m;
+			this._v[1]=this._v[1]/m;
+			this._v[2]=this._v[2]/m;
+			this._v[3]=this._v[3]/m;
 			return this;
 		}
 
@@ -6489,6 +7169,15 @@ bg.physics = {};
 (function() {
 	
 	class Joint {
+		static Factory(linkData) {
+			switch (linkData.type) {
+			case 'LinkJoint':
+				return LinkJoint.Factory(linkData);
+				break;
+			}
+			return null;
+		}
+
 		constructor() {
 			this._transform = bg.Matrix4.Identity();
 		}
@@ -6513,6 +7202,20 @@ bg.physics = {};
 	}
 	
 	class LinkJoint extends Joint {
+		static Factory(data) {
+			let result = new LinkJoint();
+			result.offset = new bg.Vector3(
+				data.offset[0] || 0,
+				data.offset[1] || 0,
+				data.offset[2] || 0
+			);
+			result.yaw = data.yaw || 0;
+			result.pitch = data.pitch || 0;
+			result.roll = data.roll || 0;
+			result.order = data.order || 1;
+			return result;
+		}
+
 		constructor() {
 			super();
 			this._offset = new bg.Vector3();
@@ -6574,14 +7277,18 @@ bg.physics = {};
 			this.transform.identity();
 			this.multTransform(this.transform);
 		}
-		
-		deserialize(sceneData) {
-			// TODO: Deserialize
-			//this._offset = offset
-			// yaw
-			// pitch
-			// roll
-			// order
+
+		serialize(data) {
+			data.type = "LinkJoint";
+			data.offset = [
+				this.offset.x,
+				this.offset.y,
+				this.offset.z
+			];
+			data.yaw = this.yaw;
+			data.pitch = this.pitch;
+			data.roll = this.roll;
+			data.order = this.order;
 		}
 	}
 	
@@ -6769,6 +7476,18 @@ bg.scene = {};
 		
 		deserialize(context,sceneData,url) {
 			return Promise.resolve(this);
+		}
+
+		// componentData: the current json object corresponding to the parent node
+		// promises: array of promises. If the component needs to execute asynchronous
+		//			 actions, it can push one or more promises into this array
+		// url: the destination scene url, composed by:
+		//	{
+		//		path: "scene path, using / as separator even on Windows",
+		//		fileName: "scene file name" 
+		//	}
+		serialize(componentData,promises,url) {
+			componentData.type = this.typeId.split(".").pop();
 		}
 		
 		// The following functions are implemented in the SceneComponent class, in the C++ API
@@ -7046,8 +7765,26 @@ bg.scene = {};
 			return isNodeAncient(node._parent, ancient);
 		}
 	}
+
+	function cleanupNode(sceneNode) {
+        let components = [];
+        let children = [];
+        sceneNode.forEachComponent((c) => components.push(c));
+        sceneNode.children.forEach((child) => children.push(child));
+        components.forEach((c) => sceneNode.removeComponent(c));
+        children.forEach((child) => {
+            sceneNode.removeChild(child);
+            cleanupNode(child);
+        });
+    }
 	
 	class Node extends bg.scene.SceneObject {
+		// IMPORTANT: call this function to clean all the resources of
+		// a node if you don't want to use it anymore.
+		static CleanupNode(node) {
+			cleanupNode(node);
+		}
+
 		constructor(context,name="") {
 			super(context,name);
 			
@@ -7173,6 +7910,11 @@ bg.scene = {};
 		set far(f) { this._far = f; }
 		get viewport() { return this._viewport; }
 		set viewport(vp) { this._viewport = vp; }
+
+		serialize(jsonData) {
+			jsonData.near = this.near;
+			jsonData.far = this.far;
+		}
 	}
 
 	bg.scene.ProjectionStrategy = ProjectionStrategy;
@@ -7205,6 +7947,12 @@ bg.scene = {};
 			this.near = jsonData.near;
 			this.far = jsonData.far;
 			this.fov = jsonData.fov;
+		}
+
+		serialize(jsonData) {
+			jsonData.type = "PerspectiveProjectionMethod";
+			jsonData.fov = this.fov;
+			super.serialize(jsonData);
 		}
 	}
 
@@ -7245,6 +7993,13 @@ bg.scene = {};
 			this.focalLength = jsonData.focalLength;
 			this.near = jsonData.near;
 			this.far = jsonData.far;
+		}
+
+		serialize(jsonData) {
+			jsonData.type = "OpticalProjectionMethod";
+			jsonData.frameSize = this.frameSize;
+			jsonData.focalLength = this.focalLength;
+			super.serialize(jsonData);
 		}
 	}
 
@@ -7325,6 +8080,19 @@ bg.scene = {};
 		frame(delta) {
 			this._rebuildTransform = true;
 		}
+
+		serialize(componentData,promises,url) {
+			super.serialize(componentData,promises,url);
+			if (this.projectionStrategy) {
+				let projMethod = {};
+				componentData.projectionMethod = projMethod;
+				this.projectionStrategy.serialize(projMethod);
+			}
+		}
+
+		deserialize(context,sceneData,url) {
+			this.projectionStrategy = ProjectionStrategy.Factory(sceneData.projectionMethod || {});
+		}
 	}
 	
 	bg.scene.registerComponent(bg.scene,Camera,"bg.scene.Camera");
@@ -7365,10 +8133,6 @@ bg.scene = {};
 				});
 			}
 		}
-		
-		deserialize(sceneData) {
-			
-		}
 	}
 	
 	bg.scene.registerComponent(bg.scene,Chain,"bg.scene.Chain");
@@ -7382,9 +8146,11 @@ bg.scene = {};
 		
 		get joint() { return this._joint; }
 		set joint(j) { this._joint = j; }
-		
-		deserialize(sceneData) {
-			// TODO: deserialize
+
+		deserialize(context,sceneData,url) {
+			if (sceneData.joint) {
+				this.joint = bg.physics.Joint.Factory(sceneData.joint);
+			}
 		}
 	}
 	
@@ -7405,6 +8171,12 @@ bg.scene = {};
 			let newJoint = new bg.scene.InputChainJoint();
 			newJoint.joint.assign(this.joint);
 			return newJoint;
+		}
+
+		serialize(componentData,promises,url) {
+			super.serialize(componentData,promises,url);
+			componentData.joint = {};
+			this.joint.serialize(componentData.joint);
 		}
 	}
 	
@@ -7427,6 +8199,12 @@ bg.scene = {};
 			newJoint.joint.assign(this.joint);
 			return newJoint;
 		}
+
+		serialize(componentData,promises,url) {
+			super.serialize(componentData,promises,url);
+			componentData.joint = {};
+			this.joint.serialize(componentData.joint);
+		}
 	}
 	
 	bg.scene.registerComponent(bg.scene,OutputChainJoint,"bg.scene.OutputChainJoint");
@@ -7443,6 +8221,34 @@ bg.scene = {};
     };
 
     let g_currentCubemap = null;
+
+    function copyCubemapImage(componentData,cubemapImage,dstPath) {
+        let path = require("path");
+        let src = bg.base.Writer.StandarizePath(this.getImageUrl(cubemapImage));
+        let file = src.split('/').pop();
+        let dst = bg.base.Writer.StandarizePath(path.join(dstPath,file));
+        switch (cubemapImage) {
+        case bg.scene.CubemapImage.POSITIVE_X:
+            componentData.positiveX = file;
+            break;
+        case bg.scene.CubemapImage.NEGATIVE_X:
+            componentData.negativeX = file;
+            break;
+        case bg.scene.CubemapImage.POSITIVE_Y:
+            componentData.positiveY = file;
+            break;
+        case bg.scene.CubemapImage.NEGATIVE_Y:
+            componentData.negativeY = file;
+            break;
+        case bg.scene.CubemapImage.POSITIVE_Z:
+            componentData.positiveZ = file;
+            break;
+        case bg.scene.CubemapImage.NEGATIVE_Z:
+            componentData.negativeZ = file;
+            break;
+        }
+        return bg.base.Writer.CopyFile(src,dst);
+    }
 
     class Cubemap extends bg.scene.Component {
         static Current(context) {
@@ -7535,6 +8341,17 @@ bg.scene = {};
                 bg.utils.Resource.JoinUrl(url,sceneData["negativeZ"])
             );
             return this.loadCubemap(context);
+        }
+        
+        serialize(componentData,promises,url) {
+            super.serialize(componentData,promises,url);
+            if (!bg.isElectronApp) return;
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.POSITIVE_X,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.NEGATIVE_X,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.POSITIVE_Y,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.NEGATIVE_Y,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.POSITIVE_Z,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.NEGATIVE_Z,url.path]));
 		}
     }
 
@@ -7774,11 +8591,29 @@ bg.scene = {};
 				bg.base.Loader.Load(context,modelUrl)
 					.then((node) => {
 						let drw = node.component("bg.scene.Drawable");
-						this._name = drw._name;
+						this._name = sceneData.name;
 						this._items = drw._items;
 						resolve(this);
 					});
 			});
+		}
+
+		serialize(componentData,promises,url) {
+			if (!bg.isElectronApp) {
+				return;
+			}
+			super.serialize(componentData,promises,url);
+			if (!this.name) {
+				this.name = bg.utils.generateUUID();
+			}
+			componentData.name = this.name;
+			const path = require('path');
+			let dst = path.join(url.path,componentData.name + ".vwglb");
+			promises.push(new Promise((resolve,reject) => {
+				bg.base.Writer.Write(dst,this.node)
+					.then(() => resolve())
+					.catch((err) => reject(err));
+			}));
 		}
 	}
 	
@@ -7851,8 +8686,13 @@ bg.scene = {};
 				resolve(this);
 			});
 		}
+
+		serialize(componentData,promises,url) {
+			super.serialize(componentData,promises,url);
+			this.light.serialize(componentData);
+		}
 	}
-	
+
 	bg.scene.registerComponent(bg.scene,Light,"bg.scene.Light");
 })();
 (function() {
@@ -8390,18 +9230,38 @@ bg.scene = {};
 		return plist;
 	}
 	
-	function createPlane(context,w,d) {
+	function createPlane(context,w,d,plane='y') {
 		let x = w / 2.0;
 		let y = d / 2.0;
 		
 		let plist = new bg.base.PolyList(context);
 		
-		plist.vertex =[	-x,0.000000,-y,
-						 x,0.000000,-y,
-						 x,0.000000, y,
-						 x,0.000000, y,
-						-x,0.000000, y,
-						-x,0.000000,-y];
+		switch (plane.toLowerCase()) {
+		case 'x':
+			plist.vertex =[	0.000000,-x,-y,
+							0.000000, x,-y,
+							0.000000, x, y,
+							0.000000, x, y,
+							0.000000,-x, y,
+							0.000000,-x,-y];
+			break;
+		case 'y':
+			plist.vertex =[	-x,0.000000,-y,
+							 x,0.000000,-y,
+							 x,0.000000, y,
+							 x,0.000000, y,
+							-x,0.000000, y,
+							-x,0.000000,-y];
+			break;
+		case 'z':
+			plist.vertex =[	-x,-y,0.000000,
+							 x,-y,0.000000,
+							 x, y,0.000000,
+							 x, y,0.000000,
+							-x, y,0.000000,
+							-x,-y,0.000000];
+			break;
+		}
 
 		plist.normal = [	0.000000,1.000000,0.000000,
 							0.000000,1.000000,0.000000,
@@ -8479,20 +9339,36 @@ bg.scene = {};
 	}
 	
 	class PrimitiveFactory {
+		static CubePolyList(context,w=1,h,d) {
+			h = h || w;
+			d = d || w;
+			return createCube(context,w,h,d);
+		}
+
+		static PlanePolyList(context,w=1,d,plane='y') {
+			d = d || w;
+			return createPlane(context,w,d,plane);
+		}
+
+		static SpherePolyList(context,r=1,slices=20,stacks) {
+			stacks = stacks || slices;
+			return createSphere(context,r,slices,stacks);
+		}
+
 		static Cube(context,w=1,h,d) {
 			h = h || w;
 			d = d || w;
 			return createDrawable(createCube(context,w,h,d),"Cube");
 		}
 		
-		static Plane(context,w=1,d) {
+		static Plane(context,w=1,d,plane='y') {
 			d = d || w;
-			return createDrawable(createPlane(context,w,d),"Cube");
+			return createDrawable(createPlane(context,w,d,plane),"Plane");
 		}
 		
 		static Sphere(context,r=1,slices=20,stacks) {
 			stacks = stacks || slices;
-			return createDrawable(createSphere(context,r,slices,stacks),"Cube");
+			return createDrawable(createSphere(context,r,slices,stacks),"Sphere");
 		}
 	}
 	
@@ -8740,6 +9616,11 @@ bg.scene = {};
 				}
 				resolve(this);
 			});
+		}
+
+		serialize(componentData,promises,url) {
+			super.serialize(componentData,promises,url);
+			componentData.transformMatrix = this._matrix.toArray();
 		}
 		
 		willDisplay(pipeline,matrixState) {
@@ -9363,6 +10244,79 @@ bg.scene = {};
 })();
 bg.manipulation = {};
 (function() {
+
+    class DrawGizmoVisitor extends bg.scene.DrawVisitor {
+        constructor(pipeline,matrixState) {
+            super(pipeline,matrixState);
+            this._sprite = bg.scene.PrimitiveFactory.PlanePolyList(pipeline.context,1,1,"z");
+
+            this._gizmoScale = 1;
+
+            this._gizmoIcons = [];
+        }
+
+        get gizmoScale() { return this._gizmoScale; }
+        set gizmoScale(s) { this._gizmoScale = s; }
+
+        clearGizmoIcons() { this._gizmoIcons = []; }
+        addGizmoIcon(type,icon,visible=true) { this._gizmoIcons.push({ type:type, icon:icon, visible:visible }); }
+        setGizmoIconVisibility(type,visible) {
+            this._gizmoIcons.some((iconData) => {
+                if (iconData.type==type) {
+                    iconData.visible = visible;
+                }
+            })
+        }
+
+        get gizmoIcons() { return this._gizmoIcons; }
+
+        getGizmoIcon(node) {
+            let icon = null;
+            this._gizmoIcons.some((iconData) => {
+                if (node.component(iconData.type) && iconData.visible) {
+                    icon = iconData.icon;
+                    return true;
+                }
+            });
+            return icon;
+        }
+
+        visit(node) {
+            super.visit(node);
+
+            let icon = this.getGizmoIcon(node);
+            let gizmoOpacity = this.pipeline.effect.gizmoOpacity;
+            let gizmoColor = this.pipeline.effect.color;
+            if (icon) {
+                this.pipeline.effect.texture = icon;
+                this.pipeline.effect.color = bg.Color.White();
+                this.pipeline.effect.gizmoOpacity = 1;
+                this.matrixState.viewMatrixStack.push();
+                this.matrixState.modelMatrixStack.push();
+                this.matrixState.viewMatrixStack.mult(this.matrixState.modelMatrixStack.matrix);
+                this.matrixState.modelMatrixStack.identity();
+                this.matrixState.viewMatrixStack.matrix.setRow(0,new bg.Vector4(1,0,0,0));
+                this.matrixState.viewMatrixStack.matrix.setRow(1,new bg.Vector4(0,1,0,0));
+                this.matrixState.viewMatrixStack.matrix.setRow(2,new bg.Vector4(0,0,1,0));
+                let s = this.matrixState.cameraDistanceScale * 0.05 * this._gizmoScale;
+                this.matrixState.viewMatrixStack.rotate(bg.Math.PI,0,1,0);
+                this.matrixState.viewMatrixStack.scale(s,s,s);
+                this.pipeline.draw(this._sprite);
+    
+                this.matrixState.viewMatrixStack.pop();
+                this.matrixState.modelMatrixStack.pop();
+                this.pipeline.effect.gizmoOpacity = gizmoOpacity;
+                this.pipeline.effect.texture = null;
+                this.pipeline.effect.color = gizmoColor;
+            }
+        }
+
+    }
+
+    bg.manipulation = bg.manipulation || {};
+    bg.manipulation.DrawGizmoVisitor = DrawGizmoVisitor;
+})();
+(function() {
 	
 	class GizmoManager extends bg.app.ContextObject {
 		
@@ -9389,7 +10343,7 @@ bg.manipulation = {};
 		
 		get drawVisitor() {
 			if (!this._drawVisitor) {
-				this._drawVisitor = new bg.scene.DrawVisitor(this.pipeline,this.matrixState);
+				this._drawVisitor = new bg.manipulation.DrawGizmoVisitor(this.pipeline,this.matrixState);
 			}
 			return this._drawVisitor;
 		}
@@ -9398,6 +10352,60 @@ bg.manipulation = {};
 		set gizmoOpacity(o) { this._gizmoOpacity = o; }
 		
 		get working() { return this._working; }
+
+		// Load icon textures manually
+		// addGizmoIcon("bg.scene.Camera",cameraTexture)
+		addGizmoIcon(type,iconTexture) {
+			this.drawVisitor.addGizmoIcon(type,iconTexture);
+		}
+
+		get gizmoIconScale() { return this.drawVisitor.gizmoScale; }
+		set gizmoIconScale(s) { this.drawVisitor.gizmoScale = s; }
+
+		setGizmoIconVisibility(type,visible) { this.drawVisitor.setGizmoIconVisibility(type,visible); }
+		hideGizmoIcon(type) { this.drawVisitor.setGizmoIconVisibility(type,false); }
+		showGizmoIcon(type) { this.drawVisitor.setGizmoIconVisibility(type,true); }
+		
+		get gizmoIcons() { return this.drawVisitor.gizmoIcons; }
+
+		/*
+		 * Receives an array with the icon data, ordered by priority (only one component
+		 * icon will be shown).
+		 * iconData: [
+		 * 		{ type:"bg.scene.Camera", icon:"../data/camera_gizmo.png" },
+		 * 		{ type:"bg.scene.Light", icon:"../data/light_gizmo.png" },
+		 * 		{ type:"bg.scene.Transform", icon:"../data/transform_gizmo.png" },
+		 * 		{ type:"bg.scene.Drawable", icon:"../data/drawable_gizmo.png" },
+		 * ],
+		 * basePath: if specified, this path will be prepended to the icon paths
+		 */
+		loadGizmoIcons(iconData, basePath="",onProgress) {
+			return new Promise((resolve,reject) => {
+				let urls = [];
+				let iconDataResult = [];
+				iconData.forEach((data) => {
+					let itemData = { type:data.type, iconTexture:null };
+					itemData.path = bg.utils.path.join(basePath,data.icon);
+					urls.push(itemData.path);
+					iconDataResult.push(itemData);
+				});
+				bg.base.Loader.Load(this.context,urls,onProgress)
+					.then((result) => {
+						iconDataResult.forEach((dataItem) => {
+							dataItem.iconTexture = result[dataItem.path];
+							this.addGizmoIcon(dataItem.type,dataItem.iconTexture);
+						})
+						resolve(iconDataResult);
+					})
+					.catch((err) => {
+						reject(err);
+					});
+			});
+		}
+
+		clearGizmoIcons() {
+			this.drawVisitor.clearGizmoIcons();
+		}
 		
 		startAction(gizmoPickData,pos) {
 			this._working = true;
@@ -9504,7 +10512,8 @@ bg.manipulation = {};
 			varying vec2 fsTexCoord;
 			
 			void main() {
-				gl_FragColor = vec4(texture2D(inTexture,fsTexCoord).rgb * inColor.rgb,inOpacity);
+				vec4 tex = texture2D(inTexture,fsTexCoord);
+				gl_FragColor = vec4(tex.rgb * inColor.rgb,inOpacity * tex.a);
 			}
 			`
 		};
@@ -9515,6 +10524,7 @@ bg.manipulation = {};
 			super(context);
 			initShaders();
 			this._gizmoOpacity = 1;
+			this._color = bg.Color.White();
 		}
 		
 		get inputVars() {
@@ -9677,6 +10687,10 @@ bg.manipulation = {};
 
 	function loadGizmo(context,gizmoUrl,gizmoNode) {
 		return new Promise(function(accept,reject) {
+			if (!gizmoUrl) {
+				accept([]);
+				return;
+			}
 			bg.base.Loader.Load(context,gizmoUrl)
 				.then(function (node) {
 					let drw = node.component("bg.scene.Drawable");
@@ -9801,11 +10815,13 @@ bg.manipulation = {};
 			modelview.mult(matrixState.modelMatrixStack.matrix);
 			let s = modelview.position.magnitude() / this._scale;
 			s = s<this._minSize ? this._minSize : s;
+			let gizmoTransform = this.transform ? new bg.Matrix4(this.transform.matrix) : bg.Matrix4.Identity();
+			gizmoTransform.setScale(s,s,s);
+			gizmoTransform.setPosition(0,0,0);
 			matrixState.modelMatrixStack.push();
 			matrixState.modelMatrixStack
 				.set(this._gizmoP)
-				.mult(this.gizmoTransform)
-				.scale(s,s,s);
+				.mult(gizmoTransform);
 			if (pipeline.effect instanceof bg.manipulation.ColorPickEffect &&
 				(pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS ||
 				pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION))
@@ -10031,7 +11047,44 @@ bg.manipulation = {};
 			if (this.autoPlaneMode) {
 				calculateClosestPlane(this,matrixState);
 			}
-			super.display(pipeline,matrixState);
+			if (!this._gizmoItems || !this.visible) return;
+			let modelview = new bg.Matrix4(matrixState.viewMatrixStack.matrix);
+			modelview.mult(matrixState.modelMatrixStack.matrix);
+			let s = modelview.position.magnitude() / this._scale;
+			s = s<this._minSize ? this._minSize : s;
+			let gizmoTransform = this.gizmoTransform;
+			gizmoTransform.setScale(s,s,s);
+			matrixState.modelMatrixStack.push();
+			matrixState.modelMatrixStack
+				.mult(gizmoTransform);
+			if (pipeline.effect instanceof bg.manipulation.ColorPickEffect &&
+				(pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS ||
+				pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION))
+			{
+				let dt = pipeline.depthTest;
+				if (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION) {	// drawing gizmos in selection mode
+					pipeline.depthTest = true;
+				}
+				else {
+					pipeline.depthTest = false;
+				}
+				this._gizmoItems.forEach((item) => {
+					// The RGBA values are inverted because the alpha channel must be major than zero to
+					// produce any output in the framebuffer
+					pipeline.effect.pickId = new bg.Color(item.id.a/255,item.id.b/255,item.id.g/255,item.id.r/255);
+					pipeline.draw(item.plist);
+				});
+				pipeline.depthTest = dt;
+			}
+			else if (pipeline.effect instanceof bg.manipulation.GizmoEffect) {
+				// Draw gizmo
+				this._gizmoItems.forEach((item) => {
+					pipeline.effect.texture = item.material.texture;
+					pipeline.effect.color = item.material.diffuse;
+					pipeline.draw(item.plist);
+				})
+			}
+			matrixState.modelMatrixStack.pop();
 		}
 
 		beginDrag(action,pos) {
@@ -10073,13 +11126,14 @@ bg.manipulation = {};
 	class UnifiedGizmo extends Gizmo {
 		constructor(path,visible=true) {
 			super(path,visible);
-			this._translateSpeed = 0.01;
+			this._translateSpeed = 0.005;
 			this._rotateSpeed = 0.005;
 			this._scaleSpeed = 0.001;
+			this._gizmoTransform = bg.Matrix4.Identity();
 		}
 
 		get gizmoTransform() {
-			return bg.Matrix4.Identity();
+			return this._gizmoTransform;
 		}
 
 		get translateSpeed() { return this._translateSpeed; }
@@ -10101,6 +11155,7 @@ bg.manipulation = {};
 		init() {
 			super.init();
 			this._gizmoP = bg.Matrix4.Translation(this.transform.matrix.position);
+			this._gizmoTransform = this.transform.matrix.rotation;
 		}
 		
 		display(pipeline,matrixState) {
@@ -10119,9 +11174,7 @@ bg.manipulation = {};
 				}
 
 				let matrix = new bg.Matrix4(this.transform.matrix);
-				let rotMatrix = this._gizmoP.rotation;
 				this._gizmoP = bg.Matrix4.Translation(this.transform.matrix.position);
-				this._gizmoP.mult(rotMatrix);
 				let diff = new bg.Vector2(this._lastPickPoint);
 				diff.sub(endPos);
 				
@@ -10130,6 +11183,7 @@ bg.manipulation = {};
 				modelview.mult(matrixState.modelMatrixStack.matrix);
 				let s = modelview.position.magnitude() / this._scale;
 				s = s<this._minSize ? this._minSize : s;
+				let scale = matrix.getScale();
 
 				let scaleFactor = 1 - ((diff.x + diff.y) * this.scaleSpeed);
 				switch (action) {
@@ -10137,13 +11191,13 @@ bg.manipulation = {};
 					matrix.scale(scaleFactor,scaleFactor,scaleFactor);
 					break;
 				case bg.manipulation.GizmoAction.TRANSLATE_X:
-					matrix.translate(-(diff.x + diff.y) * this.translateSpeed * s, 0, 0);
+					matrix.translate(-(diff.x + diff.y) * this.translateSpeed * s / scale.x, 0, 0);
 					break;
 				case bg.manipulation.GizmoAction.TRANSLATE_Y:
-					matrix.translate(0,-(diff.x + diff.y) * this.translateSpeed * s, 0);
+					matrix.translate(0,-(diff.x + diff.y) * this.translateSpeed * s / scale.y, 0);
 					break;
 				case bg.manipulation.GizmoAction.TRANSLATE_Z:
-					matrix.translate(0, 0,-(diff.x + diff.y) * this.translateSpeed * s);
+					matrix.translate(0, 0,-(diff.x + diff.y) * this.translateSpeed * s  / scale.z);
 					break;
 				case bg.manipulation.GizmoAction.ROTATE_X:
 					matrix.rotate((diff.x + diff.y) * this.rotateSpeed, 1,0,0);
@@ -10492,10 +11546,43 @@ bg.manipulation = {};
 	
 	bg.manipulation.SelectableType = {
 		PLIST:1,
-		GIZMO:2
+		GIZMO:2,
+		GIZMO_ICON:3
 	};
+
+	let s_selectionIconPlist = null;
+	function selectionIconPlist() {
+		if (!s_selectionIconPlist) {
+			s_selectionIconPlist = bg.scene.PrimitiveFactory.SpherePolyList(this.node.context,0.5);
+		}
+		return s_selectionIconPlist;
+	}
+
+	let g_selectableIcons = [
+		"bg.scene.Camera",
+		"bg.scene.Light",
+		"bg.scene.Transform"
+	];
+
 	
 	class Selectable extends bg.scene.Component {
+		static SetSelectableIcons(sel) {
+			g_selectableIcons = sel;
+		}
+
+		static AddSelectableIcon(sel) {
+			if (g_selectableIcons.indexOf(sel)==-1) {
+				g_selectableIcons.push(sel);
+			}
+		}
+
+		static RemoveSelectableIcon(sel) {
+			let index = g_selectableIcons.indexOf(sel);
+			if (index>=0) {
+				g_selectableIcons.splice(index,1);
+			}
+		}
+
 		static SetSelectMode(m) { s_selectMode = m; }
 		
 		static GetIdentifier() { return getIdentifier(); }
@@ -10541,18 +11628,43 @@ bg.manipulation = {};
 				});
 				this._initialized = true;
 			}
+			else if (!this._initialized) {
+				// Use icon to pick item
+				let id = getIdentifier();
+				this._selectablePlist.push({
+					id:id,
+					type:bg.manipulation.SelectableType.GIZMO_ICON,
+					plist:null,
+					material:null,
+					drawable:null,
+					node:this.node
+				});
+				this._initialized = true;
+			}
 		}
 		
 		display(pipeline,matrixState) {
 			if (pipeline.effect instanceof bg.manipulation.ColorPickEffect &&
 				pipeline.opacityLayer & bg.base.OpacityLayer.SELECTION)
 			{
+				let selectableByIcon = g_selectableIcons.some((componentType) => {
+					return this.node.component(componentType)!=null;
+				});
 				this._selectablePlist.forEach((item) => {
-					if (item.plist.visible) {
+					let pickId = new bg.Color(item.id.a/255,item.id.b/255,item.id.g/255,item.id.r/255);
+					if (item.plist && item.plist.visible) {
 						// The RGBA values are inverted because the alpha channel must be major than zero to
 						// produce any output in the framebuffer
-						pipeline.effect.pickId = new bg.Color(item.id.a/255,item.id.b/255,item.id.g/255,item.id.r/255);
+						pipeline.effect.pickId = pickId;
 						pipeline.draw(item.plist);
+					}
+					else if (!item.plist && selectableByIcon) {
+						let s = matrixState.cameraDistanceScale * 0.1;
+						pipeline.effect.pickId = pickId;
+						matrixState.modelMatrixStack.push();
+						matrixState.modelMatrixStack.scale(s,s,s);
+						pipeline.draw(selectionIconPlist.apply(this));
+						matrixState.modelMatrixStack.pop();
 					}
 				});
 			}
@@ -11007,7 +12119,8 @@ bg.manipulation = {};
 
 bg.tools = {
 	
-}
+};
+
 (function() {
 	class BoundingBox {
 		constructor(drawableOrPlist, transformMatrix) {
@@ -11075,9 +12188,11 @@ bg.tools = {
 
 		addDrawable(drawable, trxBase) {
 			drawable.forEach((plist,mat,elemTrx) => {
-				let trx = new bg.Matrix4(trxBase);
-				if (elemTrx) trx.mult(elemTrx);
-				this.addPolyList(plist,trx);
+                if (plist.visible) {
+                    let trx = new bg.Matrix4(trxBase);
+                    if (elemTrx) trx.mult(elemTrx);
+                    this.addPolyList(plist,trx);
+                }
 			});
 		}
 	}
@@ -12296,6 +13411,7 @@ bg.render = {
 				this._fragmentShaderSource.addParameter([
 					{ name:"inTexture", dataType:"sampler2D", role:"value" },
 					{ name:"inFrameSize", dataType:"vec2", role:"value"},
+					{ name:"inBorderAntiAlias", dataType:"int", role:"value"},
 
 					{ name:"fsTexCoord", dataType:"vec2", role:"in" }	// vTexturePosition
 				]);
@@ -12310,7 +13426,14 @@ bg.render = {
 
 					
 					this._fragmentShaderSource.setMainBody(`
-						gl_FragColor = antiAlias(inTexture,fsTexCoord,inFrameSize,0.1,3);
+						vec4 result = vec4(0.0,0.0,0.0,1.0);
+						if (inBorderAntiAlias==1) {
+							result = antiAlias(inTexture,fsTexCoord,inFrameSize,0.1,3);
+						}
+						else {
+							result = texture2D(inTexture,fsTexCoord);
+						}
+						gl_FragColor = result;
 						`);
 				}
 			}
@@ -12320,6 +13443,7 @@ bg.render = {
 		setupVars() {
 			this.shader.setTexture("inTexture",this._surface.texture,bg.base.TextureUnit.TEXTURE_0);
 			this.shader.setVector2("inFrameSize",this._surface.texture.size);
+			this.shader.setValueInt("inBorderAntiAlias",0);
 		}
 
 		get settings() {
