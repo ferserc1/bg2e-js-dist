@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.1.9 - build: dd120be";
+bg.version = "1.1.10 - build: f096a26";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -640,6 +640,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       frame: function(delta) {},
       willDisplay: function(pipeline, matrixState) {},
       display: function(pipeline, matrixState) {},
+      displayGizmo: function(pipeline, matrixState) {},
       didDisplay: function(pipeline, matrixState) {},
       reshape: function(pipeline, matrixState, width, height) {},
       keyDown: function(evt) {},
@@ -837,25 +838,31 @@ bg.app = {};
 "use strict";
 (function() {
   bg.app.SpecialKey = {
-    BACKSPACE: 8,
-    TAB: 9,
-    ENTER: 13,
-    SHIFT: 16,
-    CTRL: 17,
-    ALT: 18,
-    PAUSE: 19,
-    CAPS_LOCK: 20,
-    ESCAPE: 27,
-    PAGE_UP: 33,
-    PAGEDOWN: 34,
-    END: 35,
-    HOME: 36,
-    LEFT_ARROW: 37,
-    UP_ARROW: 38,
-    RIGHT_ARROW: 39,
-    DOWN_ARROW: 40,
-    INSERT: 45,
-    DELETE: 46
+    BACKSPACE: "Backspace",
+    TAB: "Tab",
+    ENTER: "Enter",
+    SHIFT: "Shift",
+    SHIFT_LEFT: "ShiftLeft",
+    SHIFT_RIGHT: "ShiftRight",
+    CTRL: "Control",
+    CTRL_LEFT: "ControlLeft",
+    CTRL_LEFT: "ControlRight",
+    ALT: "Alt",
+    ALT_LEFT: "AltLeft",
+    ALT_RIGHT: "AltRight",
+    PAUSE: "Pause",
+    CAPS_LOCK: "CapsLock",
+    ESCAPE: "Escape",
+    PAGE_UP: "PageUp",
+    PAGEDOWN: "PageDown",
+    END: "End",
+    HOME: "Home",
+    LEFT_ARROW: "ArrowLeft",
+    UP_ARROW: "ArrowUp",
+    RIGHT_ARROW: "ArrowRight",
+    DOWN_ARROW: "ArrowDown",
+    INSERT: "Insert",
+    DELETE: "Delete"
   };
   var EventBase = function() {
     function EventBase() {
@@ -878,11 +885,9 @@ bg.app = {};
       this.event = event;
     }
     return ($traceurRuntime.createClass)(KeyboardEvent, {isSpecialKey: function() {
-        return KeyboardEvent.IsSpecialKey(this.key);
-      }}, {IsSpecialKey: function(code) {
-        Object.keys(bg.app.SpecialKey).some(function(k) {
-          return bg.app.SpecialKey[k] == code;
-        });
+        return KeyboardEvent.IsSpecialKey(this.event);
+      }}, {IsSpecialKey: function(event) {
+        return bg.app.SpecialKey[event.code] != null;
       }}, $__super);
   }(EventBase);
   bg.app.KeyboardEvent = KeyboardEvent;
@@ -1224,11 +1229,11 @@ bg.app = {};
     return bgEvt;
   }
   function onKeyDown(event) {
-    var code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? event.keyCode : String.fromCharCode(event.keyCode);
+    var code = bg.app.KeyboardEvent.IsSpecialKey(event) ? event.keyCode : event.code;
     s_mainLoop.windowController.keyDown(new bg.app.KeyboardEvent(code, event));
   }
   function onKeyUp(event) {
-    var code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? event.keyCode : String.fromCharCode(event.keyCode);
+    var code = bg.app.KeyboardEvent.IsSpecialKey(event) ? event.keyCode : event.code;
     s_mainLoop.windowController.keyUp(new bg.app.KeyboardEvent(code, event));
   }
   bg.app.MainLoop = {};
@@ -4199,7 +4204,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
   bg.base.DrawMode = {
     TRIANGLES: null,
     TRIANGLE_FAN: null,
-    TRIANGLE_STRIP: null
+    TRIANGLE_STRIP: null,
+    LINES: null,
+    LINE_STRIP: null
   };
   var PolyList = function($__super) {
     function PolyList(context) {
@@ -4334,6 +4341,14 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         return this._plist.indexBuffer;
       },
       build: function() {
+        if (this.color.length == 0) {
+          for (var i = 0; i < this.vertex.length; i += 3) {
+            this.color.push(1);
+            this.color.push(1);
+            this.color.push(1);
+            this.color.push(1);
+          }
+        }
         var plistImpl = bg.Engine.Get().polyList;
         if (this._plist) {
           plistImpl.destroy(this.context, this._plist);
@@ -7967,6 +7982,11 @@ bg.scene = {};
           comp.display(pipeline, matrixState);
         });
       },
+      displayGizmo: function(pipeline, matrixState) {
+        this.forEachComponent(function(comp) {
+          comp.displayGizmo(pipeline, matrixState);
+        });
+      },
       didDisplay: function(pipeline, matrixState) {
         this.forEachComponent(function(comp) {
           comp.didDisplay(pipeline, matrixState);
@@ -8184,6 +8204,9 @@ bg.scene = {};
       set viewport(vp) {
         this._viewport = vp;
       },
+      get fov() {
+        return 0;
+      },
       serialize: function(jsonData) {
         jsonData.near = this.near;
         jsonData.far = this.far;
@@ -8270,9 +8293,12 @@ bg.scene = {};
       set frameSize(s) {
         this._frameSize = s;
       },
+      get fov() {
+        return 2 * bg.Math.atan(this.frameSize / (this.focalLength / 2));
+      },
       apply: function() {
         if (this.target) {
-          var fov = 2 * bg.Math.atan(this.frameSize / (this.focalLength / 2));
+          var fov = this.fov;
           fov = bg.Math.radiansToDegrees(fov);
           this.target.perspective(fov, this.viewport.aspectRatio, this.near, this.far);
         }
@@ -8292,6 +8318,51 @@ bg.scene = {};
     }, {}, $__super);
   }(ProjectionStrategy);
   bg.scene.OpticalProjectionStrategy = OpticalProjectionStrategy;
+  function buildPlist(context, vertex, color) {
+    var plist = new bg.base.PolyList(context);
+    var normal = [];
+    var texCoord0 = [];
+    var index = [];
+    var currentIndex = 0;
+    for (var i = 0; i < vertex.length; i += 3) {
+      normal.push(0);
+      normal.push(0);
+      normal.push(1);
+      texCoord0.push(0);
+      texCoord0.push(0);
+      index.push(currentIndex++);
+    }
+    plist.vertex = vertex;
+    plist.normal = normal;
+    plist.texCoord0 = texCoord0;
+    plist.color = color;
+    plist.index = index;
+    plist.drawMode = bg.base.DrawMode.LINES;
+    plist.build();
+    return plist;
+  }
+  function getGizmo() {
+    if (!this._gizmo) {
+      var alpha = this.projectionStrategy ? this.projectionStrategy.fov : bg.Math.PI_4;
+      alpha *= 0.5;
+      var d = this.focus;
+      var aspectRatio = bg.app.MainLoop.singleton.canvas.width / bg.app.MainLoop.singleton.canvas.height;
+      var sx = bg.Math.sin(alpha) * d;
+      var sy = (bg.Math.sin(alpha) * d) / aspectRatio;
+      var vertex = [0, 0, 0, sx, sy, -d, 0, 0, 0, -sx, sy, -d, 0, 0, 0, sx, -sy, -d, 0, 0, 0, -sx, -sy, -d, sx, sy, -d, -sx, sy, -d, -sx, sy, -d, -sx, -sy, -d, -sx, -sy, -d, sx, -sy, -d, sx, -sy, -d, sx, sy, -d];
+      var color = [1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1];
+      this._gizmo = buildPlist(this.node.context, vertex, color);
+    }
+    return this._gizmo;
+  }
+  function clearMain(node) {
+    if (node.camera) {
+      node.camera.isMain = false;
+    }
+    node.children.forEach(function(child) {
+      return clearMain(child);
+    });
+  }
   var Camera = function($__super) {
     function Camera() {
       $traceurRuntime.superConstructor(Camera).call(this);
@@ -8302,6 +8373,7 @@ bg.scene = {};
       this._clearBuffers = bg.base.ClearBuffers.COLOR_DEPTH;
       this._focus = 5;
       this._projectionStrategy = null;
+      this._isMain = false;
     }
     return ($traceurRuntime.createClass)(Camera, {
       clone: function() {
@@ -8334,6 +8406,13 @@ bg.scene = {};
       },
       set focus(f) {
         this._focus = f;
+        this.recalculateGizmo();
+      },
+      get isMain() {
+        return this._isMain;
+      },
+      set isMain(m) {
+        this._isMain = m;
       },
       get projectionStrategy() {
         return this._projectionStrategy;
@@ -8343,6 +8422,7 @@ bg.scene = {};
         if (this._projectionStrategy) {
           this._projectionStrategy.target = this._projection;
         }
+        this.recalculateGizmo();
       },
       get clearBuffers() {
         return this._clearBuffers;
@@ -8365,11 +8445,26 @@ bg.scene = {};
         }
         return this._viewMatrix;
       },
+      recalculateGizmo: function() {
+        if (this._gizmo) {
+          this._gizmo.destroy();
+          this._gizmo = null;
+        }
+      },
       frame: function(delta) {
         this._rebuildTransform = true;
       },
+      displayGizmo: function(pipeline, matrixState) {
+        if (this.isMain)
+          return;
+        var plist = getGizmo.apply(this);
+        if (plist) {
+          pipeline.draw(plist);
+        }
+      },
       serialize: function(componentData, promises, url) {
         $traceurRuntime.superGet(this, Camera.prototype, "serialize").call(this, componentData, promises, url);
+        componentData.isMain = this.isMain;
         if (this.projectionStrategy) {
           var projMethod = {};
           componentData.projectionMethod = projMethod;
@@ -8377,9 +8472,19 @@ bg.scene = {};
         }
       },
       deserialize: function(context, sceneData, url) {
+        sceneData.isMain = sceneData.isMain || false;
         this.projectionStrategy = ProjectionStrategy.Factory(sceneData.projectionMethod || {});
       }
-    }, {}, $__super);
+    }, {SetAsMainCamera: function(mainCamera, sceneRoot) {
+        clearMain(sceneRoot);
+        if (mainCamera instanceof Camera) {
+          mainCamera.isMain = true;
+        } else if (mainCamera instanceof bg.scene.Node && mainCamera.camera) {
+          mainCamera.camera.isMain = true;
+        } else {
+          throw new Error("Error setting main camera: invalid camera node.");
+        }
+      }}, $__super);
   }(bg.scene.Component);
   bg.scene.registerComponent(bg.scene, Camera, "bg.scene.Camera");
 })();
@@ -8915,6 +9020,75 @@ bg.scene = {};
       s_lightRegister.splice(i, 1);
     }
   }
+  var g_gizmos = {
+    spot: null,
+    directional: null
+  };
+  function buildPlist(context, vertex, color) {
+    var plist = new bg.base.PolyList(context);
+    var normal = [];
+    var texCoord0 = [];
+    var index = [];
+    var currentIndex = 0;
+    for (var i = 0; i < vertex.length; i += 3) {
+      normal.push(0);
+      normal.push(0);
+      normal.push(1);
+      texCoord0.push(0);
+      texCoord0.push(0);
+      index.push(currentIndex++);
+    }
+    plist.vertex = vertex;
+    plist.normal = normal;
+    plist.texCoord0 = texCoord0;
+    plist.color = color;
+    plist.index = index;
+    plist.drawMode = bg.base.DrawMode.LINES;
+    plist.build();
+    return plist;
+  }
+  function getDirectionalGizmo(context) {
+    if (!g_gizmos.directional) {
+      var vertex = [0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0.1, -0.9, 0, 0, -1, 0, -0.1, -0.9];
+      var color = [1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1];
+      g_gizmos.directional = buildPlist(context, vertex, color);
+    }
+    return g_gizmos.directional;
+  }
+  function getSpotGizmo(context) {
+    if (!g_gizmos.spot) {
+      var alpha = bg.Math.degreesToRadians(20);
+      var salpha = bg.Math.sin(alpha);
+      var calpha = bg.Math.cos(alpha);
+      var rx = bg.Math.cos(bg.Math.PI_4) * salpha;
+      var ry = bg.Math.sin(bg.Math.PI_4) * salpha;
+      var vertex = [0, 0, 0, 0, salpha, -calpha, 0, 0, 0, 0, -salpha, -calpha, 0, 0, 0, salpha, 0, -calpha, 0, 0, 0, -salpha, 0, -calpha, 0, salpha, -calpha, rx, ry, -calpha, rx, ry, -calpha, salpha, 0, -calpha, salpha, 0, -calpha, rx, -ry, -calpha, rx, -ry, -calpha, 0, -salpha, -calpha, 0, -salpha, -calpha, -rx, -ry, -calpha, -rx, -ry, -calpha, -salpha, 0, -calpha, -salpha, 0, -calpha, -rx, ry, -calpha, -rx, ry, -calpha, 0, salpha, -calpha];
+      var color = [1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1];
+      g_gizmos.spot = buildPlist(context, vertex, color);
+    }
+    return g_gizmos.spot;
+  }
+  function getPointGizmo(context) {
+    if (!g_gizmos.point) {
+      var r = 0.5;
+      var s = bg.Math.sin(bg.Math.PI_4) * r;
+      var vertex = [0, 0, 0, 0, r, 0, 0, 0, 0, 0, -r, 0, 0, 0, 0, -r, 0, 0, 0, 0, 0, r, 0, 0, 0, 0, 0, s, s, 0, 0, 0, 0, s, -s, 0, 0, 0, 0, -s, s, 0, 0, 0, 0, -s, -s, 0, 0, 0, 0, 0, 0, r, 0, 0, 0, 0, 0, -r, 0, 0, 0, 0, s, s, 0, 0, 0, 0, -s, s, 0, 0, 0, 0, -s, -s, 0, 0, 0, 0, s, -s, 0, 0, 0, s, 0, s, 0, 0, 0, -s, 0, s, 0, 0, 0, -s, 0, -s, 0, 0, 0, s, 0, -s];
+      var color = [1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1];
+      g_gizmos.point = buildPlist(context, vertex, color);
+    }
+    return g_gizmos.point;
+  }
+  function getGizmo() {
+    switch (this._light && this._light.type) {
+      case bg.base.LightType.DIRECTIONAL:
+        return getDirectionalGizmo(this.node.context);
+      case bg.base.LightType.SPOT:
+        return getSpotGizmo(this.node.context);
+      case bg.base.LightType.POINT:
+        return getPointGizmo(this.node.context);
+    }
+    return null;
+  }
   var Light = function($__super) {
     function Light() {
       var light = arguments[0] !== (void 0) ? arguments[0] : null;
@@ -8945,6 +9119,12 @@ bg.scene = {};
       },
       frame: function(delta) {
         this._rebuildTransform = true;
+      },
+      displayGizmo: function(pipeline, matrixState) {
+        var plist = getGizmo.apply(this);
+        if (plist) {
+          pipeline.draw(plist);
+        }
       },
       removedFromNode: function(node) {
         unregisterLight(this);
@@ -9542,6 +9722,7 @@ bg.scene = {};
     lightNode.addComponent(new bg.scene.Transform(bg.Matrix4.Identity().rotate(bg.Math.degreesToRadians(30), 0, 1, 0).rotate(bg.Math.degreesToRadians(35), -1, 0, 0)));
     root.addChild(lightNode);
     var camera = new bg.scene.Camera();
+    camera.isMain = true;
     var cameraNode = new bg.scene.Node("Camera");
     cameraNode.addComponent(camera);
     cameraNode.addComponent(new bg.scene.Transform());
@@ -9581,17 +9762,26 @@ bg.scene = {};
             var findVisitor = new bg.scene.FindComponentVisitor("bg.scene.Camera");
             sceneRoot.accept(findVisitor);
             var cameraNode = null;
+            var firstCamera = null;
             findVisitor.result.some(function(cn) {
-              cameraNode = cn;
+              if (!firstCamera) {
+                firstCamera = cn;
+              }
+              if (cn.camera.isMain) {
+                cameraNode = cn;
+                return true;
+              }
             });
+            cameraNode = cameraNode || firstCamera;
             if (!cameraNode) {
               cameraNode = new bg.scene.Node(context, "Camera");
               cameraNode.addComponent(new bg.scene.Camera());
-              var trx = bg.Matrix4.Rotate(0.52, -1, 0, 0);
+              var trx = bg.Matrix4.Rotation(0.52, -1, 0, 0);
               trx.translate(0, 0, 5);
               cameraNode.addComponent(new bg.scene.Transform(trx));
               sceneRoot.addChild(cameraNode);
             }
+            bg.scene.Camera.SetAsMainCamera(cameraNode, sceneRoot);
             resolve({
               sceneRoot: sceneRoot,
               cameraNode: cameraNode
@@ -10333,9 +10523,11 @@ bg.manipulation = {};
         var icon = this.getGizmoIcon(node);
         var gizmoOpacity = this.pipeline.effect.gizmoOpacity;
         var gizmoColor = this.pipeline.effect.color;
+        this.pipeline.effect.color = bg.Color.White();
+        var dt = this.pipeline.depthTest;
+        this.pipeline.depthTest = false;
         if (icon) {
           this.pipeline.effect.texture = icon;
-          this.pipeline.effect.color = bg.Color.White();
           this.pipeline.effect.gizmoOpacity = 1;
           this.matrixState.viewMatrixStack.push();
           this.matrixState.modelMatrixStack.push();
@@ -10352,8 +10544,10 @@ bg.manipulation = {};
           this.matrixState.modelMatrixStack.pop();
           this.pipeline.effect.gizmoOpacity = gizmoOpacity;
           this.pipeline.effect.texture = null;
-          this.pipeline.effect.color = gizmoColor;
         }
+        node.displayGizmo(this.pipeline, this.matrixState);
+        this.pipeline.effect.color = gizmoColor;
+        this.pipeline.depthTest = dt;
       }
     }, {}, $__super);
   }(bg.scene.DrawVisitor);
@@ -10518,8 +10712,8 @@ bg.manipulation = {};
   var shaders = {};
   function initShaders() {
     shaders[bg.webgl1.EngineId] = {
-      vertex: "\n\t\t\tattribute vec3 inVertex;\n\t\t\tattribute vec2 inTexCoord;\n\t\t\t\n\t\t\tuniform mat4 inModelMatrix;\n\t\t\tuniform mat4 inViewMatrix;\n\t\t\tuniform mat4 inProjectionMatrix;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tfsTexCoord = inTexCoord;\n\t\t\t\tgl_Position = inProjectionMatrix * inViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n\t\t\t}\n\t\t\t",
-      fragment: "\n\t\t\tprecision highp float;\n\t\t\t\n\t\t\tuniform vec4 inColor;\n\t\t\tuniform sampler2D inTexture;\n\t\t\tuniform float inOpacity;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tvec4 tex = texture2D(inTexture,fsTexCoord);\n\t\t\t\tgl_FragColor = vec4(tex.rgb * inColor.rgb,inOpacity * tex.a);\n\t\t\t}\n\t\t\t"
+      vertex: "\n\t\t\tattribute vec3 inVertex;\n\t\t\tattribute vec2 inTexCoord;\n\t\t\tattribute vec4 inVertexColor;\n\t\t\t\n\t\t\tuniform mat4 inModelMatrix;\n\t\t\tuniform mat4 inViewMatrix;\n\t\t\tuniform mat4 inProjectionMatrix;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\tvarying vec4 fsColor;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tfsTexCoord = inTexCoord;\n\t\t\t\tfsColor = inVertexColor;\n\t\t\t\tgl_Position = inProjectionMatrix * inViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n\t\t\t}\n\t\t\t",
+      fragment: "\n\t\t\tprecision highp float;\n\t\t\t\n\t\t\tuniform vec4 inColor;\n\t\t\tuniform sampler2D inTexture;\n\t\t\tuniform float inOpacity;\n\t\t\t\n\t\t\tvarying vec2 fsTexCoord;\n\t\t\tvarying vec4 fsColor;\n\t\t\t\n\t\t\tvoid main() {\n\t\t\t\tvec4 tex = texture2D(inTexture,fsTexCoord);\n\t\t\t\tgl_FragColor = vec4(fsColor.rgb * tex.rgb * inColor.rgb,inOpacity * tex.a);\n\t\t\t}\n\t\t\t"
     };
   }
   var GizmoEffect = function($__super) {
@@ -10533,6 +10727,7 @@ bg.manipulation = {};
       get inputVars() {
         return {
           vertex: 'inVertex',
+          color: 'inVertexColor',
           tex0: 'inTexCoord'
         };
       },
@@ -10570,7 +10765,7 @@ bg.manipulation = {};
             console.log(this._shader.compileError);
             console.log(this._shader.linkError);
           } else {
-            this._shader.initVars(['inVertex', 'inTexCoord'], ['inModelMatrix', 'inViewMatrix', 'inProjectionMatrix', 'inColor', 'inTexture', 'inOpacity']);
+            this._shader.initVars(['inVertex', 'inVertexColor', 'inTexCoord'], ['inModelMatrix', 'inViewMatrix', 'inProjectionMatrix', 'inColor', 'inTexture', 'inOpacity']);
           }
         }
         return this._shader;
@@ -10780,15 +10975,11 @@ bg.manipulation = {};
       display: function(pipeline, matrixState) {
         if (!this._gizmoItems || !this.visible)
           return;
+        matrixState.modelMatrixStack.push();
         var modelview = new bg.Matrix4(matrixState.viewMatrixStack.matrix);
         modelview.mult(matrixState.modelMatrixStack.matrix);
         var s = modelview.position.magnitude() / this._scale;
-        s = s < this._minSize ? this._minSize : s;
-        var gizmoTransform = this.transform ? new bg.Matrix4(this.transform.matrix) : bg.Matrix4.Identity();
-        gizmoTransform.setScale(s, s, s);
-        gizmoTransform.setPosition(0, 0, 0);
-        matrixState.modelMatrixStack.push();
-        matrixState.modelMatrixStack.set(this._gizmoP).mult(gizmoTransform);
+        matrixState.modelMatrixStack.matrix.setScale(s, s, s);
         if (pipeline.effect instanceof bg.manipulation.ColorPickEffect && (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS || pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION)) {
           var dt = pipeline.depthTest;
           if (pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION) {
@@ -11769,6 +11960,9 @@ bg.manipulation = {};
       this._maxY = 2.0;
       this._maxZ = 15;
       this._minZ = -15;
+      this._displacementSpeed = 0.1;
+      this._enabled = true;
+      this._keys = {};
     }
     return ($traceurRuntime.createClass)(OrbitCameraController, {
       setRotateButtons: function(left, middle, right) {
@@ -11846,8 +12040,71 @@ bg.manipulation = {};
       set maxDistance(d) {
         this._maxDistance = d;
       },
+      get displacementSpeed() {
+        return this._displacementSpeed;
+      },
+      set displacementSpeed(s) {
+        this._displacementSpeed = s;
+      },
+      get enabled() {
+        return this._enabled;
+      },
+      set enabled(e) {
+        this._enabled = e;
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, OrbitCameraController.prototype, "serialize").call(this, componentData, promises, url);
+        componentData.rotateButtons = this._rotateButtons;
+        componentData.panButtons = this._panButtons;
+        componentData.zoomButtons = this._zoomButtons;
+        componentData.rotation = this._rotation.toArray();
+        componentData.distance = this._distance;
+        componentData.center = this._center.toArray();
+        componentData.rotationSpeed = this._rotationSpeed;
+        componentData.forward = this._forward;
+        componentData.left = this._left;
+        componentData.wheelSpeed = this._wheelSpeed;
+        componentData.minFocus = this._minFocus;
+        componentData.minPitch = this._minPitch;
+        componentData.maxPitch = this._maxPitch;
+        componentData.minDistance = this._minDistance;
+        componentData.maxDistance = this._maxDistance;
+        componentData.maxX = this._maxX;
+        componentData.minX = this._minX;
+        componentData.minY = this._minY;
+        componentData.maxY = this._maxY;
+        componentData.maxZ = this._maxZ;
+        componentData.minZ = this._minZ;
+        componentData.displacementSpeed = this._displacementSpeed;
+        componentData.enabled = this._enabled;
+      },
+      deserialize: function(context, componentData, url) {
+        this._rotateButtons = componentData.rotateButtons || this._rotateButtons;
+        this._panButtons = componentData.panButtons || this._panButtons;
+        this._zoomButtons = componentData.zoomButtons || this._zoomButtons;
+        this._rotation = new bg.Vector3(componentData.rotation) || this._rotation;
+        this._distance = componentData.distance !== undefined ? componentData.distance : this._distance;
+        this._center = new bg.Vector3(componentData.center) || this._center;
+        this._rotationSpeed = componentData.rotationSpeed !== undefined ? componentData.rotationSpeed : this._rotationSpeed;
+        this._forward = componentData.forward !== undefined ? componentData.forward : this._forward;
+        this._left = componentData.left !== undefined ? componentData.left : this._left;
+        this._wheelSpeed = componentData.wheelSpeed !== undefined ? componentData.wheelSpeed : this._wheelSpeed;
+        this._minFocus = componentData.minFocus !== undefined ? componentData.minFocus : this._minFocus;
+        this._minPitch = componentData.minPitch !== undefined ? componentData.minPitch : this._minPitch;
+        this._maxPitch = componentData.maxPitch !== undefined ? componentData.maxPitch : this._maxPitch;
+        this._minDistance = componentData.minDistance !== undefined ? componentData.minDistance : this._minDistance;
+        this._maxDistance = componentData.maxDistance !== undefined ? componentData.maxDistance : this._maxDistance;
+        this._maxX = componentData.maxX !== undefined ? componentData.maxX : this._maxX;
+        this._minX = componentData.minX !== undefined ? componentData.minX : this._minX;
+        this._minY = componentData.minY !== undefined ? componentData.minY : this._minY;
+        this._maxY = componentData.maxY !== undefined ? componentData.maxY : this._maxY;
+        this._maxZ = componentData.maxZ !== undefined ? componentData.maxZ : this._maxZ;
+        this._minZ = componentData.minZ !== undefined ? componentData.minZ : this._minZ;
+        this._displacementSpeed = componentData.displacementSpeed !== undefined ? componentData.displacementSpeed : this._displacementSpeed;
+        this._enabled = componentData.enabled !== undefined ? componentData.enabled : this._enabled;
+      },
       frame: function(delta) {
-        if (this.transform) {
+        if (this.transform && this.enabled) {
           var forward = this.transform.matrix.forwardVector;
           var left = this.transform.matrix.leftVector;
           forward.scale(this._forward);
@@ -11858,6 +12115,27 @@ bg.manipulation = {};
           this._rotation.x = pitch;
           this._distance = this._distance > this._minDistance ? this._distance : this._minDistance;
           this._distance = this._distance < this._maxDistance ? this._distance : this._maxDistance;
+          if (this._mouseButtonPressed) {
+            var displacement = new bg.Vector3();
+            if (this._keys[bg.app.SpecialKey.UP_ARROW]) {
+              displacement.add(this.transform.matrix.backwardVector);
+              bg.app.MainLoop.singleton.windowController.postRedisplay();
+            }
+            if (this._keys[bg.app.SpecialKey.DOWN_ARROW]) {
+              displacement.add(this.transform.matrix.forwardVector);
+              bg.app.MainLoop.singleton.windowController.postRedisplay();
+            }
+            if (this._keys[bg.app.SpecialKey.LEFT_ARROW]) {
+              displacement.add(this.transform.matrix.leftVector);
+              bg.app.MainLoop.singleton.windowController.postRedisplay();
+            }
+            if (this._keys[bg.app.SpecialKey.RIGHT_ARROW]) {
+              displacement.add(this.transform.matrix.rightVector);
+              bg.app.MainLoop.singleton.windowController.postRedisplay();
+            }
+            displacement.scale(this._displacementSpeed);
+            this._center.add(displacement);
+          }
           if (this._center.x < this._minX)
             this._center.x = this._minX;
           else if (this._center.x > this._maxX)
@@ -11877,10 +12155,16 @@ bg.manipulation = {};
         }
       },
       mouseDown: function(evt) {
+        if (!this.enabled)
+          return;
+        this._mouseButtonPressed = true;
         this._lastPos = new bg.Vector2(evt.x, evt.y);
       },
+      mouseUp: function(evt) {
+        this._mouseButtonPressed = false;
+      },
       mouseDrag: function(evt) {
-        if (this.transform && this._lastPos) {
+        if (this.transform && this._lastPos && this.enabled) {
           var delta = new bg.Vector2(this._lastPos.y - evt.y, this._lastPos.x - evt.x);
           this._lastPos.set(evt.x, evt.y);
           switch (getOrbitAction(this)) {
@@ -11902,14 +12186,18 @@ bg.manipulation = {};
         }
       },
       mouseWheel: function(evt) {
+        if (!this.enabled)
+          return;
         var mult = this._distance > 0.01 ? this._distance : 0.01;
         this._distance += evt.delta * 0.001 * mult * this._wheelSpeed;
       },
       touchStart: function(evt) {
+        if (!this.enabled)
+          return;
         this._lastTouch = evt.touches;
       },
       touchMove: function(evt) {
-        if (this._lastTouch.length == evt.touches.length && this.transform) {
+        if (this._lastTouch.length == evt.touches.length && this.transform && this.enabled) {
           if (this._lastTouch.length == 1) {
             var last = this._lastTouch[0];
             var t = evt.touches[0];
@@ -11939,8 +12227,33 @@ bg.manipulation = {};
           }
         }
         this._lastTouch = evt.touches;
+      },
+      keyDown: function(evt) {
+        if (!this.enabled)
+          return;
+        this._keys[evt.key] = true;
+        bg.app.MainLoop.singleton.windowController.postRedisplay();
+      },
+      keyUp: function(evt) {
+        if (!this.enabled)
+          return;
+        this._keys[evt.key] = false;
       }
-    }, {}, $__super);
+    }, {
+      DisableAll: function(sceneRoot) {
+        var ctrl = sceneRoot.component("bg.manipulation.OrbitCameraController");
+        if (ctrl) {
+          ctrl.enabled = false;
+        }
+        sceneRoot.children.forEach(function(ch) {
+          return OrbitCameraController.DisableAll(ch);
+        });
+      },
+      SetUniqueEnabled: function(orbitCameraController, sceneRoot) {
+        OrbitCameraController.DisableAll(sceneRoot);
+        orbitCameraController.enabled = true;
+      }
+    }, $__super);
   }(bg.scene.Component);
   var FPSCameraController = function($__super) {
     function FPSCameraController() {
@@ -13958,6 +14271,8 @@ bg.webgl1 = {};
         bg.base.DrawMode.TRIANGLES = context.TRIANGLES;
         bg.base.DrawMode.TRIANGLE_FAN = context.TRIANGLE_FAN;
         bg.base.DrawMode.TRIANGLE_STRIP = context.TRIANGLE_STRIP;
+        bg.base.DrawMode.LINES = context.LINES;
+        bg.base.DrawMode.LINE_STRIP = context.LINE_STRIP;
         s_uintElements = context.getExtension("OES_element_index_uint");
       },
       create: function(context) {

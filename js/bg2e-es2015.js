@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.1.9 - build: dd120be";
+bg.version = "1.1.10 - build: f096a26";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -695,6 +695,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 		frame(delta) {}
 		willDisplay(pipeline,matrixState) {}
 		display(pipeline,matrixState) {}
+		displayGizmo(pipeline,matrixState) {}
 		didDisplay(pipeline,matrixState) {}
 		reshape(pipeline,matrixState,width,height) {}
 		keyDown(evt) {}
@@ -829,25 +830,31 @@ bg.app = {};
 })();
 (function() {
 	bg.app.SpecialKey = {
-		BACKSPACE: 8,
-		TAB: 9,
-		ENTER: 13,
-		SHIFT: 16,
-		CTRL: 17,
-		ALT: 18,
-		PAUSE: 19,
-		CAPS_LOCK: 20,
-		ESCAPE: 27,
-		PAGE_UP: 33,
-		PAGEDOWN: 34,
-		END: 35,
-		HOME: 36,
-		LEFT_ARROW: 37,
-		UP_ARROW: 38,
-		RIGHT_ARROW: 39,
-		DOWN_ARROW: 40,
-		INSERT: 45,
-		DELETE: 46
+		BACKSPACE: "Backspace",
+		TAB: "Tab",
+		ENTER: "Enter",
+		SHIFT: "Shift",
+		SHIFT_LEFT: "ShiftLeft",
+		SHIFT_RIGHT: "ShiftRight",
+		CTRL: "Control",
+		CTRL_LEFT: "ControlLeft",
+		CTRL_LEFT: "ControlRight",
+		ALT: "Alt",
+		ALT_LEFT: "AltLeft",
+		ALT_RIGHT: "AltRight",
+		PAUSE: "Pause",
+		CAPS_LOCK: "CapsLock",
+		ESCAPE: "Escape",
+		PAGE_UP: "PageUp",
+		PAGEDOWN: "PageDown",
+		END: "End",
+		HOME: "Home",
+		LEFT_ARROW: "ArrowLeft",
+		UP_ARROW: "ArrowUp",
+		RIGHT_ARROW: "ArrowRight",
+		DOWN_ARROW: "ArrowDown",
+		INSERT: "Insert",
+		DELETE: "Delete"
 	};
 	
 	class EventBase {
@@ -861,10 +868,8 @@ bg.app = {};
 	bg.app.EventBase = EventBase;
 
 	class KeyboardEvent extends EventBase {
-		static IsSpecialKey(code) {
-			Object.keys(bg.app.SpecialKey).some(function(k) {
-				return bg.app.SpecialKey[k] == code;
-			});
+		static IsSpecialKey(event) {
+			return bg.app.SpecialKey[event.code]!=null;
 		}
 		
 		constructor(key,event) {
@@ -874,7 +879,7 @@ bg.app = {};
 		}
 		
 		isSpecialKey() {
-			return KeyboardEvent.IsSpecialKey(this.key);
+			return KeyboardEvent.IsSpecialKey(this.event);
 		}
 	}
 	
@@ -1220,14 +1225,14 @@ bg.app = {};
 	}
 	
 	function onKeyDown(event) {
-		let code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? 	event.keyCode:
-																	String.fromCharCode(event.keyCode);
+		let code = bg.app.KeyboardEvent.IsSpecialKey(event) ? 	event.keyCode:
+																event.code;
 		s_mainLoop.windowController.keyDown(new bg.app.KeyboardEvent(code,event));
 	}
 	
 	function onKeyUp(event) {
-		let code = bg.app.KeyboardEvent.IsSpecialKey(event.keyCode) ? 	event.keyCode:
-																	String.fromCharCode(event.keyCode);
+		let code = bg.app.KeyboardEvent.IsSpecialKey(event) ? 	event.keyCode:
+																event.code;
 		s_mainLoop.windowController.keyUp(new bg.app.KeyboardEvent(code,event));
 	}
 	
@@ -4207,7 +4212,9 @@ Object.defineProperty(bg, "isElectronApp", {
 	bg.base.DrawMode = {
 		TRIANGLES: null,
 		TRIANGLE_FAN: null,
-		TRIANGLE_STRIP: null
+		TRIANGLE_STRIP: null,
+		LINES: null,
+		LINE_STRIP: null
 	};
 	
 	class PolyList extends bg.app.ContextObject {
@@ -4298,6 +4305,16 @@ Object.defineProperty(bg, "isElectronApp", {
 		get indexBuffer() { return this._plist.indexBuffer; }
 		
 		build() {
+			if (this.color.length==0) {
+				// Ensure that the poly list have a color buffer
+				for (let i = 0; i<this.vertex.length; i+=3) {
+					this.color.push(1);
+					this.color.push(1);
+					this.color.push(1);
+					this.color.push(1);
+				}
+			}
+
 			let plistImpl = bg.Engine.Get().polyList;
 			if (this._plist) {
 				plistImpl.destroy(this.context, this._plist);
@@ -7828,6 +7845,12 @@ bg.scene = {};
 				comp.display(pipeline,matrixState);
 			});
 		}
+
+		displayGizmo(pipeline,matrixState) {
+			this.forEachComponent((comp) => {
+				comp.displayGizmo(pipeline,matrixState);
+			});
+		}
 		
 		didDisplay(pipeline,matrixState) {
 			this.forEachComponent((comp) => {
@@ -8070,6 +8093,8 @@ bg.scene = {};
 		get viewport() { return this._viewport; }
 		set viewport(vp) { this._viewport = vp; }
 
+		get fov() { return 0; }
+
 		serialize(jsonData) {
 			jsonData.near = this.near;
 			jsonData.far = this.far;
@@ -8139,9 +8164,13 @@ bg.scene = {};
 		get frameSize() { return this._frameSize; }
 		set frameSize(s) { this._frameSize = s; }
 
+		get fov() {
+			return 2 * bg.Math.atan(this.frameSize / (this.focalLength / 2));
+		}
+
 		apply() {
 			if (this.target) {
-				let fov = 2 * bg.Math.atan(this.frameSize / (this.focalLength / 2));
+				let fov = this.fov;
 				fov = bg.Math.radiansToDegrees(fov);
 				this.target.perspective(fov, this.viewport.aspectRatio, this.near, this.far);
 			}
@@ -8164,7 +8193,71 @@ bg.scene = {};
 
 	bg.scene.OpticalProjectionStrategy = OpticalProjectionStrategy;
 
+	function buildPlist(context,vertex,color) {
+		let plist = new bg.base.PolyList(context);
+		let normal = [];
+		let texCoord0 = [];
+		let index = [];
+		let currentIndex = 0;
+		for (let i=0; i<vertex.length; i+=3) {
+			normal.push(0); normal.push(0); normal.push(1);
+			texCoord0.push(0); texCoord0.push(0);
+			index.push(currentIndex++);
+		}
+		plist.vertex = vertex;
+		plist.normal = normal;
+		plist.texCoord0 = texCoord0;
+		plist.color = color;
+		plist.index = index;
+		plist.drawMode = bg.base.DrawMode.LINES;
+		plist.build();
+		return plist;
+	}
+
+	function getGizmo() {
+		if (!this._gizmo) {
+			let alpha = this.projectionStrategy ? this.projectionStrategy.fov : bg.Math.PI_4;
+			alpha *= 0.5;
+			let d = this.focus;
+			let aspectRatio = bg.app.MainLoop.singleton.canvas.width / bg.app.MainLoop.singleton.canvas.height;
+			let sx = bg.Math.sin(alpha) * d;
+			let sy = (bg.Math.sin(alpha) * d) / aspectRatio;
+			let vertex = [
+				0, 0, 0, sx, sy, -d, 0, 0, 0, -sx, sy, -d, 0, 0, 0, sx,-sy, -d, 0, 0, 0, -sx,-sy, -d,
+
+				sx,sy,-d, -sx,sy,-d, -sx,sy,-d, -sx,-sy,-d, -sx,-sy,-d, sx,-sy,-d, sx,-sy,-d, sx,sy,-d
+			];
+			let color = [
+				1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1,
+				1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1
+			];
+			this._gizmo = buildPlist(this.node.context,vertex,color);
+		}
+		return this._gizmo;
+	}
+
+	function clearMain(node) {
+		if (node.camera) {
+			node.camera.isMain = false;
+		}
+		node.children.forEach((child) => clearMain(child));
+	}
+
 	class Camera extends bg.scene.Component {
+
+		static SetAsMainCamera(mainCamera,sceneRoot) {
+			clearMain(sceneRoot);
+			if (mainCamera instanceof Camera) {
+				mainCamera.isMain = true;
+			}
+			else if (mainCamera instanceof bg.scene.Node && mainCamera.camera) {
+				mainCamera.camera.isMain = true;
+			}
+			else {
+				throw new Error("Error setting main camera: invalid camera node.");
+			}
+		}
+
 		constructor() {
 			super();
 			
@@ -8179,6 +8272,8 @@ bg.scene = {};
 			this._focus = 5;	// default 5 meters
 
 			this._projectionStrategy = null;
+
+			this._isMain = false;
 		}
 		
 		clone() {
@@ -8206,7 +8301,12 @@ bg.scene = {};
 		}
 		
 		get focus() { return this._focus; }
-		set focus(f) { this._focus = f; }
+		set focus(f) { this._focus = f; this.recalculateGizmo() }
+
+		get isMain() { return this._isMain; }
+		set isMain(m) {
+			this._isMain = m;
+		}
 
 		get projectionStrategy() { return this._projectionStrategy; }
 		set projectionStrategy(ps) {
@@ -8214,6 +8314,7 @@ bg.scene = {};
 			if (this._projectionStrategy) {
 				this._projectionStrategy.target = this._projection;
 			}
+			this.recalculateGizmo()
 		}
 		
 		get clearBuffers() { return this._clearBuffers; }
@@ -8235,13 +8336,29 @@ bg.scene = {};
 			}
 			return this._viewMatrix;
 		}
+
+		recalculateGizmo() {
+			if (this._gizmo) {
+				this._gizmo.destroy();
+				this._gizmo = null;
+			}
+		}
 		
 		frame(delta) {
 			this._rebuildTransform = true;
 		}
 
+		displayGizmo(pipeline,matrixState) {
+			if (this.isMain) return; // Do not render the main camera plist
+			let plist = getGizmo.apply(this);
+			if (plist) {
+				pipeline.draw(plist);
+			}
+		}
+
 		serialize(componentData,promises,url) {
 			super.serialize(componentData,promises,url);
+			componentData.isMain = this.isMain;
 			if (this.projectionStrategy) {
 				let projMethod = {};
 				componentData.projectionMethod = projMethod;
@@ -8250,6 +8367,7 @@ bg.scene = {};
 		}
 
 		deserialize(context,sceneData,url) {
+			sceneData.isMain = sceneData.isMain || false;
 			this.projectionStrategy = ProjectionStrategy.Factory(sceneData.projectionMethod || {});
 		}
 	}
@@ -8793,6 +8911,121 @@ bg.scene = {};
 			s_lightRegister.splice(i,1);
 		}
 	}
+
+	let g_gizmos = {
+		spot:null,
+		directional:null
+	};
+
+	function buildPlist(context,vertex,color) {
+		let plist = new bg.base.PolyList(context);
+		let normal = [];
+		let texCoord0 = [];
+		let index = [];
+		let currentIndex = 0;
+		for (let i=0; i<vertex.length; i+=3) {
+			normal.push(0); normal.push(0); normal.push(1);
+			texCoord0.push(0); texCoord0.push(0);
+			index.push(currentIndex++);
+		}
+		plist.vertex = vertex;
+		plist.normal = normal;
+		plist.texCoord0 = texCoord0;
+		plist.color = color;
+		plist.index = index;
+		plist.drawMode = bg.base.DrawMode.LINES;
+		plist.build();
+		return plist;
+	}
+
+	function getDirectionalGizmo(context) {
+		if (!g_gizmos.directional) {
+			let vertex = [
+				0,0,0, 0,0,-1,
+				0,0,-1, 0,0.1,-0.9,
+				0,0,-1, 0,-0.1,-0.9,
+			];
+			let color = [
+				1,1,1,1, 1,1,0,1,
+				1,1,0,1, 1,1,0,1,
+				1,1,0,1, 1,1,0,1
+			];
+			g_gizmos.directional = buildPlist(context,vertex,color);
+		}
+		return g_gizmos.directional;
+	}
+
+	function getSpotGizmo(context) {
+		if (!g_gizmos.spot) {
+			let alpha = bg.Math.degreesToRadians(20);
+			let salpha = bg.Math.sin(alpha);
+			let calpha = bg.Math.cos(alpha);
+			let rx = bg.Math.cos(bg.Math.PI_4) * salpha;
+			let ry = bg.Math.sin(bg.Math.PI_4) * salpha;
+			let vertex = [
+				0,0,0, 0,salpha,-calpha,
+				0,0,0, 0,-salpha,-calpha,
+				0,0,0, salpha,0,-calpha,
+				0,0,0, -salpha,0,-calpha,
+
+				0,salpha,-calpha, rx, ry,-calpha, rx, ry,-calpha, salpha,0,-calpha,
+				salpha,0,-calpha, rx,-ry,-calpha, rx,-ry,-calpha, 0,-salpha,-calpha,
+				0,-salpha,-calpha, -rx,-ry,-calpha, -rx,-ry,-calpha, -salpha,0,-calpha,
+				-salpha,0,-calpha, -rx, ry,-calpha, -rx, ry,-calpha, 0,salpha,-calpha
+			];
+			let color = [
+				1,1,1,1, 1,1,0,1,
+				1,1,1,1, 1,1,0,1,
+				1,1,1,1, 1,1,0,1,
+				1,1,1,1, 1,1,0,1,
+
+				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
+				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
+				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
+				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1
+			];
+			g_gizmos.spot = buildPlist(context,vertex,color);
+		}
+		return g_gizmos.spot;
+	}
+
+	function getPointGizmo(context) {
+		if (!g_gizmos.point) {
+			let r = 0.5;
+			let s = bg.Math.sin(bg.Math.PI_4) * r;
+			let vertex = [
+				// x-y plane
+				0,0,0, 0,r,0, 0,0,0, 0,-r,0, 0,0,0, -r,0,0, 0,0,0, r,0,0,
+				0,0,0, s,s,0, 0,0,0, s,-s,0, 0,0,0, -s,s,0, 0,0,0, -s,-s,0,
+
+				// z, -z
+				0,0,0, 0,0,r, 0,0,0, 0,0,-r,
+				0,0,0, 0,s,s, 0,0,0, 0,-s,s, 0,0,0, 0,-s,-s, 0,0,0, 0,s,-s,
+				0,0,0, s,0,s, 0,0,0, -s,0,s, 0,0,0, -s,0,-s, 0,0,0, s,0,-s
+			];
+			let color = [
+				1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1,
+				1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1,
+				1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1,
+				1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1,
+				1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1
+			];
+			g_gizmos.point = buildPlist(context,vertex,color);
+		}
+		return g_gizmos.point;
+	}
+
+	function getGizmo() {
+		switch (this._light && this._light.type) {
+		case bg.base.LightType.DIRECTIONAL:
+			return getDirectionalGizmo(this.node.context);
+		case bg.base.LightType.SPOT:
+			return getSpotGizmo(this.node.context);
+		case bg.base.LightType.POINT:
+			return getPointGizmo(this.node.context);
+		}
+		return null;
+	}
 	
 	class Light extends bg.scene.Component {
 		// The active lights are the lights that are attached to a node
@@ -8828,6 +9061,13 @@ bg.scene = {};
 		
 		frame(delta) {
 			this._rebuildTransform = true;
+		}
+
+		displayGizmo(pipeline,matrixState) {
+			let plist = getGizmo.apply(this);
+			if (plist) {
+				pipeline.draw(plist);
+			}
 		}
 		
 		removedFromNode(node) {
@@ -9590,6 +9830,7 @@ bg.scene = {};
 		root.addChild(lightNode);
 		
 		let camera = new bg.scene.Camera();
+		camera.isMain = true;
 		let cameraNode = new bg.scene.Node("Camera");
 		cameraNode.addComponent(camera);			
 		cameraNode.addComponent(new bg.scene.Transform());
@@ -9599,7 +9840,7 @@ bg.scene = {};
 		root.addChild(cameraNode);
 
         return root;
-    }
+	}
 
     class SceneFileParser {
         constructor(url,jsonData) {
@@ -9636,18 +9877,29 @@ bg.scene = {};
                         let findVisitor = new bg.scene.FindComponentVisitor("bg.scene.Camera");
                         sceneRoot.accept(findVisitor);
                         
-                        let cameraNode = null;
+						let cameraNode = null;
+						let firstCamera = null;
                         findVisitor.result.some((cn) => {
-                            cameraNode = cn;
-                        });
+							if (!firstCamera) {
+								firstCamera = cn;
+							}
+							if (cn.camera.isMain) {
+								cameraNode = cn;
+								return true;
+							}
+						});
+						cameraNode = cameraNode || firstCamera;
                         if (!cameraNode) {
-                            cameraNode = new bg.scene.Node(context,"Camera");
-                            cameraNode.addComponent(new bg.scene.Camera());
-                            let trx = bg.Matrix4.Rotate(0.52,-1,0,0);
+							cameraNode = new bg.scene.Node(context,"Camera");
+							cameraNode.addComponent(new bg.scene.Camera());
+                            let trx = bg.Matrix4.Rotation(0.52,-1,0,0);
                             trx.translate(0,0,5);
                             cameraNode.addComponent(new bg.scene.Transform(trx));
                             sceneRoot.addChild(cameraNode);
-                        }
+						}
+						
+						// Ensure that cameraNode is the only camera marked as main
+						bg.scene.Camera.SetAsMainCamera(cameraNode,sceneRoot);
                         resolve({ sceneRoot:sceneRoot, cameraNode:cameraNode });
                     });
             });
@@ -10446,9 +10698,11 @@ bg.manipulation = {};
             let icon = this.getGizmoIcon(node);
             let gizmoOpacity = this.pipeline.effect.gizmoOpacity;
             let gizmoColor = this.pipeline.effect.color;
+            this.pipeline.effect.color = bg.Color.White();
+            let dt = this.pipeline.depthTest;
+            this.pipeline.depthTest = false;
             if (icon) {
                 this.pipeline.effect.texture = icon;
-                this.pipeline.effect.color = bg.Color.White();
                 this.pipeline.effect.gizmoOpacity = 1;
                 this.matrixState.viewMatrixStack.push();
                 this.matrixState.modelMatrixStack.push();
@@ -10466,8 +10720,10 @@ bg.manipulation = {};
                 this.matrixState.modelMatrixStack.pop();
                 this.pipeline.effect.gizmoOpacity = gizmoOpacity;
                 this.pipeline.effect.texture = null;
-                this.pipeline.effect.color = gizmoColor;
             }
+            node.displayGizmo(this.pipeline,this.matrixState);
+            this.pipeline.effect.color = gizmoColor;
+            this.pipeline.depthTest = dt;
         }
 
     }
@@ -10648,15 +10904,18 @@ bg.manipulation = {};
 			vertex: `
 			attribute vec3 inVertex;
 			attribute vec2 inTexCoord;
+			attribute vec4 inVertexColor;
 			
 			uniform mat4 inModelMatrix;
 			uniform mat4 inViewMatrix;
 			uniform mat4 inProjectionMatrix;
 			
 			varying vec2 fsTexCoord;
+			varying vec4 fsColor;
 			
 			void main() {
 				fsTexCoord = inTexCoord;
+				fsColor = inVertexColor;
 				gl_Position = inProjectionMatrix * inViewMatrix * inModelMatrix * vec4(inVertex,1.0);
 			}
 			`,
@@ -10669,10 +10928,11 @@ bg.manipulation = {};
 			uniform float inOpacity;
 			
 			varying vec2 fsTexCoord;
+			varying vec4 fsColor;
 			
 			void main() {
 				vec4 tex = texture2D(inTexture,fsTexCoord);
-				gl_FragColor = vec4(tex.rgb * inColor.rgb,inOpacity * tex.a);
+				gl_FragColor = vec4(fsColor.rgb * tex.rgb * inColor.rgb,inOpacity * tex.a);
 			}
 			`
 		};
@@ -10689,6 +10949,7 @@ bg.manipulation = {};
 		get inputVars() {
 			return {
 				vertex:'inVertex',
+				color:'inVertexColor',
 				tex0:'inTexCoord'
 			}
 		}
@@ -10720,6 +10981,7 @@ bg.manipulation = {};
 				else {
 					this._shader.initVars([
 						'inVertex',
+						'inVertexColor',
 						'inTexCoord'
 					],[
 						'inModelMatrix',
@@ -10970,17 +11232,11 @@ bg.manipulation = {};
 		
 		display(pipeline,matrixState) {
 			if (!this._gizmoItems || !this.visible) return;
+			matrixState.modelMatrixStack.push();
 			let modelview = new bg.Matrix4(matrixState.viewMatrixStack.matrix);
 			modelview.mult(matrixState.modelMatrixStack.matrix);
 			let s = modelview.position.magnitude() / this._scale;
-			s = s<this._minSize ? this._minSize : s;
-			let gizmoTransform = this.transform ? new bg.Matrix4(this.transform.matrix) : bg.Matrix4.Identity();
-			gizmoTransform.setScale(s,s,s);
-			gizmoTransform.setPosition(0,0,0);
-			matrixState.modelMatrixStack.push();
-			matrixState.modelMatrixStack
-				.set(this._gizmoP)
-				.mult(gizmoTransform);
+			matrixState.modelMatrixStack.matrix.setScale(s,s,s);
 			if (pipeline.effect instanceof bg.manipulation.ColorPickEffect &&
 				(pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS ||
 				pipeline.opacityLayer & bg.base.OpacityLayer.GIZMOS_SELECTION))
@@ -12084,6 +12340,19 @@ bg.manipulation = {};
 	}
 	
 	class OrbitCameraController extends bg.scene.Component {
+		static DisableAll(sceneRoot) {
+			let ctrl = sceneRoot.component("bg.manipulation.OrbitCameraController");
+			if (ctrl) {
+				ctrl.enabled = false;
+			}
+			sceneRoot.children.forEach((ch) => OrbitCameraController.DisableAll(ch));
+		}
+
+		static SetUniqueEnabled(orbitCameraController,sceneRoot) {
+			OrbitCameraController.DisableAll(sceneRoot);
+			orbitCameraController.enabled = true;
+		}
+
 		constructor() {
 			super();
 			
@@ -12111,6 +12380,13 @@ bg.manipulation = {};
 			this._maxY = 2.0;
 			this._maxZ = 15;
 			this._minZ = -15;
+
+			this._displacementSpeed = 0.1;
+
+			this._enabled = true;
+
+			// Do not serialize/deserialize this:
+			this._keys = {};
 		}
 		
 		setRotateButtons(left,middle,right) {
@@ -12145,8 +12421,67 @@ bg.manipulation = {};
 		get maxDistance() { return this._maxDistance; }
 		set maxDistance(d) { this._maxDistance = d; }
 
+		get displacementSpeed() { return this._displacementSpeed; }
+		set displacementSpeed(s) { this._displacementSpeed = s; }
+
+		get enabled() { return this._enabled; }
+		set enabled(e) { this._enabled = e; }
+
+		serialize(componentData,promises,url) {
+			super.serialize(componentData,promises,url);
+			componentData.rotateButtons = this._rotateButtons;
+			componentData.panButtons = this._panButtons;
+			componentData.zoomButtons = this._zoomButtons;
+			componentData.rotation = this._rotation.toArray();
+			componentData.distance = this._distance;
+			componentData.center = this._center.toArray();
+			componentData.rotationSpeed = this._rotationSpeed;
+			componentData.forward = this._forward;
+			componentData.left = this._left;
+			componentData.wheelSpeed = this._wheelSpeed;
+			componentData.minFocus = this._minFocus;
+			componentData.minPitch = this._minPitch;
+			componentData.maxPitch = this._maxPitch;
+			componentData.minDistance = this._minDistance;
+			componentData.maxDistance = this._maxDistance;
+			componentData.maxX = this._maxX;
+			componentData.minX = this._minX;
+			componentData.minY = this._minY;
+			componentData.maxY = this._maxY;
+			componentData.maxZ = this._maxZ;
+			componentData.minZ = this._minZ;
+			componentData.displacementSpeed = this._displacementSpeed;
+			componentData.enabled = this._enabled;
+		}
+
+		deserialize(context,componentData,url) {
+			this._rotateButtons = componentData.rotateButtons || this._rotateButtons;
+			this._panButtons = componentData.panButtons || this._panButtons;
+			this._zoomButtons = componentData.zoomButtons || this._zoomButtons;
+			this._rotation = new bg.Vector3(componentData.rotation) || this._rotation;
+			this._distance = componentData.distance!==undefined ? componentData.distance : this._distance;
+			this._center = new bg.Vector3(componentData.center) || this._center;
+			this._rotationSpeed = componentData.rotationSpeed!==undefined ? componentData.rotationSpeed : this._rotationSpeed;
+			this._forward = componentData.forward!==undefined ? componentData.forward : this._forward;
+			this._left = componentData.left!==undefined ? componentData.left : this._left;
+			this._wheelSpeed = componentData.wheelSpeed!==undefined ? componentData.wheelSpeed : this._wheelSpeed;
+			this._minFocus = componentData.minFocus!==undefined ? componentData.minFocus : this._minFocus;
+			this._minPitch = componentData.minPitch!==undefined ? componentData.minPitch : this._minPitch;
+			this._maxPitch = componentData.maxPitch!==undefined ? componentData.maxPitch : this._maxPitch;
+			this._minDistance = componentData.minDistance!==undefined ? componentData.minDistance : this._minDistance;
+			this._maxDistance = componentData.maxDistance!==undefined ? componentData.maxDistance : this._maxDistance;
+			this._maxX = componentData.maxX!==undefined ? componentData.maxX : this._maxX;
+			this._minX = componentData.minX!==undefined ? componentData.minX : this._minX;
+			this._minY = componentData.minY!==undefined ? componentData.minY : this._minY;
+			this._maxY = componentData.maxY!==undefined ? componentData.maxY : this._maxY;
+			this._maxZ = componentData.maxZ!==undefined ? componentData.maxZ : this._maxZ;
+			this._minZ = componentData.minZ!==undefined ? componentData.minZ : this._minZ;
+			this._displacementSpeed = componentData.displacementSpeed!==undefined ? componentData.displacementSpeed : this._displacementSpeed;
+			this._enabled = componentData.enabled!==undefined ? componentData.enabled : this._enabled;
+		}
+
 		frame(delta) {
-			if (this.transform) {
+			if (this.transform && this.enabled) {
 				let forward = this.transform.matrix.forwardVector;
 				let left = this.transform.matrix.leftVector;
 				forward.scale(this._forward);
@@ -12159,6 +12494,28 @@ bg.manipulation = {};
 
 				this._distance = this._distance>this._minDistance ? this._distance:this._minDistance;
 				this._distance = this._distance<this._maxDistance ? this._distance:this._maxDistance;
+
+				if (this._mouseButtonPressed) {
+					let displacement = new bg.Vector3();
+					if (this._keys[bg.app.SpecialKey.UP_ARROW]) {
+						displacement.add(this.transform.matrix.backwardVector);
+						bg.app.MainLoop.singleton.windowController.postRedisplay();
+					}
+					if (this._keys[bg.app.SpecialKey.DOWN_ARROW]) {
+						displacement.add(this.transform.matrix.forwardVector);
+						bg.app.MainLoop.singleton.windowController.postRedisplay();
+					}
+					if (this._keys[bg.app.SpecialKey.LEFT_ARROW]) {
+						displacement.add(this.transform.matrix.leftVector);
+						bg.app.MainLoop.singleton.windowController.postRedisplay();
+					}
+					if (this._keys[bg.app.SpecialKey.RIGHT_ARROW]) {
+						displacement.add(this.transform.matrix.rightVector);
+						bg.app.MainLoop.singleton.windowController.postRedisplay();
+					}
+					displacement.scale(this._displacementSpeed);
+					this._center.add(displacement);
+				}
 
 				if (this._center.x<this._minX) this._center.x = this._minX;
 				else if (this._center.x>this._maxX) this._center.x = this._maxX;
@@ -12183,11 +12540,17 @@ bg.manipulation = {};
 		}
 
 		mouseDown(evt) {
+			if (!this.enabled) return;
+			this._mouseButtonPressed = true;
 			this._lastPos = new bg.Vector2(evt.x,evt.y);
+		}
+
+		mouseUp(evt) {
+			this._mouseButtonPressed = false;
 		}
 		
 		mouseDrag(evt) {
-			if (this.transform && this._lastPos) {
+			if (this.transform && this._lastPos && this.enabled) {
 				let delta = new bg.Vector2(this._lastPos.y - evt.y,
 										 this._lastPos.x - evt.x);
 				this._lastPos.set(evt.x,evt.y);
@@ -12213,16 +12576,18 @@ bg.manipulation = {};
 		}
 
 		mouseWheel(evt) {
+			if (!this.enabled) return;
 			let mult = this._distance>0.01 ? this._distance:0.01;
 			this._distance += evt.delta * 0.001 * mult * this._wheelSpeed;
 		}
 		
 		touchStart(evt) {
+			if (!this.enabled) return;
 			this._lastTouch = evt.touches;
 		}
 		
 		touchMove(evt) {
-			if (this._lastTouch.length==evt.touches.length && this.transform) {
+			if (this._lastTouch.length==evt.touches.length && this.transform && this.enabled) {
 				if (this._lastTouch.length==1) {
 					// Rotate
 					let last = this._lastTouch[0];
@@ -12259,6 +12624,17 @@ bg.manipulation = {};
 				}
 			}
 			this._lastTouch = evt.touches;
+		}
+
+		keyDown(evt) {
+			if (!this.enabled) return;
+			this._keys[evt.key] = true;
+			bg.app.MainLoop.singleton.windowController.postRedisplay();
+		}
+
+		keyUp(evt) {
+			if (!this.enabled) return;
+			this._keys[evt.key] = false;
 		}
 	}
 	
@@ -14383,6 +14759,8 @@ bg.webgl1 = {};
 			bg.base.DrawMode.TRIANGLES = context.TRIANGLES;
 			bg.base.DrawMode.TRIANGLE_FAN = context.TRIANGLE_FAN;
 			bg.base.DrawMode.TRIANGLE_STRIP = context.TRIANGLE_STRIP;
+			bg.base.DrawMode.LINES = context.LINES;
+			bg.base.DrawMode.LINE_STRIP = context.LINE_STRIP;
 
 			s_uintElements = context.getExtension("OES_element_index_uint");
 		}
