@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.1.10 - build: f096a26";
+bg.version = "1.2.0 - build: bd32d30";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -662,6 +662,15 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 	}
 	
 	bg.utils.Resource = Resource;
+
+	bg.utils.requireGlobal = function(src) {
+		let s = document.createElement('script');
+		s.src = src;
+		s.type = "text/javascript";
+		s.async = false;
+		document.getElementsByTagName('head')[0].appendChild(s);
+	}
+
 })();
 (function() {
 	let s_Engine = null;
@@ -1846,6 +1855,10 @@ Object.defineProperty(bg, "isElectronApp", {
                 "reflectionMaskChannel": material.reflectionMaskChannel,
                 "invertReflectionMask": material.reflectionMaskInvert,
 
+                "roughness": material.roughness,
+                "roughnessMaskChannel": material.roughnessMaskChannel,
+                "invertRoughnessMask": material.roughnessMaskInvert,
+
                 "cullFace": material.cullFace,
 
                 "texture": writeTexture(material.texture,fileData),
@@ -1855,6 +1868,7 @@ Object.defineProperty(bg, "isElectronApp", {
                 "lightEmissionMask": writeTexture(material.lightEmissionMask,fileData),
                 "displacementMap": "",
                 "reflectionMask": writeTexture(material.reflectionMask,fileData),
+                "roughnessMask": writeTexture(material.roughnessMask,fileData),
                 "visible": plist.visible,
                 "groupName": material.groupName
             });
@@ -2796,7 +2810,8 @@ Object.defineProperty(bg, "isElectronApp", {
 		REFLECTION_MASK					: 1 << 24,
 		REFLECTION_MASK_CHANNEL			: 1 << 25,
 		REFLECTION_MASK_INVERT			: 1 << 26,
-		CULL_FACE						: 1 << 27
+		CULL_FACE						: 1 << 27,
+		ROUGHNESS						: 1 << 28,	// All the roughness attributes are controlled by this flag
 	};
 
 	function loadTexture(context,image,url) {
@@ -2850,6 +2865,10 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._reflectionMaskChannel = 0;
 			this._reflectionMaskInvert = false;
 			this._cullFace = true;
+			this._roughness = true;
+			this._roughnessMask = null;
+			this._roughnessMaskChannel = 0;
+			this._roughnessMaskInvert = false;
 
 			if (jsonData) {
 				if (jsonData.diffuseR!==undefined && jsonData.diffuseG!==undefined && jsonData.diffuseB!==undefined) {
@@ -2964,6 +2983,19 @@ Object.defineProperty(bg, "isElectronApp", {
 				if (jsonData.invertReflectionMask!==undefined) {
 					this.reflectionMaskInvert = jsonData.reflectionMaskInvert;
 				}
+
+				if (jsonData.roughness!==undefined) {
+					this.roughness = jsonData.roughness;
+				}
+				if (jsonData.roughnessMask!==undefined) {
+					this.roughnessMask = jsonData.roughnessMask;
+				}
+				if (jsonData.roughnessMaskChannel!==undefined) {
+					this.roughnessMaskChannel = jsonData.roughnessMaskChannel;
+				}
+				if (jsonData.invertRoughnessMask!==undefined) {
+					this.roughnessMaskInvert = jsonData.roughnessMaskInvert;
+				}
 			}
 		}
 		
@@ -3000,6 +3032,10 @@ Object.defineProperty(bg, "isElectronApp", {
 		get reflectionMaskChannel() { return this._reflectionMaskChannel; } 
 		get reflectionMaskInvert() { return this._reflectionMaskInvert; } 
 		get cullFace() { return this._cullFace; }
+		get roughness() { return this._roughness; }
+		get roughnessMask() { return this._roughnessMask; }
+		get roughnessMaskChannel() { return this._roughnessMaskChannel; }
+		get roughnessMaskInvert() { return this._roughnessMaskInvert; }
 
 		set diffuse(newVal) { this._diffuse = newVal; this.setEnabled(bg.base.MaterialFlag.DIFFUSE); }
 		set specular(newVal) { this._specular = newVal; this.setEnabled(bg.base.MaterialFlag.SPECULAR); }
@@ -3029,6 +3065,10 @@ Object.defineProperty(bg, "isElectronApp", {
 		set reflectionMaskChannel(newVal) { this._reflectionMaskChannel = newVal; this.setEnabled(bg.base.MaterialFlag.REFLECTION_MASK_CHANNEL); }
 		set reflectionMaskInvert(newVal) { this._reflectionMaskInvert = newVal; this.setEnabled(bg.base.MaterialFlag.REFLECTION_MASK_INVERT); }
 		set cullFace(newVal) { this._cullFace = newVal; this.setEnabled(bg.base.MaterialFlag.CULL_FACE); }
+		set roughness(newVal) { this._roughness = newVal; this.setEnabled(bg.base.MaterialFlag.ROUGHNESS); }
+		set roughnessMask(newVal) { this._roughnessMask = newVal; this.setEnabled(bg.base.MaterialFlag.ROUGHNESS); }
+		set roughnessMaskChannel(newVal) { this._roughnessMaskChannel = newVal; this.setEnabled(bg.base.MaterialFlag.ROUGHNESS); }
+		set roughnessMaskInvert(newVal) { this._roughnessMaskInvert = newVal; this.setEnabled(bg.base.MaterialFlag.ROUGHNESS); }
 
 		clone() {
 			let copy = new MaterialModifier();
@@ -3067,6 +3107,10 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._reflectionMaskChannel = mod._reflectionMaskChannel;
 			this._reflectionMaskInvert = mod._reflectionMaskInvert;
 			this._cullFace = mod._cullFace;
+			this._roughness = mod._roughness;
+			this._roughnessMask = mod._roughnessMask;
+			this._roughnessMaskChannel = mod._roughnessMaskChannel;
+			this._roughnessMaskInvert = mod._roughnessMaskInvert;
 		}
 	}
 	
@@ -3194,6 +3238,9 @@ Object.defineProperty(bg, "isElectronApp", {
 				mat.alphaCutoff = def.alphaCutoff===undefined ? 0.5 : def.alphaCutoff;
 				mat.name = def.name;
 				mat.description = def.description;
+				mat.roughness = def.roughness || 0;
+				mat.roughnessMaskChannel = def.roughnessMaskChannel || 0;
+				mat.roughnessMaskInvert = def.roughnessMaskInvert || false;
 
 				let texPromises = [];
 				texPromises.push(readTexture(context,basePath,def.shininessMask,mat,"shininessMask"));
@@ -3201,6 +3248,7 @@ Object.defineProperty(bg, "isElectronApp", {
 				texPromises.push(readTexture(context,basePath,def.reflectionMask,mat,"reflectionMask"));
 				texPromises.push(readTexture(context,basePath,def.texture,mat,"texture"));
 				texPromises.push(readTexture(context,basePath,def.normalMap,mat,"normalMap"));
+				texPromises.push(readTexture(context,basePath,def.roughnessMask,mat,"roughnessMask"));
 
 				Promise.all(texPromises)
 					.then(() => {
@@ -3238,7 +3286,11 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._reflectionMaskChannel = 0;
 			this._reflectionMaskInvert = false;
 			this._cullFace = true;
-
+			this._roughness = 0;
+			this._roughnessMask = null;
+			this._roughnessMaskChannel = 0;
+			this._roughnessMaskInvert = false;
+			
 			this._selectMode = false;
 		}
 		
@@ -3277,6 +3329,10 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._reflectionMaskChannel = other.reflectionMaskChannel;
 			this._reflectionMaskInvert = other.reflectionMaskInvert;
 			this._cullFace = other.cullFace;
+			this._roughness = other.roughness;
+			this._roughnessMask = other.roughnessMask;
+			this._roughnessMaskChannel = other.roughnessMaskChannel;
+			this._roughnessMaskInvert = other.roughnessMaskInvert;
 
 			// selectMode is ignored on copy
 		}
@@ -3313,6 +3369,10 @@ Object.defineProperty(bg, "isElectronApp", {
 		get reflectionMaskChannel() { return this._reflectionMaskChannel; }
 		get reflectionMaskInvert() { return this._reflectionMaskInvert; }
 		get cullFace() { return this._cullFace; }
+		get roughness() { return this._roughness; }
+		get roughnessMask() { return this._roughnessMask; }
+		get roughnessMaskChannel() { return this._roughnessMaskChannel; }
+		get roughnessMaskInvert() { return this._roughnessMaskInvert; }
 
 		
 		set diffuse(newVal) { this._diffuse = newVal; }
@@ -3343,6 +3403,10 @@ Object.defineProperty(bg, "isElectronApp", {
 		set reflectionMaskChannel(newVal) { this._reflectionMaskChannel = newVal; }
 		set reflectionMaskInvert(newVal) { this._reflectionMaskInvert = newVal; }
 		set cullFace(newVal) { this._cullFace = newVal; }
+		set roughness(newVal) { this._roughness = newVal; }
+		set roughnessMask(newVal) { this._roughnessMask = newVal; }
+		set roughnessMaskChannel(newVal) { this._roughnessMaskChannel = newVal; }
+		set roughnessMaskInvert(newVal) { this._roughnessMaskInvert = newVal; }
 		
 		get selectMode() { return this._selectMode; }
 		set selectMode(s) { this._selectMode = s; }
@@ -3358,6 +3422,10 @@ Object.defineProperty(bg, "isElectronApp", {
 		
 		get reflectionMaskChannelVector() {
 			return channelVector(this.reflectionMaskChannel);
+		}
+
+		get roughnessMaskChannelVector() {
+			return channelVector(this.roughnessMaskChannel);
 		}
 		
 		
@@ -3446,6 +3514,17 @@ Object.defineProperty(bg, "isElectronApp", {
 			if ( mask & bg.base.MaterialFlag.CULL_FACE) {
 				mat.cullFace = this.cullFace;
 			}
+
+			// All the roughness attributes are copied together using this flag. In
+			// the future, the *_MASK, *_MASK_CHANNEL and *_MASK_INVERT for shininess,
+			// light emission and reflection, will be deprecated and will work in the
+			// same way as ROUGHNESS here
+			if ( mask & bg.base.MaterialFlag.ROUGHNESS) {
+				mat.reflectionAmount = this.reflectionAmount;
+				mat.reflectionMask = this.reflectionMask;
+				mat.reflectionMaskChannel = this.reflectionMaskChannel;
+				mat.reflectionMaskInvert = this.reflectionMaskInvert;
+			}
 		}
 
 		applyModifier(context, mod, resourcePath) {
@@ -3532,6 +3611,14 @@ Object.defineProperty(bg, "isElectronApp", {
 			}
 			if (mod.isEnabled(bg.base.MaterialFlag.CULL_FACE)) {
 				this.cullFace = mod.cullFace;
+			}
+
+			// See above note for ROUGHNESS flags
+			if (mod.isEnabled(bg.base.MaterialFlag.ROUGHNESS)) {
+				this.roughness = mod.roughness;
+				this.roughnessMask = getTexture(context,mod.roughnessMask,resourcePath);
+				this.roughnessMaskChannel = mod.roughnessMaskChannel;
+				this.roughnessMaskInvert = mod.roughnessMaskInvert;
 			}
 		}
 		
@@ -3623,6 +3710,14 @@ Object.defineProperty(bg, "isElectronApp", {
 				mod.cullFace = this.cullFace;
 			}
 
+			// See above note about ROUGHNESS flag
+			if (mod.isEnabled(bg.base.MaterialFlag.ROUGHNESS)) {
+				mod.roughness = this.roughness;
+				mod.roughnessMask = getPath(this.roughnessMask);
+				mod.roughnessMaskChannel = this.roughnessMaskChannel;
+				mod.roughnessMaskInvert = this.roughnessMaskInvert;
+			}
+
 			mod.setFlags(modifierMask);
 		}
 		
@@ -3661,6 +3756,10 @@ Object.defineProperty(bg, "isElectronApp", {
 			
 			material.reflectionMaskChannel = data.reflectionMaskChannel;
 			material.reflectionMaskInvert = data.invertReflectionMask;
+
+			material.roughness = data.roughness;
+			material.roughnessMaskChannel = data.roughnessMaskChannel;
+			material.roughnessMaskInvert = data.invertRoughnessMask;
 			
 			material.cullFace = data.cullFace;
 			
@@ -3679,6 +3778,7 @@ Object.defineProperty(bg, "isElectronApp", {
 			data.shininessMask = mergePath(path,data.shininessMask);
 			data.lightEmissionMask = mergePath(path,data.lightEmissionMask);
 			data.reflectionMask = mergePath(path,data.reflectionMask);
+			data.roughnessMask = mergePath(path,data.roughnessMask);
 			
 			return new Promise((accept,reject) => {
 				let textures = [];
@@ -3701,6 +3801,9 @@ Object.defineProperty(bg, "isElectronApp", {
 				if (data.reflectionMask && textures.indexOf(data.reflectionMask)==-1) {
 					textures.push(data.reflectionMask);
 				}
+				if (data.roughnessMask && textures.indexOf(data.roughnessMask)==-1) {
+					textures.push(data.roughnessMask);
+				}
 				
 				bg.utils.Resource.Load(textures)
 					.then(function(images) {
@@ -3710,6 +3813,7 @@ Object.defineProperty(bg, "isElectronApp", {
 						material.shininessMask = loadTexture(context,images[data.shininessMask],data.shininessMask);
 						material.lightEmissionMask = loadTexture(context,images[data.lightEmissionMask],data.lightEmissionMask);
 						material.reflectionMask = loadTexture(context,images[data.reflectionMask],data.reflectionMask);
+						material.roughnessMask = loadTexture(context,images[data.roughnessMask],data.roughnessMask);
 						accept(material);
 					});
 			});
@@ -4133,6 +4237,17 @@ Object.defineProperty(bg, "isElectronApp", {
 })();
 (function() {
 	
+	bg.base.BufferType = {
+		VERTEX:		1 << 0,
+		NORMAL:		1 << 1,
+		TEX_COORD_0:		1 << 2,
+		TEX_COORD_1:		1 << 3,
+		TEX_COORD_2:		1 << 4,
+		COLOR:		1 << 5,
+		TANGENT:	1 << 6,
+		INDEX:		1 << 7
+	};
+	
 	class PolyListImpl {
 		constructor(context) {
 			this.initFlags(context);
@@ -4143,8 +4258,11 @@ Object.defineProperty(bg, "isElectronApp", {
 		build(context,plist,vert,norm,t0,t1,t2,col,tan,index) { return false; }
 		draw(context,plist,drawMode,numberOfIndex) {}
 		destroy(context,plist) {}
+
+		// NOTE: the new buffer data must have the same size as the old one
+		update(context,plist,bufferType,newData) {}
 	}
-	
+
 	function createTangents(plist) {
 		if (!plist.texCoord0 || !plist.vertex) return;
 		plist._tangent = [];
@@ -4303,6 +4421,44 @@ Object.defineProperty(bg, "isElectronApp", {
 		get colorBuffer() { return this._plist.colorBuffer; }
 		get tangentBuffer() { return this._plist.tangentBuffer; }
 		get indexBuffer() { return this._plist.indexBuffer; }
+
+		// Note that the new buffer must have the same size as the old one, this
+		// function is intended to be used only to replace the buffer values
+		updateBuffer(bufferType,newData) {
+			let status = false;
+			switch (bufferType) {
+			case bg.base.BufferType.VERTEX:
+				status = this.vertex.length==newData.length;
+				break;
+			case bg.base.BufferType.NORMAL:
+				status = this.normal.length==newData.length;
+				break;
+			case bg.base.BufferType.TEX_COORD_0:
+				status = this.texCoord0.length==newData.length;
+				break;
+			case bg.base.BufferType.TEX_COORD_1:
+				status = this.texCoord1.length==newData.length;
+				break;
+			case bg.base.BufferType.TEX_COORD_2:
+				status = this.texCoord2.length==newData.length;
+				break;
+			case bg.base.BufferType.COLOR:
+				status = this.color.length==newData.length;
+				break;
+			case bg.base.BufferType.TANGENT:
+				status = this.tangent.length==newData.length;
+				break;
+			case bg.base.BufferType.INDEX:
+				status = this.index.length==newData.length;
+				break;
+			}
+			if (!status) {
+				throw new Error("Error updating buffer: The new buffer have different size as the old one.");
+			}
+			else {
+				bg.Engine.Get().polyList.update(this.context,this._plist,bufferType,newData);
+			}
+		}
 		
 		build() {
 			if (this.color.length==0) {
@@ -5857,6 +6013,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		RAD_TO_DEG:57.29577951308233,
 		PI_2:1.5707963267948966,
 		PI_4:0.785398163397448,
+		PI_8:0.392699081698724,
 		TWO_PI:6.283185307179586,
 		
 		EPSILON:0.0000001,
@@ -8912,11 +9069,6 @@ bg.scene = {};
 		}
 	}
 
-	let g_gizmos = {
-		spot:null,
-		directional:null
-	};
-
 	function buildPlist(context,vertex,color) {
 		let plist = new bg.base.PolyList(context);
 		let normal = [];
@@ -8938,8 +9090,9 @@ bg.scene = {};
 		return plist;
 	}
 
-	function getDirectionalGizmo(context) {
-		if (!g_gizmos.directional) {
+	function getDirectionalGizmo(conext) {
+		if (!this._directionalGizmo) {
+			let context = this.node.context;
 			let vertex = [
 				0,0,0, 0,0,-1,
 				0,0,-1, 0,0.1,-0.9,
@@ -8950,47 +9103,65 @@ bg.scene = {};
 				1,1,0,1, 1,1,0,1,
 				1,1,0,1, 1,1,0,1
 			];
-			g_gizmos.directional = buildPlist(context,vertex,color);
+			this._directionalGizmo = buildPlist(context,vertex,color);
 		}
-		return g_gizmos.directional;
+		return this._directionalGizmo;
 	}
 
-	function getSpotGizmo(context) {
-		if (!g_gizmos.spot) {
-			let alpha = bg.Math.degreesToRadians(20);
-			let salpha = bg.Math.sin(alpha);
-			let calpha = bg.Math.cos(alpha);
-			let rx = bg.Math.cos(bg.Math.PI_4) * salpha;
-			let ry = bg.Math.sin(bg.Math.PI_4) * salpha;
-			let vertex = [
-				0,0,0, 0,salpha,-calpha,
-				0,0,0, 0,-salpha,-calpha,
-				0,0,0, salpha,0,-calpha,
-				0,0,0, -salpha,0,-calpha,
+	function getSpotGizmo() {
+		let context = this.node.context;
+		let distance = 5;
+		let alpha = bg.Math.degreesToRadians(this.light.spotCutoff / 2);
+		let salpha = bg.Math.sin(alpha) * distance;
+		let calpha = bg.Math.cos(alpha) * distance;
 
-				0,salpha,-calpha, rx, ry,-calpha, rx, ry,-calpha, salpha,0,-calpha,
-				salpha,0,-calpha, rx,-ry,-calpha, rx,-ry,-calpha, 0,-salpha,-calpha,
-				0,-salpha,-calpha, -rx,-ry,-calpha, -rx,-ry,-calpha, -salpha,0,-calpha,
-				-salpha,0,-calpha, -rx, ry,-calpha, -rx, ry,-calpha, 0,salpha,-calpha
-			];
-			let color = [
-				1,1,1,1, 1,1,0,1,
-				1,1,1,1, 1,1,0,1,
-				1,1,1,1, 1,1,0,1,
-				1,1,1,1, 1,1,0,1,
+		let rx2 = bg.Math.cos(bg.Math.PI_8) * salpha;
+		let rx1 = bg.Math.cos(bg.Math.PI_4) * salpha;
+		let rx0 = bg.Math.cos(bg.Math.PI_4 + bg.Math.PI_8) * salpha;
 
-				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
-				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
-				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
-				1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1
-			];
-			g_gizmos.spot = buildPlist(context,vertex,color);
+		let ry2 = bg.Math.sin(bg.Math.PI_8) * salpha;
+		let ry1 = bg.Math.sin(bg.Math.PI_4) * salpha;
+		let ry0 = bg.Math.sin(bg.Math.PI_4 + bg.Math.PI_8) * salpha;
+
+		let vertex = [
+			0,0,0, 0,salpha,-calpha,
+			0,0,0, 0,-salpha,-calpha,
+			0,0,0, salpha,0,-calpha,
+			0,0,0, -salpha,0,-calpha,
+
+			0,salpha,-calpha, rx0,ry0,-calpha, rx0,ry0,-calpha, rx1,ry1,-calpha, rx1,ry1,-calpha, rx2,ry2,-calpha, rx2,ry2,-calpha, salpha,0,-calpha,
+		
+			salpha,0,-calpha, rx2,-ry2,-calpha, rx2,-ry2,-calpha, rx1,-ry1,-calpha, rx1,-ry1,-calpha, rx0,-ry0,-calpha, rx0,-ry0,-calpha, 0,-salpha,-calpha,
+			0,-salpha,-calpha, -rx0,-ry0,-calpha, -rx0,-ry0,-calpha, -rx1,-ry1,-calpha, -rx1,-ry1,-calpha, -rx2,-ry2,-calpha, -rx2,-ry2,-calpha, -salpha,0,-calpha,
+
+			-salpha,0,-calpha, -rx2,ry2,-calpha, -rx2,ry2,-calpha, -rx1,ry1,-calpha, -rx1, ry1,-calpha, -rx0,ry0,-calpha, -rx0,ry0,-calpha,  0,salpha,-calpha
+		];
+		let color = [
+			1,1,1,1, 1,1,0,1,
+			1,1,1,1, 1,1,0,1,
+			1,1,1,1, 1,1,0,1,
+			1,1,1,1, 1,1,0,1,
+
+			1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
+			1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
+			
+			1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1,
+			1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1
+		];
+
+		if (!this._spotGizmo) {
+			this._spotGizmo = buildPlist(context,vertex,color);
 		}
-		return g_gizmos.spot;
+		else {
+			this._spotGizmo.updateBuffer(bg.base.BufferType.VERTEX,vertex);
+			this._spotGizmo.updateBuffer(bg.base.BufferType.COLOR,color);
+		}
+		return this._spotGizmo;
 	}
 
-	function getPointGizmo(context) {
-		if (!g_gizmos.point) {
+	function getPointGizmo() {
+		if (!this._pointGizmo) {
+			let context = this.node.context;
 			let r = 0.5;
 			let s = bg.Math.sin(bg.Math.PI_4) * r;
 			let vertex = [
@@ -9010,19 +9181,19 @@ bg.scene = {};
 				1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1,
 				1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1, 1,1,1,1, 1,1,0,1
 			];
-			g_gizmos.point = buildPlist(context,vertex,color);
+			this._pointGizmo = buildPlist(context,vertex,color);
 		}
-		return g_gizmos.point;
+		return this._pointGizmo;
 	}
 
 	function getGizmo() {
 		switch (this._light && this._light.type) {
 		case bg.base.LightType.DIRECTIONAL:
-			return getDirectionalGizmo(this.node.context);
+			return getDirectionalGizmo.apply(this);
 		case bg.base.LightType.SPOT:
-			return getSpotGizmo(this.node.context);
+			return getSpotGizmo.apply(this);
 		case bg.base.LightType.POINT:
-			return getPointGizmo(this.node.context);
+			return getPointGizmo.apply(this);
 		}
 		return null;
 	}
@@ -12916,6 +13087,7 @@ bg.render = {
 					{ name:"inPositionMap", dataType:"sampler2D", role:"value"},
 					{ name:"inSSAO", dataType:"sampler2D", role:"value"},
 					{ name:"inReflection", dataType:"sampler2D", role:"value"},
+					{ name:"inSpecularMap", dataType:"sampler2D", role:"value" },
 					{ name:"inMaterial", dataType:"sampler2D", role:"value"},
 					{ name:"inOpaqueDepthMap", dataType:"sampler2D", role:"value"},
 					{ name:"inViewSize", dataType:"vec2", role:"value"},
@@ -12925,6 +13097,7 @@ bg.render = {
 				]);
 				
 				if (bg.Engine.Get().id=="webgl1") {
+					this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
 					this._fragmentShaderSource.addFunction(lib().functions.blur.blur);
 					this._fragmentShaderSource.addFunction(lib().functions.blur.glowBlur);
 
@@ -12934,17 +13107,22 @@ bg.render = {
 					vec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));
 					vec4 diffuse = texture2D(inDiffuse,fsTexCoord);
 					vec4 pos = texture2D(inPositionMap,fsTexCoord);
-					vec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur,inViewSize);
-					vec4 glow = glowBlur(inLighting,fsTexCoord,5,inViewSize);
-					vec4 reflect = texture2D(inReflection,fsTexCoord);
+					vec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);
 					vec4 material = texture2D(inMaterial,fsTexCoord);
+
+					vec4 specular = texture2D(inSpecularMap,fsTexCoord);	// The roughness parameter is stored on A component, inside specular map
+
+					float roughness = specular.a;
+					roughness *= 400.0;
+					vec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize);
+
 					vec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);
 					if (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {
 						discard;
 					}
 					else {
 						float reflectionAmount = material.b;
-						vec3 finalColor = lighting.rgb * (1.0 - reflectionAmount) + clamp((glow.rgb - 1.0) * 2.0, 0.0, 1.0);
+						vec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);
 						finalColor += reflect.rgb * reflectionAmount;
 						finalColor *= ssao.rgb;
 						gl_FragColor = vec4(finalColor,diffuse.a);
@@ -12963,7 +13141,8 @@ bg.render = {
 			this.shader.setTexture("inSSAO",this._surface.ssaoMap,bg.base.TextureUnit.TEXTURE_3);
 			this.shader.setTexture("inReflection",this._surface.reflectionMap,bg.base.TextureUnit.TEXTURE_4);
 			this.shader.setTexture("inMaterial",this._surface.materialMap,bg.base.TextureUnit.TEXTURE_5);
-			this.shader.setTexture("inOpaqueDepthMap",this._surface.opaqueDepthMap,bg.base.TextureUnit.TEXTURE_6);
+			this.shader.setTexture("inSpecularMap",this._surface.specularMap,bg.base.TextureUnit.TEXTURE_6);
+			this.shader.setTexture("inOpaqueDepthMap",this._surface.opaqueDepthMap,bg.base.TextureUnit.TEXTURE_7);
 	
 			this.shader.setValueInt("inSSAOBlur",this.ssaoBlur);
 		}
@@ -13304,6 +13483,7 @@ bg.render = {
 				positionMap:this.maps.position,
 				ssaoMap:renderSSAO ? this.maps.ambientOcclusion:bg.base.TextureCache.WhiteTexture(this.context),
 				reflectionMap:renderSSRT ? this.maps.reflection:this.maps.lighting,
+				specularMap:this.maps.specular,
 				materialMap:this.maps.material,
 				opaqueDepthMap:this.maps.mixDepthMap
 			});	// null: all textures are specified as parameters to the effect
@@ -13638,9 +13818,13 @@ bg.render = {
 							float reflectionMask = applyTextureMask(inReflection,
 															inReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,
 															inReflectionMaskChannel,inReflectionMaskInvert);
-																		
+							
+							float roughnessMask = applyTextureMask(inRoughness,
+															inRoughnessMask,fsTex0Coord,inTextureOffset,inTextureScale,
+															inRoughnessMaskChannel,inRoughnessMaskInvert);
+
 							gl_FragData[0] = diffuse;
-							gl_FragData[1] = specular;
+							gl_FragData[1] = vec4(specular.rgb,roughnessMask); // Store roughness on A component of specular
 							gl_FragData[2] = vec4(normal * 0.5 + 0.5, 1.0);
 							gl_FragData[3] = vec4(lightEmission,inShininess/255.0,reflectionMask,float(inCastShadows));
 						}
@@ -13760,6 +13944,7 @@ bg.render = {
 				let shininessMask = this.material.shininessMask || bg.base.TextureCache.WhiteTexture(this.context);
 				let lightEmissionMask = this.material.lightEmissionMask || bg.base.TextureCache.WhiteTexture(this.context);
 				let reflectionMask = this.material.reflectionMask || bg.base.TextureCache.WhiteTexture(this.context);
+				let roughnessMask = this.material.roughnessMask || bg.base.TextureCache.WhiteTexture(this.context);
 				this.shader.setTexture('inShininessMask',shininessMask,bg.base.TextureUnit.TEXTURE_3);
 				this.shader.setVector4('inShininessMaskChannel',this.material.shininessMaskChannelVector);
 				this.shader.setValueInt('inShininessMaskInvert',this.material.shininessMaskInvert);
@@ -13772,6 +13957,11 @@ bg.render = {
 				this.shader.setTexture('inReflectionMask',reflectionMask,bg.base.TextureUnit.TEXTURE_5);
 				this.shader.setVector4('inReflectionMaskChannel',this.material.reflectionMaskChannelVector);
 				this.shader.setValueInt('inReflectionMaskInvert',this.material.reflectionMaskInvert);
+
+				this.shader.setValueFloat('inRoughness',this.material.roughness);
+				this.shader.setTexture('inRoughnessMask',roughnessMask,bg.base.TextureUnit.TEXTURE_6);
+				this.shader.setVector4('inRoughnessMaskChannel',this.material.roughnessMaskChannelVector);
+				this.shader.setValueInt('inRoughnessMaskInvert',this.material.roughnessMaskInvert);
 				
 				this.shader.setValueInt('inCastShadows',this.material.castShadows);
 				// Other settings
@@ -13909,7 +14099,7 @@ bg.render = {
 				if (bg.Engine.Get().id=="webgl1") {
 					this._fragmentShaderSource.setMainBody(`
 					vec4 diffuse = texture2D(inDiffuse,fsTexCoord);
-					vec4 specular = texture2D(inSpecular,fsTexCoord);
+					vec4 specular = vec4(texture2D(inSpecular,fsTexCoord).rgb,1.0);
 					vec3 normal = texture2D(inNormal,fsTexCoord).xyz * 2.0 - 1.0;
 					vec4 material = texture2D(inMaterial,fsTexCoord);
 					vec4 position = texture2D(inPosition,fsTexCoord);
@@ -14013,6 +14203,7 @@ bg.render = {
 					this._fragmentShaderSource.addFunction(lib().functions.utils.texOffset);
 					this._fragmentShaderSource.addFunction(lib().functions.utils.luminance);
 					this._fragmentShaderSource.addFunction(lib().functions.utils.borderDetection);
+					this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
 					this._fragmentShaderSource.addFunction(lib().functions.blur.gaussianBlur);
 					this._fragmentShaderSource.addFunction(lib().functions.blur.antiAlias);
 
@@ -14828,6 +15019,47 @@ bg.webgl1 = {};
 			plist.tangentBuffer = deleteBuffer(context,plist.tangentBuffer);
 			plist.indexBuffer = deleteBuffer(context,plist.indexBuffer);
 		}
+
+		update(context,plist,bufferType,newData) {
+			if (bufferType==bg.base.BufferType.INDEX) {
+				if (s_uintElements) {
+					context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, plist.indexBuffer);
+					context.bufferData(context.ELEMENT_ARRAY_BUFFER, new Uint32Array(index),context.STATIC_DRAW);
+				}
+				else {
+					context.bindBuffer(context.ELEMENT_ARRAY_BUFFER, plist.indexBuffer);
+					context.bufferData(context.ELEMENT_ARRAY_BUFFER, new Uint16Array(index),context.STATIC_DRAW);
+				}
+				context.bindBuffer(context.ELEMENT_ARRAY_BUFFER,null);
+			}
+			else {
+				switch (bufferType) {
+				case bg.base.BufferType.VERTEX:
+					context.bindBuffer(context.ARRAY_BUFFER, plist.vertexBuffer);
+					break;
+				case bg.base.BufferType.NORMAL:
+					context.bindBuffer(context.ARRAY_BUFFER, plist.normalBuffer);
+					break;
+				case bg.base.BufferType.TEX_COORD_0:
+					context.bindBuffer(context.ARRAY_BUFFER, plist.tex0Buffer);
+					break;
+				case bg.base.BufferType.TEX_COORD_1:
+					context.bindBuffer(context.ARRAY_BUFFER, plist.tex1Buffer);
+					break;
+				case bg.base.BufferType.TEX_COORD_2:
+					context.bindBuffer(context.ARRAY_BUFFER, plist.tex2Buffer);
+					break;
+				case bg.base.BufferType.COLOR:
+					context.bindBuffer(context.ARRAY_BUFFER, plist.colorBuffer);
+					break;
+				case bg.base.BufferType.TANGENT:
+					context.bindBuffer(context.ARRAY_BUFFER, plist.tangentBuffer);
+					break;
+				}
+				context.bufferData(context.ARRAY_BUFFER, new Float32Array(newData), context.STATIC_DRAW);
+				context.bindBuffer(context.ARRAY_BUFFER,null);
+			}
+		}
 	}
 	
 	bg.webgl1.PolyListImpl = PolyListImpl;
@@ -15123,20 +15355,36 @@ bg.webgl1 = {};
 })();
 (function() {
 	let MAX_BLUR_ITERATIONS = 40;
+	
+	let BLUR_DOWNSAMPLE = 30;
+
+	let textureDownsampleParams = {
+		textureInput:'sampler2D', texCoord:'vec2', size:'vec2', reduction:'vec2'
+	};
+	let textureDownsampleBody = `
+		float dx = reduction.x / size.x;
+		float dy = reduction.y / size.y;
+		vec2 coord = vec2(dx * texCoord.x / dx, dy * texCoord.y / dy);
+		return texture2D(textureInput,coord);
+	`;
 
 	let blurParams = {
 			textureInput:'sampler2D', texCoord:'vec2', size:'int', samplerSize:'vec2'
 		};
 	let blurBody = `
+		int downsample = ${ BLUR_DOWNSAMPLE };
 		vec2 texelSize = 1.0 / samplerSize;
 		vec3 result = vec3(0.0);
+		size = int(max(float(size / downsample),1.0));
 		vec2 hlim = vec2(float(-size) * 0.5 + 0.5);
+		vec2 sign = vec2(1.0);
+		float blurFactor = 10.0 - 0.2 * float(size) * log(float(size));
 		for (int x=0; x<${ MAX_BLUR_ITERATIONS }; ++x) {
 			if (x==size) break;
 			for (int y=0; y<${ MAX_BLUR_ITERATIONS }; ++y) {
 				if (y==size) break;
-				vec2 offset = (hlim + vec2(float(x), float(y))) * texelSize;
-				result += texture2D(textureInput, texCoord + offset).rgb;
+				vec2 offset = (hlim + vec2(float(x), float(y))) * texelSize * float(downsample) / blurFactor;
+				result += textureDownsample(textureInput, texCoord + offset,samplerSize,vec2(downsample)).rgb;
 			}
 		}
 		return vec4(result / float(size * size), 1.0);
@@ -15146,6 +15394,23 @@ bg.webgl1 = {};
 			textureInput:'sampler2D', texCoord:'vec2', size:'int', samplerSize:'vec2'			
 		};
 	let glowBody = `
+		int downsample = ${ BLUR_DOWNSAMPLE };
+		vec2 texelSize = 1.0 / samplerSize;
+		vec3 result = vec3(0.0);
+		size = int(max(float(size / downsample),1.0));
+		vec2 hlim = vec2(float(-size) * 0.5 + 0.5);
+		vec2 sign = vec2(1.0);
+		for (int x=0; x<${ MAX_BLUR_ITERATIONS }; ++x) {
+			if (x==size) break;
+			for (int y=0; y<${ MAX_BLUR_ITERATIONS }; ++y) {
+				if (y==size) break;
+				vec2 offset = (hlim + vec2(float(x), float(y))) * texelSize;
+				result += textureDownsample(textureInput, texCoord + offset,samplerSize,vec2(downsample)).rgb;
+			}
+		}
+		return vec4(result / float(size * size), 1.0);
+
+	/*	
 		float convMatrix[9];
 		convMatrix[0] = 1.0/16.0;
 		convMatrix[1] = 2.0/16.0;
@@ -15182,11 +15447,15 @@ bg.webgl1 = {};
 			kernelWeight = 1.0;
 		}
 		return vec4((colorSum / kernelWeight).rgb, 1.0);
+		*/
 	`;
 	
 	bg.webgl1.shaderLibrary
 		.functions
 		.blur = {
+			textureDownsample:{
+				returnType:"vec4", name:'textureDownsample', params:textureDownsampleParams, body:textureDownsampleBody
+			},
 			gaussianBlur:{
 				returnType:"vec4", name:"gaussianBlur", params:blurParams, body:blurBody
 			},
@@ -15328,7 +15597,13 @@ bg.webgl1 = {};
 				
 				//		Shadows
 				castShadows: { name:"inCastShadows", dataType:"bool", role:"value" },
-				receiveShadows: { name:"inReceiveShadows", dataType:"bool", role:"value" }
+				receiveShadows: { name:"inReceiveShadows", dataType:"bool", role:"value" },
+
+				//		Roughness
+				roughness: { name:"inRoughness", dataType:"float", role:"value" },
+				roughnessMask: { name:"inRoughnessMask", dataType:"sampler2D", role:"value" },
+				roughnessMaskChannel: { name:"inRoughnessMaskChannel", dataType:"vec4", role:"value" },
+				roughnessMaskInvert: { name:"inRoughnessMaskInvert", dataType:"bool", role:"value" },
 			},
 			
 			// Lighting
@@ -15389,6 +15664,27 @@ bg.webgl1 = {};
 	bg.webgl1.shaderLibrary
 		.functions
 		.lighting = {
+			beckmannDistribution: {
+				returnType:"float", name:"beckmannDistribution", params: {
+					x:"float", roughness:"float"
+				}, body: `
+					float NdotH = max(x,0.0001);
+					float cos2Alpha = NdotH * NdotH;
+					float tan2Alpha = (cos2Alpha - 1.0) / cos2Alpha;
+					float roughness2 = roughness * roughness;
+					float denom = 3.141592653589793 * roughness2 * cos2Alpha * cos2Alpha;
+					return exp(tan2Alpha / roughness2) / denom;
+				`
+			},
+
+			beckmannSpecular: {
+				returnType:"float", name:"beckmannSpecular", params:{
+					lightDirection:"vec3", viewDirection:"vec3", surfaceNormal:"vec3", roughness:"float"
+				}, body: `
+					return beckmannDistribution(dot(surfaceNormal, normalize(lightDirection + viewDirection)), roughness);
+				`
+			},
+
 			getDirectionalLight: {
 				returnType:"vec4", name:"getDirectionalLight", params:{
 					ambient:"vec4", diffuse:"vec4", specular:"vec4", shininess:"float",
@@ -15402,6 +15698,7 @@ bg.webgl1 = {};
 					vec3 eyeDirection = normalize(-vertexPos);
 					vec3 reflectionDirection = normalize(reflect(-direction,normal));
 					float specularWeight = clamp(pow(max(dot(reflectionDirection, eyeDirection), 0.0), shininess), 0.0, 1.0);
+					//sspecularWeight = beckmannSpecular(direction,eyeDirection,normal,0.01);
 					vec3 specularColor = specularWeight * pow(shadowColor.rgb,vec3(10.0));
 					color += specularColor * specular.rgb * matSpecular.rgb;
 				}
