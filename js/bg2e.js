@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.0 - build: bd32d30";
+bg.version = "1.2.2 - build: 205ab9c";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -1494,10 +1494,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
   }();
   bg.base.LoaderPlugin = LoaderPlugin;
   var s_loaderPlugins = [];
-  function loadUrl(context, url, onProgress) {
+  function loadUrl(context, url) {
+    var onProgress = arguments[2] !== (void 0) ? arguments[2] : null;
+    var extraData = arguments[3] !== (void 0) ? arguments[3] : null;
     return new Promise(function(accept, reject) {
       bg.utils.Resource.Load(url, onProgress).then(function(data) {
-        return Loader.LoadData(context, url, data);
+        return Loader.LoadData(context, url, data, extraData);
       }).then(function(result, extendedData) {
         accept(result, extendedData);
       }).catch(function(err) {
@@ -1505,13 +1507,15 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       });
     });
   }
-  function loadUrlArray(context, url, onProgress) {
+  function loadUrlArray(context, url) {
+    var onProgress = arguments[2] !== (void 0) ? arguments[2] : null;
+    var extraData = arguments[3] !== (void 0) ? arguments[3] : null;
     return new Promise(function(accept, reject) {
       bg.utils.Resource.LoadMultiple(url, onProgress).then(function(result) {
         var promises = [];
         for (var itemUrl in result) {
           var data = result[itemUrl];
-          promises.push(loadData(context, itemUrl, data));
+          promises.push(loadData(context, itemUrl, data, extraData));
         }
         return Promise.all(promises);
       }).then(function(loadedResults) {
@@ -1526,6 +1530,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     });
   }
   function loadData(context, url, data) {
+    var extraData = arguments[3] !== (void 0) ? arguments[3] : null;
     return new Promise(function(accept, reject) {
       var selectedPlugin = null;
       s_loaderPlugins.some(function(plugin) {
@@ -1535,7 +1540,10 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         }
       });
       if (selectedPlugin) {
-        accept(selectedPlugin.load(context, url, data));
+        if (!extraData) {
+          extraData = {};
+        }
+        accept(selectedPlugin.load(context, url, data, extraData));
       } else {
         return reject(new Error("No suitable plugin found for load " + url));
       }
@@ -1547,15 +1555,18 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       RegisterPlugin: function(p) {
         s_loaderPlugins.push(p);
       },
-      Load: function(context, url, onProgress) {
+      Load: function(context, url) {
+        var onProgress = arguments[2] !== (void 0) ? arguments[2] : null;
+        var extraData = arguments[3] !== (void 0) ? arguments[3] : null;
         if (Array.isArray(url)) {
-          return loadUrlArray(context, url, onProgress);
+          return loadUrlArray(context, url, onProgress, extraData);
         } else {
-          return loadUrl(context, url, onProgress);
+          return loadUrl(context, url, onProgress, extraData);
         }
       },
       LoadData: function(context, url, data) {
-        return loadData(context, url, data);
+        var extraData = arguments[3] !== (void 0) ? arguments[3] : null;
+        return loadData(context, url, data, extraData);
       }
     });
   }();
@@ -1737,6 +1748,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         "roughnessMaskChannel": material.roughnessMaskChannel,
         "invertRoughnessMask": material.roughnessMaskInvert,
         "cullFace": material.cullFace,
+        "unlit": material.unlit,
         "texture": writeTexture(material.texture, fileData),
         "lightmap": writeTexture(material.lightmap, fileData),
         "normalMap": writeTexture(material.normalMap, fileData),
@@ -2122,8 +2134,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       s_fragmentSource.addFunction(lib().functions.utils.unpack);
       s_fragmentSource.addFunction(lib().functions.utils.random);
       s_fragmentSource.addFunction(lib().functions.lighting.all);
+      s_fragmentSource.addFunction(lib().functions.blur.blurCube);
       if (bg.Engine.Get().id == "webgl1") {
-        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tif (diffuseColor.a>=inAlphaCutoff) {\t\n\t\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tfor (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t\tif (i>=inNumLights) break;\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[i],\n\t\t\t\t\t\t\t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t\t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tvec3 cubemapColor = textureCube(inCubeMap,lookup).rgb;\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tvec3 finalColor = light.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += cubemapColor * reflectionAmount;\n\t\t\t\t\t\tvec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t\tresult.a = diffuseColor.a;\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
+        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tif (inUnlit && diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tgl_FragColor = diffuseColor;\n\t\t\t\t\t}\n\t\t\t\t\telse if (diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tfor (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t\tif (i>=inNumLights) break;\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[i],\n\t\t\t\t\t\t\t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t\t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tfloat dist = distance(fsPosition,cameraPos);\n\t\t\t\t\t\tfloat maxRough = 50.0;\n\t\t\t\t\t\tfloat rough = max(inRoughness * 10.0,1.0);\n\t\t\t\t\t\trough = max(rough*dist,rough);\n\t\t\t\t\t\tfloat blur = min(rough,maxRough);\n\t\t\t\t\t\tvec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;\n\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tvec3 finalColor = light.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += cubemapColor * reflectionAmount;\n\t\t\t\t\t\tvec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t\tresult.a = diffuseColor.a;\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
       }
     }
     return s_fragmentSource;
@@ -2319,7 +2332,13 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           this.shader.setTexture('inReflectionMask', reflectionMask, bg.base.TextureUnit.TEXTURE_7);
           this.shader.setVector4('inReflectionMaskChannel', this.material.reflectionMaskChannelVector);
           this.shader.setValueInt('inReflectionMaskInvert', this.material.reflectionMaskInvert);
+          var roughnessMask = this.material.roughnessMask || whiteTex;
+          this.shader.setValueFloat('inRoughness', this.material.roughness);
+          this.shader.setTexture('inRoughnessMask', roughnessMask, bg.base.TextureUnit.TEXTURE_8);
+          this.shader.setVector4('inRoughnessMaskChannel', this.material.roughnessMaskChannelVector);
+          this.shader.setValueInt('inRoughnessMaskInvert', this.material.roughnessMaskInvert);
           this.shader.setValueInt('inSelectMode', false);
+          this.shader.setValueInt('inUnlit', this.material.unlit);
         }
       }
     }, {}, $__super);
@@ -2685,7 +2704,8 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     REFLECTION_MASK_CHANNEL: 1 << 25,
     REFLECTION_MASK_INVERT: 1 << 26,
     CULL_FACE: 1 << 27,
-    ROUGHNESS: 1 << 28
+    ROUGHNESS: 1 << 28,
+    UNLIT: 1 << 29
   };
   function loadTexture(context, image, url) {
     var texture = null;
@@ -2740,6 +2760,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       this._roughnessMask = null;
       this._roughnessMaskChannel = 0;
       this._roughnessMaskInvert = false;
+      this._unlit = false;
       if (jsonData) {
         if (jsonData.diffuseR !== undefined && jsonData.diffuseG !== undefined && jsonData.diffuseB !== undefined) {
           this.diffuse = new bg.Color(jsonData.diffuseR, jsonData.diffuseG, jsonData.diffuseB, jsonData.diffuseA ? jsonData.diffuseA : 1.0);
@@ -2833,6 +2854,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         }
         if (jsonData.invertRoughnessMask !== undefined) {
           this.roughnessMaskInvert = jsonData.roughnessMaskInvert;
+        }
+        if (jsonData.unlit !== undefined) {
+          this.unlit = jsonData.unlit;
         }
       }
     }
@@ -2944,6 +2968,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       get roughnessMaskInvert() {
         return this._roughnessMaskInvert;
+      },
+      get unlit() {
+        return this._unlit;
       },
       set diffuse(newVal) {
         this._diffuse = newVal;
@@ -3083,6 +3110,10 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this._roughnessMaskInvert = newVal;
         this.setEnabled(bg.base.MaterialFlag.ROUGHNESS);
       },
+      set unlit(newVal) {
+        this._unlit = newVal;
+        this.setEnabled(bg.base.MaterialFlag.UNLIT);
+      },
       clone: function() {
         var copy = new MaterialModifier();
         copy.assign(this);
@@ -3122,6 +3153,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this._roughnessMask = mod._roughnessMask;
         this._roughnessMaskChannel = mod._roughnessMaskChannel;
         this._roughnessMaskInvert = mod._roughnessMaskInvert;
+        this._unlit = mod._unlit;
       }
     }, {});
   }();
@@ -3233,6 +3265,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       this._roughnessMask = null;
       this._roughnessMaskChannel = 0;
       this._roughnessMaskInvert = false;
+      this._unlit = false;
       this._selectMode = false;
     }
     return ($traceurRuntime.createClass)(Material, {
@@ -3274,6 +3307,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this._roughnessMask = other.roughnessMask;
         this._roughnessMaskChannel = other.roughnessMaskChannel;
         this._roughnessMaskInvert = other.roughnessMaskInvert;
+        this._unlit = other.unlit;
       },
       get isTransparent() {
         return this._diffuse.a < 1;
@@ -3374,6 +3408,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       get roughnessMaskInvert() {
         return this._roughnessMaskInvert;
       },
+      get unlit() {
+        return this._unlit;
+      },
       set diffuse(newVal) {
         this._diffuse = newVal;
       },
@@ -3472,6 +3509,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       set roughnessMaskInvert(newVal) {
         this._roughnessMaskInvert = newVal;
+      },
+      get unlit() {
+        return this._unlit;
+      },
+      set unlit(u) {
+        this._unlit = u;
       },
       get selectMode() {
         return this._selectMode;
@@ -3582,6 +3625,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           mat.reflectionMaskChannel = this.reflectionMaskChannel;
           mat.reflectionMaskInvert = this.reflectionMaskInvert;
         }
+        if (mask & bg.base.MaterialFlag.UNLIT) {
+          mat.unlit = this.unlit;
+        }
       },
       applyModifier: function(context, mod, resourcePath) {
         if (mod.isEnabled(bg.base.MaterialFlag.DIFFUSE)) {
@@ -3673,6 +3719,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           this.roughnessMask = getTexture(context, mod.roughnessMask, resourcePath);
           this.roughnessMaskChannel = mod.roughnessMaskChannel;
           this.roughnessMaskInvert = mod.roughnessMaskInvert;
+        }
+        if (mod.isEnabled(bg.base.MaterialFlag.UNLIT)) {
+          this.unlit = mod.unlit;
         }
       },
       getModifierWithMask: function(modifierMask) {
@@ -3767,6 +3816,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           mod.roughnessMaskChannel = this.roughnessMaskChannel;
           mod.roughnessMaskInvert = this.roughnessMaskInvert;
         }
+        if (mod.isEnabled(bg.base.MaterialFlag.UNLIT)) {
+          mod.unlit = this.unlit;
+        }
         mod.setFlags(modifierMask);
       }
     }, {
@@ -3799,6 +3851,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           mat.roughness = def.roughness || 0;
           mat.roughnessMaskChannel = def.roughnessMaskChannel || 0;
           mat.roughnessMaskInvert = def.roughnessMaskInvert || false;
+          mat.unlit = def.unlit || false;
           var texPromises = [];
           texPromises.push(readTexture(context, basePath, def.shininessMask, mat, "shininessMask"));
           texPromises.push(readTexture(context, basePath, def.lightEmissionMask, mat, "lightEmissionMask"));
@@ -3841,6 +3894,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         material.roughnessMaskChannel = data.roughnessMaskChannel;
         material.roughnessMaskInvert = data.invertRoughnessMask;
         material.cullFace = data.cullFace;
+        material.unlit = data.unlit;
         if (path && path[path.length - 1] != '/') {
           path += '/';
         }
@@ -5366,6 +5420,8 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     });
   }();
   bg.base.TextureCache = TextureCache;
+  var g_wrapX = null;
+  var g_wrapY = null;
   var g_minFilter = null;
   var g_magFilter = null;
   var TextureLoaderPlugin = function($__super) {
@@ -5376,7 +5432,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       acceptType: function(url, data) {
         return bg.utils.Resource.IsImage(url);
       },
-      load: function(context, url, data) {
+      load: function(context, url, data, extraData) {
         return new Promise(function(accept, reject) {
           if (data) {
             var texture = bg.base.TextureCache.Get(context).find(url);
@@ -5385,8 +5441,10 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
               texture = new bg.base.Texture(context);
               texture.create();
               texture.bind();
-              texture.minFilter = TextureLoaderPlugin.GetMinFilter();
-              texture.magFilter = TextureLoaderPlugin.GetMagFilter();
+              texture.wrapX = extraData.wrapX || TextureLoaderPlugin.GetWrapX();
+              texture.wrapY = extraData.wrapY || TextureLoaderPlugin.GetWrapY();
+              texture.minFilter = extraData.minFilter || TextureLoaderPlugin.GetMinFilter();
+              texture.magFilter = extraData.magFilter || TextureLoaderPlugin.GetMagFilter();
               texture.setImage(data);
               texture.fileName = url;
               bg.base.TextureCache.Get(context).register(url, texture);
@@ -5398,6 +5456,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         });
       }
     }, {
+      GetWrapX: function() {
+        return g_wrapX || bg.base.TextureWrap.REPEAT;
+      },
+      GetWrapY: function() {
+        return g_wrapY || bg.base.TextureWrap.REPEAT;
+      },
       GetMinFilter: function() {
         return g_minFilter || bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST;
       },
@@ -5409,6 +5473,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       SetMagFilter: function(f) {
         g_magFilter = f;
+      },
+      SetWrapX: function(w) {
+        g_wrapX = w;
+      },
+      SetWrapY: function(w) {
+        g_wrapY = w;
       }
     }, $__super);
   }(bg.base.LoaderPlugin);
@@ -5477,7 +5547,8 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
   };
   bg.base.TextureWrap = {
     REPEAT: null,
-    CLAMP: null
+    CLAMP: null,
+    MIRRORED_REPEAT: null
   };
   bg.base.TextureFilter = {
     NEAREST_MIPMAP_NEAREST: null,
@@ -10006,6 +10077,204 @@ bg.scene = {};
 
 "use strict";
 (function() {
+  function copyCubemapImage(componentData, cubemapImage, dstPath) {
+    var path = require("path");
+    var src = bg.base.Writer.StandarizePath(this.getImageUrl(cubemapImage));
+    var file = src.split('/').pop();
+    var dst = bg.base.Writer.StandarizePath(path.join(dstPath, file));
+    switch (cubemapImage) {
+      case bg.scene.CubemapImage.POSITIVE_X:
+        componentData.positiveX = file;
+        break;
+      case bg.scene.CubemapImage.NEGATIVE_X:
+        componentData.negativeX = file;
+        break;
+      case bg.scene.CubemapImage.POSITIVE_Y:
+        componentData.positiveY = file;
+        break;
+      case bg.scene.CubemapImage.NEGATIVE_Y:
+        componentData.negativeY = file;
+        break;
+      case bg.scene.CubemapImage.POSITIVE_Z:
+        componentData.positiveZ = file;
+        break;
+      case bg.scene.CubemapImage.NEGATIVE_Z:
+        componentData.negativeZ = file;
+        break;
+    }
+    return bg.base.Writer.CopyFile(src, dst);
+  }
+  var g_backFace = [0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5];
+  var g_rightFace = [0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5];
+  var g_frontFace = [-0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5];
+  var g_leftFace = [-0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5];
+  var g_topFace = [-0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5];
+  var g_bottomFace = [0.5, -0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5];
+  var g_backFaceNorm = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
+  var g_rightFaceNorm = [-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0];
+  var g_frontFaceNorm = [0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1];
+  var g_leftFaceNorm = [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0];
+  var g_topFaceNorm = [0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0];
+  var g_bottomFaceNorm = [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0];
+  var uv0 = 0;
+  var uv1 = 1;
+  var g_backFaceUV = [uv1, uv0, uv0, uv0, uv0, uv1, uv1, uv1];
+  var g_rightFaceUV = [uv1, uv0, uv0, uv0, uv0, uv1, uv1, uv1];
+  var g_frontFaceUV = [uv1, uv0, uv0, uv0, uv0, uv1, uv1, uv1];
+  var g_leftFaceUV = [uv1, uv0, uv0, uv0, uv0, uv1, uv1, uv1];
+  var g_topFaceUV = [uv1, uv0, uv0, uv0, uv0, uv1, uv1, uv1];
+  var g_bottomFaceUV = [uv1, uv0, uv0, uv0, uv0, uv1, uv1, uv1];
+  var g_index = [2, 1, 0, 0, 3, 2];
+  var Skybox = function($__super) {
+    function Skybox() {
+      $traceurRuntime.superConstructor(Skybox).call(this);
+      this._images = [null, null, null, null, null, null];
+      this._textures = [];
+      this._plist = [];
+      this._material = null;
+    }
+    return ($traceurRuntime.createClass)(Skybox, {
+      setImageUrl: function(imgCode, texture) {
+        this._images[imgCode] = texture;
+      },
+      getImageUrl: function(imgCode) {
+        return this._images[imgCode];
+      },
+      getTexture: function(imgCode) {
+        return this._textures[imgCode];
+      },
+      loadSkybox: function() {
+        var context = arguments[0] !== (void 0) ? arguments[0] : null;
+        var onProgress = arguments[1] !== (void 0) ? arguments[1] : null;
+        var $__2 = this;
+        context = context || this.node && this.node.context;
+        var backPlist = new bg.base.PolyList(context);
+        var rightPlist = new bg.base.PolyList(context);
+        var frontPlist = new bg.base.PolyList(context);
+        var leftPlist = new bg.base.PolyList(context);
+        var topPlist = new bg.base.PolyList(context);
+        var bottomPlist = new bg.base.PolyList(context);
+        backPlist.vertex = g_backFace;
+        backPlist.normal = g_backFaceNorm;
+        backPlist.texCoord0 = g_backFaceUV;
+        backPlist.texCoord1 = g_backFaceUV;
+        backPlist.index = g_index;
+        backPlist.build();
+        rightPlist.vertex = g_rightFace;
+        rightPlist.normal = g_rightFaceNorm;
+        rightPlist.texCoord0 = g_rightFaceUV;
+        rightPlist.texCoord1 = g_rightFaceUV;
+        rightPlist.index = g_index;
+        rightPlist.build();
+        frontPlist.vertex = g_frontFace;
+        frontPlist.normal = g_frontFaceNorm;
+        frontPlist.texCoord0 = g_frontFaceUV;
+        frontPlist.texCoord1 = g_frontFaceUV;
+        frontPlist.index = g_index;
+        frontPlist.build();
+        leftPlist.vertex = g_leftFace;
+        leftPlist.normal = g_leftFaceNorm;
+        leftPlist.texCoord0 = g_leftFaceUV;
+        leftPlist.texCoord1 = g_leftFaceUV;
+        leftPlist.index = g_index;
+        leftPlist.build();
+        topPlist.vertex = g_topFace;
+        topPlist.normal = g_topFaceNorm;
+        topPlist.texCoord0 = g_topFaceUV;
+        topPlist.texCoord1 = g_topFaceUV;
+        topPlist.index = g_index;
+        topPlist.build();
+        bottomPlist.vertex = g_bottomFace;
+        bottomPlist.normal = g_bottomFaceNorm;
+        bottomPlist.texCoord0 = g_bottomFaceUV;
+        bottomPlist.texCoord1 = g_bottomFaceUV;
+        bottomPlist.index = g_index;
+        bottomPlist.build();
+        this._plist = [leftPlist, rightPlist, topPlist, bottomPlist, frontPlist, backPlist];
+        this._material = new bg.base.Material();
+        this._material.receiveShadows = false;
+        this._material.castShadows = false;
+        this._material.unlit = true;
+        return new Promise(function(resolve, reject) {
+          bg.base.Loader.Load(context, $__2._images, onProgress, {
+            wrapX: bg.base.TextureWrap.MIRRORED_REPEAT,
+            wrapY: bg.base.TextureWrap.MIRRORED_REPEAT
+          }).then(function(result) {
+            $__2._textures = [result[$__2.getImageUrl(bg.scene.CubemapImage.POSITIVE_X)], result[$__2.getImageUrl(bg.scene.CubemapImage.NEGATIVE_X)], result[$__2.getImageUrl(bg.scene.CubemapImage.POSITIVE_Y)], result[$__2.getImageUrl(bg.scene.CubemapImage.NEGATIVE_Y)], result[$__2.getImageUrl(bg.scene.CubemapImage.POSITIVE_Z)], result[$__2.getImageUrl(bg.scene.CubemapImage.NEGATIVE_Z)]];
+            $__2._textures.forEach(function(tex) {
+              tex.wrapX = bg.base.TextureWrap.CLAMP;
+              tex.wrapY = bg.base.TextureWrap.CLAMP;
+            });
+            bg.emitImageLoadEvent(result[$__2.getImageUrl(bg.scene.CubemapImage.POSITIVE_X)]);
+            resolve();
+          }).catch(function(err) {
+            reject(err);
+          });
+        });
+      },
+      display: function(pipeline, matrixState) {
+        var $__2 = this;
+        if (!pipeline.effect) {
+          throw new Error("Could not draw skybox: invalid effect");
+        }
+        if (!this.node.enabled) {
+          return;
+        } else if (this._textures.length == 6) {
+          var curMaterial = pipeline.effect.material;
+          pipeline.effect.material = this._material;
+          matrixState.viewMatrixStack.push();
+          matrixState.modelMatrixStack.push();
+          matrixState.viewMatrixStack.matrix.setPosition(0, 0, 0);
+          var projectionMatrix = matrixState.projectionMatrixStack.matrix;
+          var m22 = -projectionMatrix.m22;
+          var m32 = -projectionMatrix.m32;
+          var far = (2.0 * m32) / (2.0 * m22 - 2.0);
+          var offset = 1;
+          var scale = bg.Math.sin(bg.Math.PI_4) * far - offset;
+          matrixState.modelMatrixStack.scale(scale, scale, scale);
+          if (pipeline.shouldDraw(this._material)) {
+            this._plist.forEach(function(pl, index) {
+              $__2._material.texture = $__2._textures[index];
+              pipeline.draw(pl);
+            });
+          }
+          matrixState.modelMatrixStack.pop();
+          matrixState.viewMatrixStack.pop();
+          pipeline.effect.material = curMaterial;
+        }
+      },
+      removedFromNode: function() {
+        this._plist.forEach(function(pl) {
+          pl.destroy();
+        });
+      },
+      deserialize: function(context, sceneData, url) {
+        this.setImageUrl(bg.scene.CubemapImage.POSITIVE_X, bg.utils.Resource.JoinUrl(url, sceneData["positiveX"]));
+        this.setImageUrl(bg.scene.CubemapImage.NEGATIVE_X, bg.utils.Resource.JoinUrl(url, sceneData["negativeX"]));
+        this.setImageUrl(bg.scene.CubemapImage.POSITIVE_Y, bg.utils.Resource.JoinUrl(url, sceneData["positiveY"]));
+        this.setImageUrl(bg.scene.CubemapImage.NEGATIVE_Y, bg.utils.Resource.JoinUrl(url, sceneData["negativeY"]));
+        this.setImageUrl(bg.scene.CubemapImage.POSITIVE_Z, bg.utils.Resource.JoinUrl(url, sceneData["positiveZ"]));
+        this.setImageUrl(bg.scene.CubemapImage.NEGATIVE_Z, bg.utils.Resource.JoinUrl(url, sceneData["negativeZ"]));
+        return this.loadSkybox(context);
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, Skybox.prototype, "serialize").call(this, componentData, promises, url);
+        if (!bg.isElectronApp)
+          return;
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.POSITIVE_X, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.NEGATIVE_X, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.POSITIVE_Y, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.NEGATIVE_Y, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.POSITIVE_Z, url.path]));
+        promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.NEGATIVE_Z, url.path]));
+      }
+    }, {}, $__super);
+  }(bg.scene.Component);
+  bg.scene.registerComponent(bg.scene, Skybox, "bg.scene.Skybox");
+})();
+
+"use strict";
+(function() {
   var Transform = function($__super) {
     function Transform(matrix) {
       $traceurRuntime.superConstructor(Transform).call(this);
@@ -12102,6 +12371,52 @@ bg.manipulation = {};
         return Action.ZOOM;
     }
   }
+  function buildPlist(context, vertex, color) {
+    var plist = new bg.base.PolyList(context);
+    var normal = [];
+    var texCoord0 = [];
+    var index = [];
+    var currentIndex = 0;
+    for (var i = 0; i < vertex.length; i += 3) {
+      normal.push(0);
+      normal.push(0);
+      normal.push(1);
+      texCoord0.push(0);
+      texCoord0.push(0);
+      index.push(currentIndex++);
+    }
+    plist.vertex = vertex;
+    plist.normal = normal;
+    plist.texCoord0 = texCoord0;
+    plist.color = color;
+    plist.index = index;
+    plist.drawMode = bg.base.DrawMode.LINES;
+    plist.build();
+    return plist;
+  }
+  function getGizmo() {
+    var x = this.minX;
+    var X = this.maxX;
+    var y = this.minY;
+    var Y = this.maxY;
+    var z = this.minZ;
+    var Z = this.maxZ;
+    var vertex = [x, y, z, X, y, z, X, y, z, X, Y, z, X, Y, z, x, Y, z, x, Y, z, x, y, z, x, y, Z, X, y, Z, X, y, Z, X, Y, Z, X, Y, Z, x, Y, Z, x, Y, Z, x, y, Z, x, y, z, x, y, Z, X, y, z, X, y, Z, X, Y, z, X, Y, Z, x, Y, z, x, Y, Z];
+    var color = [];
+    for (var i = 0; i < vertex.length; i += 3) {
+      color.push(this._limitGizmoColor.r);
+      color.push(this._limitGizmoColor.g);
+      color.push(this._limitGizmoColor.b);
+      color.push(this._limitGizmoColor.a);
+    }
+    if (!this._plist) {
+      this._plist = buildPlist(this.node.context, vertex, color);
+    } else {
+      this._plist.updateBuffer(bg.base.BufferType.VERTEX, vertex);
+      this._plist.updateBuffer(bg.base.BufferType.COLOR, color);
+    }
+    return this._plist;
+  }
   var OrbitCameraController = function($__super) {
     function OrbitCameraController() {
       $traceurRuntime.superConstructor(OrbitCameraController).call(this);
@@ -12141,6 +12456,8 @@ bg.manipulation = {};
       this._displacementSpeed = 0.1;
       this._enabled = true;
       this._keys = {};
+      this._showLimitGizmo = true;
+      this._limitGizmoColor = bg.Color.Green();
     }
     return ($traceurRuntime.createClass)(OrbitCameraController, {
       setRotateButtons: function(left, middle, right) {
@@ -12218,6 +12535,42 @@ bg.manipulation = {};
       set maxDistance(d) {
         this._maxDistance = d;
       },
+      get minX() {
+        return this._minX;
+      },
+      get maxX() {
+        return this._maxX;
+      },
+      get minY() {
+        return this._minY;
+      },
+      get maxY() {
+        return this._maxY;
+      },
+      get minZ() {
+        return this._minZ;
+      },
+      get maxZ() {
+        return this._maxZ;
+      },
+      set minX(val) {
+        this._minX = val;
+      },
+      set maxX(val) {
+        this._maxX = val;
+      },
+      set minY(val) {
+        this._minY = val;
+      },
+      set maxY(val) {
+        this._maxY = val;
+      },
+      set minZ(val) {
+        this._minZ = val;
+      },
+      set maxZ(val) {
+        this._maxZ = val;
+      },
       get displacementSpeed() {
         return this._displacementSpeed;
       },
@@ -12229,6 +12582,29 @@ bg.manipulation = {};
       },
       set enabled(e) {
         this._enabled = e;
+      },
+      get showLimitGizmo() {
+        return this._showLimitGizmo;
+      },
+      set showLimitGizmo(l) {
+        this._showLimitGizmo = l;
+      },
+      get limitGizmoColor() {
+        return this._limitGizmoColor;
+      },
+      set limitGizmoColor(c) {
+        this._limitGizmoColor = c;
+      },
+      displayGizmo: function(pipeline, matrixState) {
+        if (!this._showLimitGizmo)
+          return;
+        var plist = getGizmo.apply(this);
+        matrixState.modelMatrixStack.push();
+        matrixState.modelMatrixStack.identity();
+        if (plist) {
+          pipeline.draw(plist);
+        }
+        matrixState.modelMatrixStack.pop();
       },
       serialize: function(componentData, promises, url) {
         $traceurRuntime.superGet(this, OrbitCameraController.prototype, "serialize").call(this, componentData, promises, url);
@@ -12260,7 +12636,7 @@ bg.manipulation = {};
         this._rotateButtons = componentData.rotateButtons || this._rotateButtons;
         this._panButtons = componentData.panButtons || this._panButtons;
         this._zoomButtons = componentData.zoomButtons || this._zoomButtons;
-        this._rotation = new bg.Vector3(componentData.rotation) || this._rotation;
+        this._rotation = new bg.Vector2(componentData.rotation) || this._rotation;
         this._distance = componentData.distance !== undefined ? componentData.distance : this._distance;
         this._center = new bg.Vector3(componentData.center) || this._center;
         this._rotationSpeed = componentData.rotationSpeed !== undefined ? componentData.rotationSpeed : this._rotationSpeed;
@@ -13419,7 +13795,7 @@ bg.render = {};
         s_ubyteGbufferFragment.addParameter(lib().inputs.material.all);
         s_ubyteGbufferFragment.addFunction(lib().functions.materials.all);
         if (bg.Engine.Get().id == "webgl1") {
-          s_ubyteGbufferFragment.setMainBody("\n\t\t\t\t\t\tvec4 lightMap = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\t\tvec4 diffuse = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale) * inDiffuseColor * lightMap;\n\t\t\t\t\t\tif (diffuse.a>=inAlphaCutoff) {\n\t\t\t\t\t\t\tvec3 normal = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\t\tnormal = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normal);\n\t\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat reflectionMask = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat roughnessMask = applyTextureMask(inRoughness,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinRoughnessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinRoughnessMaskChannel,inRoughnessMaskInvert);\n\n\t\t\t\t\t\t\tgl_FragData[0] = diffuse;\n\t\t\t\t\t\t\tgl_FragData[1] = vec4(specular.rgb,roughnessMask); // Store roughness on A component of specular\n\t\t\t\t\t\t\tgl_FragData[2] = vec4(normal * 0.5 + 0.5, 1.0);\n\t\t\t\t\t\t\tgl_FragData[3] = vec4(lightEmission,inShininess/255.0,reflectionMask,float(inCastShadows));\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}");
+          s_ubyteGbufferFragment.setMainBody("\n\t\t\t\t\t\tvec4 lightMap = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\t\tvec4 diffuse = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale) * inDiffuseColor * lightMap;\n\t\t\t\t\t\tif (diffuse.a>=inAlphaCutoff) {\n\t\t\t\t\t\t\tvec3 normal = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\t\tnormal = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normal);\n\t\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat reflectionMask = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat roughnessMask = applyTextureMask(inRoughness,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinRoughnessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinRoughnessMaskChannel,inRoughnessMaskInvert);\n\n\t\t\t\t\t\t\tgl_FragData[0] = diffuse;\n\t\t\t\t\t\t\tgl_FragData[1] = vec4(specular.rgb,roughnessMask); // Store roughness on A component of specular\n\t\t\t\t\t\t\tgl_FragData[2] = vec4(normal * 0.5 + 0.5, inUnlit ? 0.0 : 1.0);\t// Store !unlit parameter on A component of normal\n\t\t\t\t\t\t\tgl_FragData[3] = vec4(lightEmission,inShininess/255.0,reflectionMask,float(inCastShadows));\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}");
         }
       }
       return s_ubyteGbufferFragment;
@@ -13521,6 +13897,7 @@ bg.render = {};
           this.shader.setVector4('inRoughnessMaskChannel', this.material.roughnessMaskChannelVector);
           this.shader.setValueInt('inRoughnessMaskInvert', this.material.roughnessMaskInvert);
           this.shader.setValueInt('inCastShadows', this.material.castShadows);
+          this.shader.setValueInt('inUnlit', this.material.unlit);
         }
       }
     }, {}, $__super);
@@ -13686,7 +14063,7 @@ bg.render = {};
           this._fragmentShaderSource.addFunction(lib().functions.utils.all);
           this._fragmentShaderSource.addFunction(lib().functions.lighting.all);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 specular = vec4(texture2D(inSpecular,fsTexCoord).rgb,1.0);\n\t\t\t\t\tvec3 normal = texture2D(inNormal,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\t\t\t\t\tvec4 position = texture2D(inPosition,fsTexCoord);\n\t\t\t\t\t\n\t\t\t\t\tvec4 shadowColor = texture2D(inShadowMap,fsTexCoord);\n\t\t\t\t\tfloat shininess = material.g * 255.0;\n\t\t\t\t\tfloat lightEmission = material.r;\n\t\t\t\t\tvec4 light = getLight(\n\t\t\t\t\t\tinLightType,\n\t\t\t\t\t\tinLightAmbient, inLightDiffuse, inLightSpecular,shininess,\n\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\tinSpotCutoff,inSpotExponent,inLightCutoffDistance,\n\t\t\t\t\t\tposition.rgb,normal,\n\t\t\t\t\t\tdiffuse,specular,shadowColor\n\t\t\t\t\t);\n\t\t\t\t\tlight.rgb = light.rgb + (lightEmission * diffuse.rgb * inLightEmissionFactor);\n\t\t\t\t\tgl_FragColor = light;");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 specular = vec4(texture2D(inSpecular,fsTexCoord).rgb,1.0);\n\t\t\t\t\tvec4 normalTex = texture2D(inNormal,fsTexCoord);\n\t\t\t\t\tvec3 normal = normalTex.xyz * 2.0 - 1.0;\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\t\t\t\t\tvec4 position = texture2D(inPosition,fsTexCoord);\n\t\t\t\t\t\n\t\t\t\t\tvec4 shadowColor = texture2D(inShadowMap,fsTexCoord);\n\t\t\t\t\tfloat shininess = material.g * 255.0;\n\t\t\t\t\tfloat lightEmission = material.r;\n\t\t\t\t\tbool unlit = normalTex.a == 0.0;\n\t\t\t\t\tif (unlit) {\n\t\t\t\t\t\tgl_FragColor = vec4(diffuse.rgb * min(inLightEmissionFactor,1.0),1.0);\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tvec4 light = getLight(\n\t\t\t\t\t\t\tinLightType,\n\t\t\t\t\t\t\tinLightAmbient, inLightDiffuse, inLightSpecular,shininess,\n\t\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\t\tinSpotCutoff,inSpotExponent,inLightCutoffDistance,\n\t\t\t\t\t\t\tposition.rgb,normal,\n\t\t\t\t\t\t\tdiffuse,specular,shadowColor\n\t\t\t\t\t\t);\n\t\t\t\t\t\tlight.rgb = light.rgb + (lightEmission * diffuse.rgb * inLightEmissionFactor);\n\t\t\t\t\t\tgl_FragColor = light;\n\t\t\t\t\t}\n\t\t\t\t\t");
           }
         }
         return this._fragmentShaderSource;
@@ -14041,7 +14418,7 @@ bg.render = {};
             role: "in"
           }]);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\tif (!inEnabled) discard;\n\t\t\t\t\telse {\n\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\tif (distance(vertexPos.xyz,vec3(0))>inMaxDistance || vertexPos.w==1.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tvec2 noiseScale = vec2(inViewportSize.x/inRandomMapSize.x,inViewportSize.y/inRandomMapSize.y);\n\t\t\t\t\t\t\tvec3 randomVector = texture2D(inRandomMap, fsTexCoord * noiseScale).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec3 tangent = normalize(randomVector - normal * dot(randomVector, normal));\n\t\t\t\t\t\t\tvec3 bitangent = cross(normal,tangent);\n\t\t\t\t\t\t\tmat3 tbn = mat3(tangent, bitangent, normal);\n\n\t\t\t\t\t\t\tfloat occlusion = 0.0;\n\t\t\t\t\t\t\tfor (int i=0; i<" + MAX_KERN_OFFSETS + "; ++i) {\n\t\t\t\t\t\t\t\tif (inKernelSize==i) break;\n\t\t\t\t\t\t\t\tvec3 samplePos = tbn * inKernelOffsets[i];\n\t\t\t\t\t\t\t\tsamplePos = samplePos * inSampleRadius + vertexPos.xyz;\n\n\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(samplePos, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\n\t\t\t\t\t\t\t\tvec4 sampleRealPos = texture2D(inPositionMap, offset.xy);\n\t\t\t\t\t\t\t\tif (samplePos.z<sampleRealPos.z) {\n\t\t\t\t\t\t\t\t\tfloat dist = distance(vertexPos.xyz, sampleRealPos.xyz);\n\t\t\t\t\t\t\t\t\tocclusion += dist<inSampleRadius ? 1.0:0.0;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tocclusion = 1.0 - (occlusion / float(inKernelSize));\n\t\t\t\t\t\t\tgl_FragColor = clamp(vec4(occlusion, occlusion, occlusion, 1.0) + inSSAOColor, 0.0, 1.0);\n\t\t\t\t\t\t\t//gl_FragColor = vec4(1.0, 0.0, 0.0 ,1.0);\n\t\t\t\t\t\t}\n\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\tif (!inEnabled) discard;\n\t\t\t\t\telse {\n\t\t\t\t\t\tvec4 normalTex = texture2D(inNormalMap,fsTexCoord);\n\t\t\t\t\t\tvec3 normal = normalTex.xyz * 2.0 - 1.0;\n\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\tif (distance(vertexPos.xyz,vec3(0))>inMaxDistance || vertexPos.w==1.0 || normalTex.a==0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tvec2 noiseScale = vec2(inViewportSize.x/inRandomMapSize.x,inViewportSize.y/inRandomMapSize.y);\n\t\t\t\t\t\t\tvec3 randomVector = texture2D(inRandomMap, fsTexCoord * noiseScale).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec3 tangent = normalize(randomVector - normal * dot(randomVector, normal));\n\t\t\t\t\t\t\tvec3 bitangent = cross(normal,tangent);\n\t\t\t\t\t\t\tmat3 tbn = mat3(tangent, bitangent, normal);\n\n\t\t\t\t\t\t\tfloat occlusion = 0.0;\n\t\t\t\t\t\t\tfor (int i=0; i<" + MAX_KERN_OFFSETS + "; ++i) {\n\t\t\t\t\t\t\t\tif (inKernelSize==i) break;\n\t\t\t\t\t\t\t\tvec3 samplePos = tbn * inKernelOffsets[i];\n\t\t\t\t\t\t\t\tsamplePos = samplePos * inSampleRadius + vertexPos.xyz;\n\n\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(samplePos, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\n\t\t\t\t\t\t\t\tvec4 sampleRealPos = texture2D(inPositionMap, offset.xy);\n\t\t\t\t\t\t\t\tif (samplePos.z<sampleRealPos.z) {\n\t\t\t\t\t\t\t\t\tfloat dist = distance(vertexPos.xyz, sampleRealPos.xyz);\n\t\t\t\t\t\t\t\t\tocclusion += dist<inSampleRadius ? 1.0:0.0;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tocclusion = 1.0 - (occlusion / float(inKernelSize));\n\t\t\t\t\t\t\tgl_FragColor = clamp(vec4(occlusion, occlusion, occlusion, 1.0) + inSSAOColor, 0.0, 1.0);\n\t\t\t\t\t\t\t//gl_FragColor = vec4(1.0, 0.0, 0.0 ,1.0);\n\t\t\t\t\t\t}\n\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
@@ -14816,6 +15193,13 @@ bg.webgl1 = {};
 (function() {
   var MAX_BLUR_ITERATIONS = 40;
   var BLUR_DOWNSAMPLE = 30;
+  var textureCubeDownsampleParams = {
+    textureInput: 'samplerCube',
+    texCoord: 'vec3',
+    size: 'vec2',
+    reduction: 'vec2'
+  };
+  var textureCubeDownsampleBody = "\n\t\tfloat dx = reduction.x / size.x;\n\t\tfloat dy = reduction.y / size.y;\n\t\tvec2 coord = vec2(dx * texCoord.x / dx, dy * texCoord.y / dy);\n\t\treturn textureCube(textureInput,coord);\n\t";
   var textureDownsampleParams = {
     textureInput: 'sampler2D',
     texCoord: 'vec2',
@@ -14836,7 +15220,15 @@ bg.webgl1 = {};
     size: 'int',
     samplerSize: 'vec2'
   };
-  var glowBody = ("\n\t\tint downsample = " + BLUR_DOWNSAMPLE + ";\n\t\tvec2 texelSize = 1.0 / samplerSize;\n\t\tvec3 result = vec3(0.0);\n\t\tsize = int(max(float(size / downsample),1.0));\n\t\tvec2 hlim = vec2(float(-size) * 0.5 + 0.5);\n\t\tvec2 sign = vec2(1.0);\n\t\tfor (int x=0; x<" + MAX_BLUR_ITERATIONS + "; ++x) {\n\t\t\tif (x==size) break;\n\t\t\tfor (int y=0; y<" + MAX_BLUR_ITERATIONS + "; ++y) {\n\t\t\t\tif (y==size) break;\n\t\t\t\tvec2 offset = (hlim + vec2(float(x), float(y))) * texelSize;\n\t\t\t\tresult += textureDownsample(textureInput, texCoord + offset,samplerSize,vec2(downsample)).rgb;\n\t\t\t}\n\t\t}\n\t\treturn vec4(result / float(size * size), 1.0);\n\n\t/*\t\n\t\tfloat convMatrix[9];\n\t\tconvMatrix[0] = 1.0/16.0;\n\t\tconvMatrix[1] = 2.0/16.0;\n\t\tconvMatrix[2] = 1.0/16.0;\n\t\tconvMatrix[3] = 2.0/16.0;\n\t\tconvMatrix[4] = 4.0/16.0;\n\t\tconvMatrix[5] = 2.0/16.0;\n\t\tconvMatrix[6] = 1.0/16.0;\n\t\tconvMatrix[7] = 2.0/16.0;\n\t\tconvMatrix[8] = 1.0/16.0;\n\n\t\tvec2 onePixel = vec2(1.0,1.0) / samplerSize * float(size);\n\t\tvec4 colorSum = \n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2(-1, -1)) * convMatrix[0] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2( 0, -1)) * convMatrix[1] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2( 1, -1)) * convMatrix[2] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2(-1,  0)) * convMatrix[3] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2( 0,  0)) * convMatrix[4] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2( 1,  0)) * convMatrix[5] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2(-1,  1)) * convMatrix[6] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2( 0,  1)) * convMatrix[7] +\n\t\t\ttexture2D(textureInput, texCoord + onePixel * vec2( 1,  1)) * convMatrix[8];\n\t\tfloat kernelWeight =\n\t\t\tconvMatrix[0] +\n\t\t\tconvMatrix[1] +\n\t\t\tconvMatrix[2] +\n\t\t\tconvMatrix[3] +\n\t\t\tconvMatrix[4] +\n\t\t\tconvMatrix[5] +\n\t\t\tconvMatrix[6] +\n\t\t\tconvMatrix[7] +\n\t\t\tconvMatrix[8];\n\t\tif (kernelWeight <= 0.0) {\n\t\t\tkernelWeight = 1.0;\n\t\t}\n\t\treturn vec4((colorSum / kernelWeight).rgb, 1.0);\n\t\t*/\n\t");
+  var glowBody = ("\n\t\tint downsample = " + BLUR_DOWNSAMPLE + ";\n\t\tvec2 texelSize = 1.0 / samplerSize;\n\t\tvec3 result = vec3(0.0);\n\t\tsize = int(max(float(size / downsample),1.0));\n\t\tvec2 hlim = vec2(float(-size) * 0.5 + 0.5);\n\t\tvec2 sign = vec2(1.0);\n\t\tfor (int x=0; x<" + MAX_BLUR_ITERATIONS + "; ++x) {\n\t\t\tif (x==size) break;\n\t\t\tfor (int y=0; y<" + MAX_BLUR_ITERATIONS + "; ++y) {\n\t\t\t\tif (y==size) break;\n\t\t\t\tvec2 offset = (hlim + vec2(float(x), float(y))) * texelSize;\n\t\t\t\tresult += textureDownsample(textureInput, texCoord + offset,samplerSize,vec2(downsample)).rgb;\n\t\t\t}\n\t\t}\n\t\treturn vec4(result / float(size * size), 1.0);\n\t");
+  var blurCubeParams = {
+    textureInput: 'samplerCube',
+    texCoord: 'vec3',
+    size: 'int',
+    samplerSize: 'vec2',
+    dist: 'float'
+  };
+  var blurCubeBody = "\n\t\tint downsample = int(max(1.0,dist));\n\t\tvec2 texelSize = 1.0 / samplerSize;\n\t\tvec3 result = vec3(0.0);\n\t\tsize = int(max(float(size / downsample),1.0));\n\t\tvec2 hlim = vec2(float(-size) * 0.5 + 0.5);\n\t\tvec2 sign = vec2(1.0);\n\t\tfor (int x=0; x<40; ++x) {\n\t\t\tif (x==size) break;\n\t\t\tfor (int y=0; y<40; ++y) {\n\t\t\t\tif (y==size) break;\n\t\t\t\tvec3 offset = vec3((hlim + vec2(float(x*downsample), float(y*downsample))) * texelSize,0.0);\n\t\t\t\tresult += textureCube(textureInput, texCoord + offset,2.0).rgb;\n\t\t\t}\n\t\t}\n\t\treturn vec4(result / float(size * size), 1.0);\n\t\t";
   bg.webgl1.shaderLibrary.functions.blur = {
     textureDownsample: {
       returnType: "vec4",
@@ -14861,6 +15253,12 @@ bg.webgl1 = {};
       name: "glowBlur",
       params: glowParams,
       body: glowBody
+    },
+    blurCube: {
+      returnType: "vec4",
+      name: "blurCube",
+      params: blurCubeParams,
+      body: blurCubeBody
     },
     antiAlias: {
       returnType: 'vec4',
@@ -15159,6 +15557,11 @@ bg.webgl1 = {};
       },
       roughnessMaskInvert: {
         name: "inRoughnessMaskInvert",
+        dataType: "bool",
+        role: "value"
+      },
+      unlit: {
+        name: "inUnlit",
         dataType: "bool",
         role: "value"
       }
@@ -15750,6 +16153,7 @@ bg.webgl1 = {};
       initFlags: function(context) {
         bg.base.TextureWrap.REPEAT = context.REPEAT;
         bg.base.TextureWrap.CLAMP = context.CLAMP_TO_EDGE;
+        bg.base.TextureWrap.MIRRORED_REPEAT = context.MIRRORED_REPEAT;
         bg.base.TextureFilter.NEAREST_MIPMAP_NEAREST = context.NEAREST_MIPMAP_NEAREST;
         bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST = context.LINEAR_MIPMAP_NEAREST;
         bg.base.TextureFilter.NEAREST_MIPMAP_LINEAR = context.NEAREST_MIPMAP_LINEAR;
@@ -15821,12 +16225,14 @@ bg.webgl1 = {};
       setCubemapImage: function(context, face, image) {
         context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
         context.texImage2D(face, 0, context.RGBA, context.RGBA, context.UNSIGNED_BYTE, image);
+        context.generateMipmap(face);
       },
       setCubemapRaw: function(context, face, rawImage, w, h) {
         var type = context.RGBA;
         var format = context.UNSIGNED_BYTE;
         context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
         context.texImage2D(face, 0, type, w, h, 0, type, format, rawImage);
+        context.generateMipmap(face);
       },
       setVideo: function(context, target, texture, video, flipY) {
         if (flipY)

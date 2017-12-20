@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.0 - build: bd32d30";
+bg.version = "1.2.2 - build: 205ab9c";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -1581,11 +1581,11 @@ Object.defineProperty(bg, "isElectronApp", {
 	
 	let s_loaderPlugins = [];
 	
-	function loadUrl(context,url,onProgress) {
+	function loadUrl(context,url,onProgress = null,extraData = null) {
 		return new Promise((accept,reject) => {
 			bg.utils.Resource.Load(url,onProgress)
 				.then(function(data) {
-					return Loader.LoadData(context,url,data);
+					return Loader.LoadData(context,url,data,extraData);
 				})
 				
 				.then((result,extendedData) => {
@@ -1598,7 +1598,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		});
 	}
 
-	function loadUrlArray(context,url,onProgress) {
+	function loadUrlArray(context,url,onProgress = null,extraData = null) {
 		return new Promise((accept,reject) => {
 			bg.utils.Resource.LoadMultiple(url,onProgress)
 				.then((result) => {
@@ -1606,7 +1606,7 @@ Object.defineProperty(bg, "isElectronApp", {
 
 					for (let itemUrl in result) {
 						let data = result[itemUrl];
-						promises.push(loadData(context,itemUrl,data));
+						promises.push(loadData(context,itemUrl,data,extraData));
 					}
 
 					return Promise.all(promises);
@@ -1624,7 +1624,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		})
 	}
 
-	function loadData(context,url,data) {
+	function loadData(context,url,data,extraData = null) {
 		return new Promise((accept,reject) => {
 			let selectedPlugin = null;
 			s_loaderPlugins.some((plugin) => {
@@ -1635,7 +1635,10 @@ Object.defineProperty(bg, "isElectronApp", {
 			})
 			
 			if (selectedPlugin) {
-				accept(selectedPlugin.load(context,url,data));
+				if (!extraData) {
+					extraData = {};
+				}
+				accept(selectedPlugin.load(context,url,data,extraData));
 			}
 			else {
 				return reject(new Error("No suitable plugin found for load " + url));
@@ -1646,17 +1649,17 @@ Object.defineProperty(bg, "isElectronApp", {
 	class Loader {
 		static RegisterPlugin(p) { s_loaderPlugins.push(p); }
 		
-		static Load(context,url,onProgress) {
+		static Load(context,url,onProgress = null,extraData = null) {
 			if (Array.isArray(url)) {
-				return loadUrlArray(context,url,onProgress);
+				return loadUrlArray(context,url,onProgress,extraData);
 			}
 			else {
-				return loadUrl(context,url,onProgress);
+				return loadUrl(context,url,onProgress,extraData);
 			}
 		}
 		
-		static LoadData(context,url,data) {
-			return loadData(context,url,data);
+		static LoadData(context,url,data,extraData = null) {
+			return loadData(context,url,data,extraData);
 		}
 	}
 	
@@ -1860,6 +1863,8 @@ Object.defineProperty(bg, "isElectronApp", {
                 "invertRoughnessMask": material.roughnessMaskInvert,
 
                 "cullFace": material.cullFace,
+
+                "unlit": material.unlit,
 
                 "texture": writeTexture(material.texture,fileData),
                 "lightmap": writeTexture(material.lightmap,fileData),
@@ -2263,11 +2268,15 @@ Object.defineProperty(bg, "isElectronApp", {
 			s_fragmentSource.addFunction(lib().functions.utils.unpack);
 			s_fragmentSource.addFunction(lib().functions.utils.random);
 			s_fragmentSource.addFunction(lib().functions.lighting.all);
+			s_fragmentSource.addFunction(lib().functions.blur.blurCube);
 			
 			if (bg.Engine.Get().id=="webgl1") {	
 				s_fragmentSource.setMainBody(`
 					vec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);
-					if (diffuseColor.a>=inAlphaCutoff) {	
+					if (inUnlit && diffuseColor.a>=inAlphaCutoff) {
+						gl_FragColor = diffuseColor;
+					}
+					else if (diffuseColor.a>=inAlphaCutoff) {
 						vec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);
 						vec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);
 						normalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);
@@ -2299,7 +2308,13 @@ Object.defineProperty(bg, "isElectronApp", {
 						vec3 cameraPos = vec3(0.0);
 						vec3 cameraVector = fsPosition - cameraPos;
 						vec3 lookup = reflect(cameraVector,normalMap);
-						vec3 cubemapColor = textureCube(inCubeMap,lookup).rgb;
+						float dist = distance(fsPosition,cameraPos);
+						float maxRough = 50.0;
+						float rough = max(inRoughness * 10.0,1.0);
+						rough = max(rough*dist,rough);
+						float blur = min(rough,maxRough);
+						vec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;
+
 						float reflectionAmount = applyTextureMask(inReflection,
 														inReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,
 														inReflectionMaskChannel,inReflectionMaskInvert);
@@ -2507,8 +2522,16 @@ Object.defineProperty(bg, "isElectronApp", {
 				this.shader.setVector4('inReflectionMaskChannel',this.material.reflectionMaskChannelVector);
 				this.shader.setValueInt('inReflectionMaskInvert',this.material.reflectionMaskInvert);
 
+				let roughnessMask = this.material.roughnessMask || whiteTex;
+				this.shader.setValueFloat('inRoughness',this.material.roughness);
+				this.shader.setTexture('inRoughnessMask',roughnessMask,bg.base.TextureUnit.TEXTURE_8);
+				this.shader.setVector4('inRoughnessMaskChannel',this.material.roughnessMaskChannelVector);
+				this.shader.setValueInt('inRoughnessMaskInvert',this.material.roughnessMaskInvert);
+
 				// Other settings
 				this.shader.setValueInt('inSelectMode',false);
+
+				this.shader.setValueInt('inUnlit',this.material.unlit);
 			}
 		}
 		
@@ -2812,6 +2835,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		REFLECTION_MASK_INVERT			: 1 << 26,
 		CULL_FACE						: 1 << 27,
 		ROUGHNESS						: 1 << 28,	// All the roughness attributes are controlled by this flag
+		UNLIT							: 1 << 29
 	};
 
 	function loadTexture(context,image,url) {
@@ -2869,6 +2893,7 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._roughnessMask = null;
 			this._roughnessMaskChannel = 0;
 			this._roughnessMaskInvert = false;
+			this._unlit = false;
 
 			if (jsonData) {
 				if (jsonData.diffuseR!==undefined && jsonData.diffuseG!==undefined && jsonData.diffuseB!==undefined) {
@@ -2996,6 +3021,10 @@ Object.defineProperty(bg, "isElectronApp", {
 				if (jsonData.invertRoughnessMask!==undefined) {
 					this.roughnessMaskInvert = jsonData.roughnessMaskInvert;
 				}
+
+				if (jsonData.unlit!==undefined) {
+					this.unlit = jsonData.unlit;
+				}
 			}
 		}
 		
@@ -3036,6 +3065,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		get roughnessMask() { return this._roughnessMask; }
 		get roughnessMaskChannel() { return this._roughnessMaskChannel; }
 		get roughnessMaskInvert() { return this._roughnessMaskInvert; }
+		get unlit() { return this._unlit; }
 
 		set diffuse(newVal) { this._diffuse = newVal; this.setEnabled(bg.base.MaterialFlag.DIFFUSE); }
 		set specular(newVal) { this._specular = newVal; this.setEnabled(bg.base.MaterialFlag.SPECULAR); }
@@ -3069,6 +3099,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		set roughnessMask(newVal) { this._roughnessMask = newVal; this.setEnabled(bg.base.MaterialFlag.ROUGHNESS); }
 		set roughnessMaskChannel(newVal) { this._roughnessMaskChannel = newVal; this.setEnabled(bg.base.MaterialFlag.ROUGHNESS); }
 		set roughnessMaskInvert(newVal) { this._roughnessMaskInvert = newVal; this.setEnabled(bg.base.MaterialFlag.ROUGHNESS); }
+		set unlit(newVal) { this._unlit = newVal; this.setEnabled(bg.base.MaterialFlag.UNLIT); }
 
 		clone() {
 			let copy = new MaterialModifier();
@@ -3111,6 +3142,7 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._roughnessMask = mod._roughnessMask;
 			this._roughnessMaskChannel = mod._roughnessMaskChannel;
 			this._roughnessMaskInvert = mod._roughnessMaskInvert;
+			this._unlit = mod._unlit;
 		}
 	}
 	
@@ -3241,6 +3273,7 @@ Object.defineProperty(bg, "isElectronApp", {
 				mat.roughness = def.roughness || 0;
 				mat.roughnessMaskChannel = def.roughnessMaskChannel || 0;
 				mat.roughnessMaskInvert = def.roughnessMaskInvert || false;
+				mat.unlit = def.unlit || false;
 
 				let texPromises = [];
 				texPromises.push(readTexture(context,basePath,def.shininessMask,mat,"shininessMask"));
@@ -3290,6 +3323,7 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._roughnessMask = null;
 			this._roughnessMaskChannel = 0;
 			this._roughnessMaskInvert = false;
+			this._unlit = false;
 			
 			this._selectMode = false;
 		}
@@ -3333,8 +3367,7 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._roughnessMask = other.roughnessMask;
 			this._roughnessMaskChannel = other.roughnessMaskChannel;
 			this._roughnessMaskInvert = other.roughnessMaskInvert;
-
-			// selectMode is ignored on copy
+			this._unlit = other.unlit;
 		}
 		
 		get isTransparent() {
@@ -3373,6 +3406,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		get roughnessMask() { return this._roughnessMask; }
 		get roughnessMaskChannel() { return this._roughnessMaskChannel; }
 		get roughnessMaskInvert() { return this._roughnessMaskInvert; }
+		get unlit() { return this._unlit; }
 
 		
 		set diffuse(newVal) { this._diffuse = newVal; }
@@ -3408,6 +3442,9 @@ Object.defineProperty(bg, "isElectronApp", {
 		set roughnessMaskChannel(newVal) { this._roughnessMaskChannel = newVal; }
 		set roughnessMaskInvert(newVal) { this._roughnessMaskInvert = newVal; }
 		
+		get unlit() { return this._unlit; }
+		set unlit(u) { this._unlit = u; }
+
 		get selectMode() { return this._selectMode; }
 		set selectMode(s) { this._selectMode = s; }
 
@@ -3525,6 +3562,10 @@ Object.defineProperty(bg, "isElectronApp", {
 				mat.reflectionMaskChannel = this.reflectionMaskChannel;
 				mat.reflectionMaskInvert = this.reflectionMaskInvert;
 			}
+
+			if (mask & bg.base.MaterialFlag.UNLIT) {
+				mat.unlit = this.unlit;
+			}
 		}
 
 		applyModifier(context, mod, resourcePath) {
@@ -3619,6 +3660,10 @@ Object.defineProperty(bg, "isElectronApp", {
 				this.roughnessMask = getTexture(context,mod.roughnessMask,resourcePath);
 				this.roughnessMaskChannel = mod.roughnessMaskChannel;
 				this.roughnessMaskInvert = mod.roughnessMaskInvert;
+			}
+
+			if (mod.isEnabled(bg.base.MaterialFlag.UNLIT)) {
+				this.unlit = mod.unlit;
 			}
 		}
 		
@@ -3718,6 +3763,10 @@ Object.defineProperty(bg, "isElectronApp", {
 				mod.roughnessMaskInvert = this.roughnessMaskInvert;
 			}
 
+			if (mod.isEnabled(bg.base.MaterialFlag.UNLIT)) {
+				mod.unlit = this.unlit;
+			}
+
 			mod.setFlags(modifierMask);
 		}
 		
@@ -3762,6 +3811,8 @@ Object.defineProperty(bg, "isElectronApp", {
 			material.roughnessMaskInvert = data.invertRoughnessMask;
 			
 			material.cullFace = data.cullFace;
+			
+			material.unlit = data.unlit;
 			
 			if (path && path[path.length-1]!='/') {
 				path += '/';
@@ -5444,10 +5495,26 @@ Object.defineProperty(bg, "isElectronApp", {
 	
 	bg.base.TextureCache = TextureCache;
 
+	let g_wrapX = null;
+	let g_wrapY = null;
 	let g_minFilter = null;
 	let g_magFilter = null;
 	
+	/* Extra data:
+	 * 	wrapX
+	 *  wrapY
+	 *  minFilter
+	 *  magFilter
+	 */
 	class TextureLoaderPlugin extends bg.base.LoaderPlugin {
+		static GetWrapX() {
+			return g_wrapX || bg.base.TextureWrap.REPEAT;
+		}
+
+		static GetWrapY() {
+			return g_wrapY || bg.base.TextureWrap.REPEAT;
+		}
+
 		static GetMinFilter() {
 			return g_minFilter || bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST;
 		}
@@ -5463,12 +5530,20 @@ Object.defineProperty(bg, "isElectronApp", {
 		static SetMagFilter(f) {
 			g_magFilter = f;
 		}
+
+		static SetWrapX(w) {
+			g_wrapX = w;
+		}
+
+		static SetWrapY(w) {
+			g_wrapY = w;
+		}
 		
 		acceptType(url,data) {
 			return bg.utils.Resource.IsImage(url);
 		}
 		
-		load(context,url,data) {
+		load(context,url,data,extraData) {
 			return new Promise((accept,reject) => {
 				if (data) {
 					let texture = bg.base.TextureCache.Get(context).find(url);
@@ -5477,8 +5552,10 @@ Object.defineProperty(bg, "isElectronApp", {
 						texture = new bg.base.Texture(context);
 						texture.create();
 						texture.bind();
-						texture.minFilter = TextureLoaderPlugin.GetMinFilter();
-						texture.magFilter = TextureLoaderPlugin.GetMagFilter();
+						texture.wrapX = extraData.wrapX || TextureLoaderPlugin.GetWrapX();
+						texture.wrapY = extraData.wrapY || TextureLoaderPlugin.GetWrapY();
+						texture.minFilter = extraData.minFilter || TextureLoaderPlugin.GetMinFilter();
+						texture.magFilter = extraData.magFilter || TextureLoaderPlugin.GetMagFilter();
 						texture.setImage(data);
 						texture.fileName = url;
 						bg.base.TextureCache.Get(context).register(url,texture);
@@ -5556,7 +5633,8 @@ Object.defineProperty(bg, "isElectronApp", {
 	
 	bg.base.TextureWrap = {
 		REPEAT: null,
-		CLAMP: null
+		CLAMP: null,
+		MIRRORED_REPEAT: null
 	};
 	
 	bg.base.TextureFilter = {
@@ -10116,6 +10194,229 @@ bg.scene = {};
 
 })();
 (function() {
+
+    function copyCubemapImage(componentData,cubemapImage,dstPath) {
+        let path = require("path");
+        let src = bg.base.Writer.StandarizePath(this.getImageUrl(cubemapImage));
+        let file = src.split('/').pop();
+        let dst = bg.base.Writer.StandarizePath(path.join(dstPath,file));
+        switch (cubemapImage) {
+        case bg.scene.CubemapImage.POSITIVE_X:
+            componentData.positiveX = file;
+            break;
+        case bg.scene.CubemapImage.NEGATIVE_X:
+            componentData.negativeX = file;
+            break;
+        case bg.scene.CubemapImage.POSITIVE_Y:
+            componentData.positiveY = file;
+            break;
+        case bg.scene.CubemapImage.NEGATIVE_Y:
+            componentData.negativeY = file;
+            break;
+        case bg.scene.CubemapImage.POSITIVE_Z:
+            componentData.positiveZ = file;
+            break;
+        case bg.scene.CubemapImage.NEGATIVE_Z:
+            componentData.negativeZ = file;
+            break;
+        }
+        return bg.base.Writer.CopyFile(src,dst);
+    }
+
+    let g_backFace       = [  0.5,-0.5,-0.5, -0.5,-0.5,-0.5, -0.5, 0.5,-0.5,  0.5, 0.5,-0.5 ];
+    let g_rightFace      = [  0.5,-0.5, 0.5,  0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5, 0.5, 0.5 ];
+    let g_frontFace      = [ -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5 ];
+    let g_leftFace       = [ -0.5,-0.5,-0.5, -0.5,-0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5,-0.5 ];
+    let g_topFace        = [ -0.5, 0.5, 0.5,  0.5, 0.5, 0.5,  0.5, 0.5,-0.5, -0.5, 0.5,-0.5 ];
+    let g_bottomFace     = [  0.5,-0.5, 0.5, -0.5,-0.5, 0.5, -0.5,-0.5,-0.5,  0.5,-0.5,-0.5 ];
+
+    let g_backFaceNorm   = [ 0, 0, 1,  0, 0, 1,  0, 0, 1,  0, 0, 1 ];
+    let g_rightFaceNorm  = [-1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0 ];
+    let g_frontFaceNorm  = [ 0, 0,-1,  0, 0,-1,  0, 0,-1,  0, 0,-1 ];
+    let g_leftFaceNorm   = [ 1, 0, 0,  1, 0, 0,  1, 0, 0,  1, 0, 0 ];
+    let g_topFaceNorm    = [ 0,-1, 0,  0,-1, 0,  0,-1, 0,  0,-1, 0 ];
+    let g_bottomFaceNorm = [ 0, 1, 0,  0, 1, 0,  0, 1, 0,  0, 1, 0 ];
+
+    let uv0 = 0;
+    let uv1 = 1;
+    let g_backFaceUV     = [ uv1,uv0, uv0,uv0, uv0,uv1, uv1,uv1 ];
+    let g_rightFaceUV    = [ uv1,uv0, uv0,uv0, uv0,uv1, uv1,uv1 ];
+    let g_frontFaceUV    = [ uv1,uv0, uv0,uv0, uv0,uv1, uv1,uv1 ];
+    let g_leftFaceUV     = [ uv1,uv0, uv0,uv0, uv0,uv1, uv1,uv1 ];
+    let g_topFaceUV      = [ uv1,uv0, uv0,uv0, uv0,uv1, uv1,uv1 ];
+    let g_bottomFaceUV   = [ uv1,uv0, uv0,uv0, uv0,uv1, uv1,uv1 ];
+
+    let g_index = [ 2,1,0, 0,3,2 ];
+
+    class Skybox extends bg.scene.Component {
+        constructor() {
+            super();
+            this._images = [null, null, null, null, null, null];
+            this._textures = [];
+            this._plist = [];
+            this._material = null;
+        }
+
+        setImageUrl(imgCode,texture) {
+            this._images[imgCode] = texture;
+        }
+
+        getImageUrl(imgCode) {
+            return this._images[imgCode];
+        }
+
+        getTexture(imgCode) {
+            return this._textures[imgCode];
+        }
+
+        loadSkybox(context = null,onProgress = null) {
+            context = context || this.node && this.node.context;
+
+            let backPlist   = new bg.base.PolyList(context);
+            let rightPlist  = new bg.base.PolyList(context);
+            let frontPlist  = new bg.base.PolyList(context);
+            let leftPlist   = new bg.base.PolyList(context);
+            let topPlist    = new bg.base.PolyList(context);
+            let bottomPlist = new bg.base.PolyList(context);
+
+            backPlist.vertex = g_backFace; backPlist.normal = g_backFaceNorm; backPlist.texCoord0 = g_backFaceUV; backPlist.texCoord1 = g_backFaceUV; backPlist.index = g_index;
+            backPlist.build();
+
+            rightPlist.vertex = g_rightFace; rightPlist.normal = g_rightFaceNorm; rightPlist.texCoord0 = g_rightFaceUV; rightPlist.texCoord1 = g_rightFaceUV; rightPlist.index = g_index;
+            rightPlist.build();
+
+            frontPlist.vertex = g_frontFace; frontPlist.normal = g_frontFaceNorm; frontPlist.texCoord0 = g_frontFaceUV; frontPlist.texCoord1 = g_frontFaceUV; frontPlist.index = g_index;
+            frontPlist.build();
+
+            leftPlist.vertex = g_leftFace; leftPlist.normal = g_leftFaceNorm; leftPlist.texCoord0 = g_leftFaceUV; leftPlist.texCoord1 = g_leftFaceUV; leftPlist.index = g_index;
+            leftPlist.build();
+
+            topPlist.vertex = g_topFace; topPlist.normal = g_topFaceNorm; topPlist.texCoord0 = g_topFaceUV; topPlist.texCoord1 = g_topFaceUV; topPlist.index = g_index;
+            topPlist.build();
+
+            bottomPlist.vertex = g_bottomFace; bottomPlist.normal = g_bottomFaceNorm; bottomPlist.texCoord0 = g_bottomFaceUV; bottomPlist.texCoord1 = g_bottomFaceUV; bottomPlist.index = g_index;
+            bottomPlist.build();
+
+            this._plist = [leftPlist,rightPlist,topPlist,bottomPlist,frontPlist,backPlist];
+            this._material = new bg.base.Material();
+            this._material.receiveShadows = false;
+            this._material.castShadows = false;
+            this._material.unlit = true;
+
+
+            return new Promise((resolve,reject) => {
+                bg.base.Loader.Load(context,this._images,onProgress, {
+                    wrapX:bg.base.TextureWrap.MIRRORED_REPEAT,
+                    wrapY:bg.base.TextureWrap.MIRRORED_REPEAT
+                })
+                    .then((result) => {
+                        this._textures = [
+                            result[this.getImageUrl(bg.scene.CubemapImage.POSITIVE_X)],
+                            result[this.getImageUrl(bg.scene.CubemapImage.NEGATIVE_X)],
+                            result[this.getImageUrl(bg.scene.CubemapImage.POSITIVE_Y)],
+                            result[this.getImageUrl(bg.scene.CubemapImage.NEGATIVE_Y)],
+                            result[this.getImageUrl(bg.scene.CubemapImage.POSITIVE_Z)],
+                            result[this.getImageUrl(bg.scene.CubemapImage.NEGATIVE_Z)]
+                        ];
+                        this._textures.forEach((tex) => {
+                            tex.wrapX = bg.base.TextureWrap.CLAMP;
+                            tex.wrapY = bg.base.TextureWrap.CLAMP;
+                        });
+                        bg.emitImageLoadEvent(result[this.getImageUrl(bg.scene.CubemapImage.POSITIVE_X)]);
+                        resolve();
+                    })
+                    .catch((err) => {
+                        reject(err);
+                    });
+            })
+        }
+
+        display(pipeline,matrixState) {
+            // TODO: extract far clip plane from projection matrix and use it to scale the cube before draw it
+            if (!pipeline.effect) {
+                throw new Error("Could not draw skybox: invalid effect");
+            }
+            if (!this.node.enabled) {
+                return;
+            }
+            else if (this._textures.length==6) {
+                let curMaterial = pipeline.effect.material;
+                pipeline.effect.material = this._material;
+                matrixState.viewMatrixStack.push();
+                matrixState.modelMatrixStack.push();
+                matrixState.viewMatrixStack.matrix.setPosition(0,0,0);
+
+                let projectionMatrix = matrixState.projectionMatrixStack.matrix;
+                let m22 = -projectionMatrix.m22;
+                let m32 = -projectionMatrix.m32;
+                let far = (2.0*m32)/(2.0*m22-2.0);
+                
+                let offset = 1;
+                let scale = bg.Math.sin(bg.Math.PI_4) * far - offset;
+                matrixState.modelMatrixStack.scale(scale,scale,scale);
+                
+                if (pipeline.shouldDraw(this._material)) {
+                    this._plist.forEach((pl,index) => {
+                        this._material.texture = this._textures[index];
+                        pipeline.draw(pl);
+                    });
+                }
+
+                matrixState.modelMatrixStack.pop();
+                matrixState.viewMatrixStack.pop();
+                pipeline.effect.material = curMaterial;
+            }
+        }
+
+        removedFromNode() {
+            this._plist.forEach((pl) => {
+                pl.destroy();
+            });
+        }
+
+        deserialize(context,sceneData,url) {
+            this.setImageUrl(
+                bg.scene.CubemapImage.POSITIVE_X,
+                bg.utils.Resource.JoinUrl(url,sceneData["positiveX"])
+            );
+            this.setImageUrl(
+                bg.scene.CubemapImage.NEGATIVE_X,
+                bg.utils.Resource.JoinUrl(url,sceneData["negativeX"])
+            );
+            this.setImageUrl(
+                bg.scene.CubemapImage.POSITIVE_Y,
+                bg.utils.Resource.JoinUrl(url,sceneData["positiveY"])
+            );
+            this.setImageUrl(
+                bg.scene.CubemapImage.NEGATIVE_Y,
+                bg.utils.Resource.JoinUrl(url,sceneData["negativeY"])
+            );
+            this.setImageUrl(
+                bg.scene.CubemapImage.POSITIVE_Z,
+                bg.utils.Resource.JoinUrl(url,sceneData["positiveZ"])
+            );
+            this.setImageUrl(
+                bg.scene.CubemapImage.NEGATIVE_Z,
+                bg.utils.Resource.JoinUrl(url,sceneData["negativeZ"])
+            );
+            return this.loadSkybox(context);
+        }
+
+        serialize(componentData,promises,url) {
+            super.serialize(componentData,promises,url);
+            if (!bg.isElectronApp) return;
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.POSITIVE_X,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.NEGATIVE_X,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.POSITIVE_Y,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.NEGATIVE_Y,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.POSITIVE_Z,url.path]));
+            promises.push(copyCubemapImage.apply(this,[componentData,bg.scene.CubemapImage.NEGATIVE_Z,url.path]));
+        }
+    }
+
+    bg.scene.registerComponent(bg.scene,Skybox,"bg.scene.Skybox");
+})();
+(function() {
 	
 	class Transform extends bg.scene.Component {
 		constructor(matrix) {
@@ -12509,6 +12810,59 @@ bg.manipulation = {};
 				 return Action.ZOOM;
 		}
 	}
+
+	function buildPlist(context,vertex,color) {
+		let plist = new bg.base.PolyList(context);
+		let normal = [];
+		let texCoord0 = [];
+		let index = [];
+		let currentIndex = 0;
+		for (let i=0; i<vertex.length; i+=3) {
+			normal.push(0); normal.push(0); normal.push(1);
+			texCoord0.push(0); texCoord0.push(0);
+			index.push(currentIndex++);
+		}
+		plist.vertex = vertex;
+		plist.normal = normal;
+		plist.texCoord0 = texCoord0;
+		plist.color = color;
+		plist.index = index;
+		plist.drawMode = bg.base.DrawMode.LINES;
+		plist.build();
+		return plist;
+	}
+
+	function getGizmo() {
+		let x = this.minX;
+		let X = this.maxX;
+		let y = this.minY;
+		let Y = this.maxY;
+		let z = this.minZ;
+		let Z = this.maxZ;
+		let vertex = [
+			x,y,z, X,y,z, X,y,z, X,Y,z, X,Y,z, x,Y,z, x,Y,z, x,y,z,	// back
+			x,y,Z, X,y,Z, X,y,Z, X,Y,Z, X,Y,Z, x,Y,Z, x,Y,Z, x,y,Z,	// front
+			x,y,z, x,y,Z,	// edge 1
+			X,y,z, X,y,Z,	// edge 2
+			X,Y,z, X,Y,Z,	// edge 3
+			x,Y,z, x,Y,Z	// edge 4
+		];
+		let color = [];
+		for (let i = 0; i<vertex.length; i+=3) {
+			color.push(this._limitGizmoColor.r);
+			color.push(this._limitGizmoColor.g);
+			color.push(this._limitGizmoColor.b);
+			color.push(this._limitGizmoColor.a);
+		}
+		if (!this._plist) {
+			this._plist = buildPlist(this.node.context,vertex,color);
+		}
+		else {
+			this._plist.updateBuffer(bg.base.BufferType.VERTEX,vertex);
+			this._plist.updateBuffer(bg.base.BufferType.COLOR,color);
+		}
+		return this._plist;
+	}
 	
 	class OrbitCameraController extends bg.scene.Component {
 		static DisableAll(sceneRoot) {
@@ -12558,6 +12912,8 @@ bg.manipulation = {};
 
 			// Do not serialize/deserialize this:
 			this._keys = {};
+			this._showLimitGizmo = true;
+			this._limitGizmoColor = bg.Color.Green();
 		}
 		
 		setRotateButtons(left,middle,right) {
@@ -12592,11 +12948,41 @@ bg.manipulation = {};
 		get maxDistance() { return this._maxDistance; }
 		set maxDistance(d) { this._maxDistance = d; }
 
+		get minX() { return this._minX; }
+		get maxX() { return this._maxX; }
+		get minY() { return this._minY; }
+		get maxY() { return this._maxY; }
+		get minZ() { return this._minZ; }
+		get maxZ() { return this._maxZ; }
+
+		set minX(val) { this._minX = val; }
+		set maxX(val) { this._maxX = val; }
+		set minY(val) { this._minY = val; }
+		set maxY(val) { this._maxY = val; }
+		set minZ(val) { this._minZ = val; }
+		set maxZ(val) { this._maxZ = val; }
+
 		get displacementSpeed() { return this._displacementSpeed; }
 		set displacementSpeed(s) { this._displacementSpeed = s; }
 
 		get enabled() { return this._enabled; }
 		set enabled(e) { this._enabled = e; }
+
+		get showLimitGizmo() { return this._showLimitGizmo; }
+		set showLimitGizmo(l) { this._showLimitGizmo = l; }
+		get limitGizmoColor() { return this._limitGizmoColor; }
+		set limitGizmoColor(c) { this._limitGizmoColor = c; }
+
+		displayGizmo(pipeline,matrixState) {
+			if (!this._showLimitGizmo) return;
+			let plist = getGizmo.apply(this);
+			matrixState.modelMatrixStack.push();
+			matrixState.modelMatrixStack.identity();
+			if (plist) {
+				pipeline.draw(plist);
+			}
+			matrixState.modelMatrixStack.pop();
+		}
 
 		serialize(componentData,promises,url) {
 			super.serialize(componentData,promises,url);
@@ -12629,7 +13015,7 @@ bg.manipulation = {};
 			this._rotateButtons = componentData.rotateButtons || this._rotateButtons;
 			this._panButtons = componentData.panButtons || this._panButtons;
 			this._zoomButtons = componentData.zoomButtons || this._zoomButtons;
-			this._rotation = new bg.Vector3(componentData.rotation) || this._rotation;
+			this._rotation = new bg.Vector2(componentData.rotation) || this._rotation;
 			this._distance = componentData.distance!==undefined ? componentData.distance : this._distance;
 			this._center = new bg.Vector3(componentData.center) || this._center;
 			this._rotationSpeed = componentData.rotationSpeed!==undefined ? componentData.rotationSpeed : this._rotationSpeed;
@@ -13825,7 +14211,7 @@ bg.render = {
 
 							gl_FragData[0] = diffuse;
 							gl_FragData[1] = vec4(specular.rgb,roughnessMask); // Store roughness on A component of specular
-							gl_FragData[2] = vec4(normal * 0.5 + 0.5, 1.0);
+							gl_FragData[2] = vec4(normal * 0.5 + 0.5, inUnlit ? 0.0 : 1.0);	// Store !unlit parameter on A component of normal
 							gl_FragData[3] = vec4(lightEmission,inShininess/255.0,reflectionMask,float(inCastShadows));
 						}
 						else {
@@ -13964,6 +14350,8 @@ bg.render = {
 				this.shader.setValueInt('inRoughnessMaskInvert',this.material.roughnessMaskInvert);
 				
 				this.shader.setValueInt('inCastShadows',this.material.castShadows);
+
+				this.shader.setValueInt('inUnlit',this.material.unlit);
 				// Other settings
 				//this.shader.setValueInt('inSelectMode',false);
 			}
@@ -14100,24 +14488,32 @@ bg.render = {
 					this._fragmentShaderSource.setMainBody(`
 					vec4 diffuse = texture2D(inDiffuse,fsTexCoord);
 					vec4 specular = vec4(texture2D(inSpecular,fsTexCoord).rgb,1.0);
-					vec3 normal = texture2D(inNormal,fsTexCoord).xyz * 2.0 - 1.0;
+					vec4 normalTex = texture2D(inNormal,fsTexCoord);
+					vec3 normal = normalTex.xyz * 2.0 - 1.0;
 					vec4 material = texture2D(inMaterial,fsTexCoord);
 					vec4 position = texture2D(inPosition,fsTexCoord);
 					
 					vec4 shadowColor = texture2D(inShadowMap,fsTexCoord);
 					float shininess = material.g * 255.0;
 					float lightEmission = material.r;
-					vec4 light = getLight(
-						inLightType,
-						inLightAmbient, inLightDiffuse, inLightSpecular,shininess,
-						inLightPosition,inLightDirection,
-						inLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,
-						inSpotCutoff,inSpotExponent,inLightCutoffDistance,
-						position.rgb,normal,
-						diffuse,specular,shadowColor
-					);
-					light.rgb = light.rgb + (lightEmission * diffuse.rgb * inLightEmissionFactor);
-					gl_FragColor = light;`);
+					bool unlit = normalTex.a == 0.0;
+					if (unlit) {
+						gl_FragColor = vec4(diffuse.rgb * min(inLightEmissionFactor,1.0),1.0);
+					}
+					else {
+						vec4 light = getLight(
+							inLightType,
+							inLightAmbient, inLightDiffuse, inLightSpecular,shininess,
+							inLightPosition,inLightDirection,
+							inLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,
+							inSpotCutoff,inSpotExponent,inLightCutoffDistance,
+							position.rgb,normal,
+							diffuse,specular,shadowColor
+						);
+						light.rgb = light.rgb + (lightEmission * diffuse.rgb * inLightEmissionFactor);
+						gl_FragColor = light;
+					}
+					`);
 				}
 			}
 			return this._fragmentShaderSource;
@@ -14477,9 +14873,10 @@ bg.render = {
 					this._fragmentShaderSource.setMainBody(`
 					if (!inEnabled) discard;
 					else {
-						vec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;
+						vec4 normalTex = texture2D(inNormalMap,fsTexCoord);
+						vec3 normal = normalTex.xyz * 2.0 - 1.0;
 						vec4 vertexPos = texture2D(inPositionMap,fsTexCoord);
-						if (distance(vertexPos.xyz,vec3(0))>inMaxDistance || vertexPos.w==1.0) {
+						if (distance(vertexPos.xyz,vec3(0))>inMaxDistance || vertexPos.w==1.0 || normalTex.a==0.0) {
 							discard;
 						}
 						else {
@@ -15358,6 +15755,16 @@ bg.webgl1 = {};
 	
 	let BLUR_DOWNSAMPLE = 30;
 
+	let textureCubeDownsampleParams = {
+		textureInput:'samplerCube', texCoord:'vec3', size:'vec2', reduction:'vec2'
+	};
+	let textureCubeDownsampleBody = `
+		float dx = reduction.x / size.x;
+		float dy = reduction.y / size.y;
+		vec2 coord = vec2(dx * texCoord.x / dx, dy * texCoord.y / dy);
+		return textureCube(textureInput,coord);
+	`;
+
 	let textureDownsampleParams = {
 		textureInput:'sampler2D', texCoord:'vec2', size:'vec2', reduction:'vec2'
 	};
@@ -15409,46 +15816,28 @@ bg.webgl1 = {};
 			}
 		}
 		return vec4(result / float(size * size), 1.0);
-
-	/*	
-		float convMatrix[9];
-		convMatrix[0] = 1.0/16.0;
-		convMatrix[1] = 2.0/16.0;
-		convMatrix[2] = 1.0/16.0;
-		convMatrix[3] = 2.0/16.0;
-		convMatrix[4] = 4.0/16.0;
-		convMatrix[5] = 2.0/16.0;
-		convMatrix[6] = 1.0/16.0;
-		convMatrix[7] = 2.0/16.0;
-		convMatrix[8] = 1.0/16.0;
-
-		vec2 onePixel = vec2(1.0,1.0) / samplerSize * float(size);
-		vec4 colorSum = 
-			texture2D(textureInput, texCoord + onePixel * vec2(-1, -1)) * convMatrix[0] +
-			texture2D(textureInput, texCoord + onePixel * vec2( 0, -1)) * convMatrix[1] +
-			texture2D(textureInput, texCoord + onePixel * vec2( 1, -1)) * convMatrix[2] +
-			texture2D(textureInput, texCoord + onePixel * vec2(-1,  0)) * convMatrix[3] +
-			texture2D(textureInput, texCoord + onePixel * vec2( 0,  0)) * convMatrix[4] +
-			texture2D(textureInput, texCoord + onePixel * vec2( 1,  0)) * convMatrix[5] +
-			texture2D(textureInput, texCoord + onePixel * vec2(-1,  1)) * convMatrix[6] +
-			texture2D(textureInput, texCoord + onePixel * vec2( 0,  1)) * convMatrix[7] +
-			texture2D(textureInput, texCoord + onePixel * vec2( 1,  1)) * convMatrix[8];
-		float kernelWeight =
-			convMatrix[0] +
-			convMatrix[1] +
-			convMatrix[2] +
-			convMatrix[3] +
-			convMatrix[4] +
-			convMatrix[5] +
-			convMatrix[6] +
-			convMatrix[7] +
-			convMatrix[8];
-		if (kernelWeight <= 0.0) {
-			kernelWeight = 1.0;
-		}
-		return vec4((colorSum / kernelWeight).rgb, 1.0);
-		*/
 	`;
+
+	let blurCubeParams = {
+		textureInput:'samplerCube', texCoord:'vec3', size:'int', samplerSize:'vec2', dist:'float'
+	};
+	let blurCubeBody = `
+		int downsample = int(max(1.0,dist));
+		vec2 texelSize = 1.0 / samplerSize;
+		vec3 result = vec3(0.0);
+		size = int(max(float(size / downsample),1.0));
+		vec2 hlim = vec2(float(-size) * 0.5 + 0.5);
+		vec2 sign = vec2(1.0);
+		for (int x=0; x<40; ++x) {
+			if (x==size) break;
+			for (int y=0; y<40; ++y) {
+				if (y==size) break;
+				vec3 offset = vec3((hlim + vec2(float(x*downsample), float(y*downsample))) * texelSize,0.0);
+				result += textureCube(textureInput, texCoord + offset,2.0).rgb;
+			}
+		}
+		return vec4(result / float(size * size), 1.0);
+		`;
 	
 	bg.webgl1.shaderLibrary
 		.functions
@@ -15464,6 +15853,9 @@ bg.webgl1 = {};
 			},
 			glowBlur:{
 				returnType:"vec4", name:"glowBlur", params:glowParams, body:glowBody
+			},
+			blurCube:{
+				returnType:"vec4", name:"blurCube", params:blurCubeParams, body:blurCubeBody
 			},
 
 			// Require: utils.borderDetection
@@ -15604,6 +15996,8 @@ bg.webgl1 = {};
 				roughnessMask: { name:"inRoughnessMask", dataType:"sampler2D", role:"value" },
 				roughnessMaskChannel: { name:"inRoughnessMaskChannel", dataType:"vec4", role:"value" },
 				roughnessMaskInvert: { name:"inRoughnessMaskInvert", dataType:"bool", role:"value" },
+
+				unlit: { name:"inUnlit", dataType:"bool", role:"value" }
 			},
 			
 			// Lighting
@@ -16167,6 +16561,7 @@ bg.webgl1 = {};
 		initFlags(context) {
 			bg.base.TextureWrap.REPEAT = context.REPEAT;
 			bg.base.TextureWrap.CLAMP = context.CLAMP_TO_EDGE;
+			bg.base.TextureWrap.MIRRORED_REPEAT = context.MIRRORED_REPEAT;
 			
 			bg.base.TextureFilter.NEAREST_MIPMAP_NEAREST = context.NEAREST_MIPMAP_NEAREST;
 			bg.base.TextureFilter.LINEAR_MIPMAP_NEAREST = context.LINEAR_MIPMAP_NEAREST;
@@ -16257,6 +16652,9 @@ bg.webgl1 = {};
 		setCubemapImage(context,face,image) {
 			context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
 			context.texImage2D(face, 0, context.RGBA, context.RGBA, context.UNSIGNED_BYTE, image);
+			//if (this.requireMipmaps(minFilter,magFilter)) {
+				context.generateMipmap(face);
+			//}
 		}
 
 		setCubemapRaw(context,face,rawImage,w,h) {
@@ -16264,6 +16662,9 @@ bg.webgl1 = {};
 			let format = context.UNSIGNED_BYTE;
 			context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
 			context.texImage2D(face, 0, type, w, h, 0, type, format, rawImage);
+			//if (this.requireMipmaps(minFilter,magFilter)) {
+				context.generateMipmap(face);
+			//}
 		}
 
 		setVideo(context,target,texture,video,flipY) {
