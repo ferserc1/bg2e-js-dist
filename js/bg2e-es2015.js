@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.5 - build: bb8cbe8";
+bg.version = "1.2.6 - build: 3c43c10";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -4852,9 +4852,11 @@ Object.defineProperty(bg, "isElectronApp", {
             sceneData.children = [];
             sceneData.components = [];
             node.forEachComponent((component) => {
-                let componentData = {};
-                component.serialize(componentData,this._promises,this._url);
-                sceneData.components.push(componentData)
+                if (component.shouldSerialize) {
+                    let componentData = {};
+                    component.serialize(componentData,this._promises,this._url);
+                    sceneData.components.push(componentData)
+                }
             });
             node.children.forEach((child) => {
                 let childData = {}
@@ -7904,6 +7906,9 @@ bg.scene = {};
 		
 		removedFromNode(node) {}
 		addedToNode(node) {}
+		
+		// Override this to prevent serialize this component
+		get shouldSerialize() { return true; }
 		
 		deserialize(context,sceneData,url) {
 			return Promise.resolve(this);

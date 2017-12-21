@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.5 - build: bb8cbe8";
+bg.version = "1.2.6 - build: 3c43c10";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -4865,9 +4865,11 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         sceneData.children = [];
         sceneData.components = [];
         node.forEachComponent(function(component) {
-          var componentData = {};
-          component.serialize(componentData, $__3._promises, $__3._url);
-          sceneData.components.push(componentData);
+          if (component.shouldSerialize) {
+            var componentData = {};
+            component.serialize(componentData, $__3._promises, $__3._url);
+            sceneData.components.push(componentData);
+          }
         });
         node.children.forEach(function(child) {
           var childData = {};
@@ -7974,6 +7976,9 @@ bg.scene = {};
       },
       removedFromNode: function(node) {},
       addedToNode: function(node) {},
+      get shouldSerialize() {
+        return true;
+      },
       deserialize: function(context, sceneData, url) {
         return Promise.resolve(this);
       },
