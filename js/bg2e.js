@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.4 - build: 19dd8af";
+bg.version = "1.2.5 - build: bb8cbe8";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -9023,7 +9023,12 @@ bg.scene = {};
         return Promise.all(promises);
       },
       removePolyList: function(plist) {
-        var index = this.indexOf(plist);
+        var index = -1;
+        this._items.some(function(item, i) {
+          if (plist == item.polyList) {
+            index = i;
+          }
+        });
         if (index >= 0) {
           this._items.splice(index, 1);
         }

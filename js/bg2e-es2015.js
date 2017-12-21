@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.4 - build: 19dd8af";
+bg.version = "1.2.5 - build: bb8cbe8";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -8971,7 +8971,12 @@ bg.scene = {};
 		}
 		
 		removePolyList(plist) {
-			let index = this.indexOf(plist);
+			let index = -1;
+			this._items.some((item, i) => {
+				if (plist==item.polyList) {
+					index = i;
+				}
+			})
 			if (index>=0) {
 				this._items.splice(index,1);
 			}
