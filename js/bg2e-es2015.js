@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.3 - build: a8a7de5";
+bg.version = "1.2.4 - build: 19dd8af";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -4334,59 +4334,65 @@ Object.defineProperty(bg, "isElectronApp", {
 		
 		let result = [];
 		let generatedIndexes = {};
-		for (let i=0; i<plist.index.length - 2; i+=3) {
-			let v0i = plist.index[i] * 3;
-			let v1i = plist.index[i + 1] * 3;
-			let v2i = plist.index[i + 2] * 3;
-			
-			let t0i = plist.index[i] * 2;
-			let t1i = plist.index[i + 1] * 2;
-			let t2i = plist.index[i + 2] * 2;
-			
-			let v0 = new bg.Vector3(plist.vertex[v0i], plist.vertex[v0i + 1], plist.vertex[v0i + 2]);
-			let v1 = new bg.Vector3(plist.vertex[v1i], plist.vertex[v1i + 1], plist.vertex[v1i + 2]);
-			let v2 = new bg.Vector3(plist.vertex[v2i], plist.vertex[v2i + 1], plist.vertex[v2i + 2]);
-			
-			let t0 = new bg.Vector2(plist.texCoord0[t0i], plist.texCoord0[t0i + 1]);
-			let t1 = new bg.Vector2(plist.texCoord0[t1i], plist.texCoord0[t1i + 1]);
-			let t2 = new bg.Vector2(plist.texCoord0[t2i], plist.texCoord0[t2i + 1]);
-			
-			let edge1 = (new bg.Vector3(v1)).sub(v0);
-			let edge2 = (new bg.Vector3(v2)).sub(v0);
-			
-			let deltaU1 = t1.x - t0.x;
-			let deltaV1 = t1.y - t0.y;
-			let deltaU2 = t2.x - t0.x;
-			let deltaV2 = t2.y - t0.y;
-			
-			let f = 1 / (deltaU1 * deltaV2 - deltaU2 * deltaV1);
-			
-			let tangent = new bg.Vector3(f * (deltaV2 * edge1.x - deltaV1 * edge2.x),
-										   f * (deltaV2 * edge1.y - deltaV1 * edge2.y),
-										   f * (deltaV2 * edge1.z - deltaV1 * edge2.z));
-			tangent.normalize();
-			if (generatedIndexes[v0i]===undefined) {
-				result.push(tangent.x);
-				result.push(tangent.y);
-				result.push(tangent.z);
-				generatedIndexes[v0i] = tangent;
-			}
-			
-			if (generatedIndexes[v1i]===undefined) {
-				result.push(tangent.x);
-				result.push(tangent.y);
-				result.push(tangent.z);
-				generatedIndexes[v1i] = tangent;
-			}
-			
-			if (generatedIndexes[v2i]===undefined) {
-				result.push(tangent.x);
-				result.push(tangent.y);
-				result.push(tangent.z);
-				generatedIndexes[v2i] = tangent;
+		if (plist.index.length%3==0) {
+			for (let i=0; i<plist.index.length - 2; i+=3) {
+				let v0i = plist.index[i] * 3;
+				let v1i = plist.index[i + 1] * 3;
+				let v2i = plist.index[i + 2] * 3;
+				
+				let t0i = plist.index[i] * 2;
+				let t1i = plist.index[i + 1] * 2;
+				let t2i = plist.index[i + 2] * 2;
+				
+				let v0 = new bg.Vector3(plist.vertex[v0i], plist.vertex[v0i + 1], plist.vertex[v0i + 2]);
+				let v1 = new bg.Vector3(plist.vertex[v1i], plist.vertex[v1i + 1], plist.vertex[v1i + 2]);
+				let v2 = new bg.Vector3(plist.vertex[v2i], plist.vertex[v2i + 1], plist.vertex[v2i + 2]);
+				
+				let t0 = new bg.Vector2(plist.texCoord0[t0i], plist.texCoord0[t0i + 1]);
+				let t1 = new bg.Vector2(plist.texCoord0[t1i], plist.texCoord0[t1i + 1]);
+				let t2 = new bg.Vector2(plist.texCoord0[t2i], plist.texCoord0[t2i + 1]);
+				
+				let edge1 = (new bg.Vector3(v1)).sub(v0);
+				let edge2 = (new bg.Vector3(v2)).sub(v0);
+				
+				let deltaU1 = t1.x - t0.x;
+				let deltaV1 = t1.y - t0.y;
+				let deltaU2 = t2.x - t0.x;
+				let deltaV2 = t2.y - t0.y;
+				
+				let f = 1 / (deltaU1 * deltaV2 - deltaU2 * deltaV1);
+				
+				let tangent = new bg.Vector3(f * (deltaV2 * edge1.x - deltaV1 * edge2.x),
+											   f * (deltaV2 * edge1.y - deltaV1 * edge2.y),
+											   f * (deltaV2 * edge1.z - deltaV1 * edge2.z));
+				tangent.normalize();
+				if (generatedIndexes[v0i]===undefined) {
+					result.push(tangent.x);
+					result.push(tangent.y);
+					result.push(tangent.z);
+					generatedIndexes[v0i] = tangent;
+				}
+				
+				if (generatedIndexes[v1i]===undefined) {
+					result.push(tangent.x);
+					result.push(tangent.y);
+					result.push(tangent.z);
+					generatedIndexes[v1i] = tangent;
+				}
+				
+				if (generatedIndexes[v2i]===undefined) {
+					result.push(tangent.x);
+					result.push(tangent.y);
+					result.push(tangent.z);
+					generatedIndexes[v2i] = tangent;
+				}
 			}
 		}
-		
+		else {	// other draw modes: lines, line_strip
+			for (let i=0; i<plist.vertex.length; i+=3) {
+				plist._tangent.push(0,0,1);
+			}
+		}
 		return result;
 	}
 	

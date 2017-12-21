@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.3 - build: a8a7de5";
+bg.version = "1.2.4 - build: 19dd8af";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -4360,45 +4360,51 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     plist._tangent = [];
     var result = [];
     var generatedIndexes = {};
-    for (var i = 0; i < plist.index.length - 2; i += 3) {
-      var v0i = plist.index[i] * 3;
-      var v1i = plist.index[i + 1] * 3;
-      var v2i = plist.index[i + 2] * 3;
-      var t0i = plist.index[i] * 2;
-      var t1i = plist.index[i + 1] * 2;
-      var t2i = plist.index[i + 2] * 2;
-      var v0 = new bg.Vector3(plist.vertex[v0i], plist.vertex[v0i + 1], plist.vertex[v0i + 2]);
-      var v1 = new bg.Vector3(plist.vertex[v1i], plist.vertex[v1i + 1], plist.vertex[v1i + 2]);
-      var v2 = new bg.Vector3(plist.vertex[v2i], plist.vertex[v2i + 1], plist.vertex[v2i + 2]);
-      var t0 = new bg.Vector2(plist.texCoord0[t0i], plist.texCoord0[t0i + 1]);
-      var t1 = new bg.Vector2(plist.texCoord0[t1i], plist.texCoord0[t1i + 1]);
-      var t2 = new bg.Vector2(plist.texCoord0[t2i], plist.texCoord0[t2i + 1]);
-      var edge1 = (new bg.Vector3(v1)).sub(v0);
-      var edge2 = (new bg.Vector3(v2)).sub(v0);
-      var deltaU1 = t1.x - t0.x;
-      var deltaV1 = t1.y - t0.y;
-      var deltaU2 = t2.x - t0.x;
-      var deltaV2 = t2.y - t0.y;
-      var f = 1 / (deltaU1 * deltaV2 - deltaU2 * deltaV1);
-      var tangent = new bg.Vector3(f * (deltaV2 * edge1.x - deltaV1 * edge2.x), f * (deltaV2 * edge1.y - deltaV1 * edge2.y), f * (deltaV2 * edge1.z - deltaV1 * edge2.z));
-      tangent.normalize();
-      if (generatedIndexes[v0i] === undefined) {
-        result.push(tangent.x);
-        result.push(tangent.y);
-        result.push(tangent.z);
-        generatedIndexes[v0i] = tangent;
+    if (plist.index.length % 3 == 0) {
+      for (var i = 0; i < plist.index.length - 2; i += 3) {
+        var v0i = plist.index[i] * 3;
+        var v1i = plist.index[i + 1] * 3;
+        var v2i = plist.index[i + 2] * 3;
+        var t0i = plist.index[i] * 2;
+        var t1i = plist.index[i + 1] * 2;
+        var t2i = plist.index[i + 2] * 2;
+        var v0 = new bg.Vector3(plist.vertex[v0i], plist.vertex[v0i + 1], plist.vertex[v0i + 2]);
+        var v1 = new bg.Vector3(plist.vertex[v1i], plist.vertex[v1i + 1], plist.vertex[v1i + 2]);
+        var v2 = new bg.Vector3(plist.vertex[v2i], plist.vertex[v2i + 1], plist.vertex[v2i + 2]);
+        var t0 = new bg.Vector2(plist.texCoord0[t0i], plist.texCoord0[t0i + 1]);
+        var t1 = new bg.Vector2(plist.texCoord0[t1i], plist.texCoord0[t1i + 1]);
+        var t2 = new bg.Vector2(plist.texCoord0[t2i], plist.texCoord0[t2i + 1]);
+        var edge1 = (new bg.Vector3(v1)).sub(v0);
+        var edge2 = (new bg.Vector3(v2)).sub(v0);
+        var deltaU1 = t1.x - t0.x;
+        var deltaV1 = t1.y - t0.y;
+        var deltaU2 = t2.x - t0.x;
+        var deltaV2 = t2.y - t0.y;
+        var f = 1 / (deltaU1 * deltaV2 - deltaU2 * deltaV1);
+        var tangent = new bg.Vector3(f * (deltaV2 * edge1.x - deltaV1 * edge2.x), f * (deltaV2 * edge1.y - deltaV1 * edge2.y), f * (deltaV2 * edge1.z - deltaV1 * edge2.z));
+        tangent.normalize();
+        if (generatedIndexes[v0i] === undefined) {
+          result.push(tangent.x);
+          result.push(tangent.y);
+          result.push(tangent.z);
+          generatedIndexes[v0i] = tangent;
+        }
+        if (generatedIndexes[v1i] === undefined) {
+          result.push(tangent.x);
+          result.push(tangent.y);
+          result.push(tangent.z);
+          generatedIndexes[v1i] = tangent;
+        }
+        if (generatedIndexes[v2i] === undefined) {
+          result.push(tangent.x);
+          result.push(tangent.y);
+          result.push(tangent.z);
+          generatedIndexes[v2i] = tangent;
+        }
       }
-      if (generatedIndexes[v1i] === undefined) {
-        result.push(tangent.x);
-        result.push(tangent.y);
-        result.push(tangent.z);
-        generatedIndexes[v1i] = tangent;
-      }
-      if (generatedIndexes[v2i] === undefined) {
-        result.push(tangent.x);
-        result.push(tangent.y);
-        result.push(tangent.z);
-        generatedIndexes[v2i] = tangent;
+    } else {
+      for (var i$__2 = 0; i$__2 < plist.vertex.length; i$__2 += 3) {
+        plist._tangent.push(0, 0, 1);
       }
     }
     return result;
