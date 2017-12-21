@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.2 - build: 205ab9c";
+bg.version = "1.2.3 - build: a8a7de5";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -660,7 +660,14 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       mouseWheel: function(evt) {},
       touchStart: function(evt) {},
       touchMove: function(evt) {},
-      touchEnd: function(evt) {}
+      touchEnd: function(evt) {},
+      postRedisplay: function() {
+        var frames = arguments[0] !== (void 0) ? arguments[0] : 1;
+        bg.app.MainLoop.singleton.postRedisplay(frames);
+      },
+      postReshape: function() {
+        bg.app.MainLoop.singleton.postReshape();
+      }
     }, {});
   }();
   bg.LifeCycle = LifeCycle;
@@ -976,7 +983,7 @@ bg.app = {};
       this._canvas = null;
       this._windowController = null;
       this._updateMode = bg.app.FrameUpdate.AUTO;
-      this._redisplay = true;
+      this._redisplayFrames = 1;
       bg.bindImageLoadEvent(function() {
         $__3.postRedisplay();
       });
@@ -997,11 +1004,11 @@ bg.app = {};
       set updateMode(m) {
         this._updateMode = m;
         if (this._updateMode == bg.app.FrameUpdate.AUTO) {
-          this._redisplay = true;
+          this._redisplayFrames = 1;
         }
       },
       get redisplay() {
-        return this._redisplay;
+        return this._redisplayFrames > 0;
       },
       get mouseButtonStatus() {
         return s_mouseStatus;
@@ -1014,7 +1021,8 @@ bg.app = {};
         animationLoop();
       },
       postRedisplay: function() {
-        this._redisplay = true;
+        var frames = arguments[0] !== (void 0) ? arguments[0] : 1;
+        this._redisplayFrames = frames;
       },
       postReshape: function() {
         onResize();
@@ -1115,7 +1123,11 @@ bg.app = {};
       s_mainLoop.windowController.frame(Date.now() - s_delta);
       s_mainLoop.windowController.display();
       s_delta = Date.now();
-      s_mainLoop._redisplay = s_mainLoop.updateMode == bg.app.FrameUpdate.AUTO;
+      if (s_mainLoop.updateMode == bg.app.FrameUpdate.AUTO) {
+        s_mainLoop._redisplayFrames = 1;
+      } else {
+        s_mainLoop._redisplayFrames--;
+      }
     }
   }
   function onMouseDown(event) {
@@ -1260,7 +1272,8 @@ bg.app = {};
     }
     return ($traceurRuntime.createClass)(WindowController, {
       postRedisplay: function() {
-        bg.app.MainLoop.singleton.postRedisplay();
+        var frames = arguments[0] !== (void 0) ? arguments[0] : 1;
+        bg.app.MainLoop.singleton.postRedisplay(frames);
       },
       postReshape: function() {
         bg.app.MainLoop.singleton.postReshape();

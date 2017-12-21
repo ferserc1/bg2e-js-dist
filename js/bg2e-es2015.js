@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.2 - build: 205ab9c";
+bg.version = "1.2.3 - build: a8a7de5";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -718,6 +718,15 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 		touchStart(evt) {}
 		touchMove(evt) {}
 		touchEnd(evt) {}
+
+		// Utility functions: do not override
+		postRedisplay(frames=1) {
+			bg.app.MainLoop.singleton.postRedisplay(frames);
+		}
+
+		postReshape() {
+			bg.app.MainLoop.singleton.postReshape();
+		}
 	}
 	
 	bg.LifeCycle = LifeCycle;
@@ -964,7 +973,7 @@ bg.app = {};
 			this._canvas = null;
 			this._windowController = null;
 			this._updateMode = bg.app.FrameUpdate.AUTO;
-			this._redisplay = true;
+			this._redisplayFrames = 1;
 			bg.bindImageLoadEvent(() => {
 				this.postRedisplay();
 			});
@@ -979,10 +988,10 @@ bg.app = {};
 		set updateMode(m) {
 			this._updateMode = m;
 			if (this._updateMode==bg.app.FrameUpdate.AUTO) {
-				this._redisplay = true;
+				this._redisplayFrames = 1;
 			}
 		}
-		get redisplay() { return this._redisplay; }
+		get redisplay() { return this._redisplayFrames>0; }
 		get mouseButtonStatus() { return s_mouseStatus; }
 		
 		run(windowController) {
@@ -993,8 +1002,8 @@ bg.app = {};
 			animationLoop();
 		}
 		
-		postRedisplay() {
-			this._redisplay = true;
+		postRedisplay(frames=1) {
+			this._redisplayFrames = frames;
 		}
 		
 		postReshape() {
@@ -1097,7 +1106,12 @@ bg.app = {};
 			s_mainLoop.windowController.frame(Date.now() - s_delta);
 			s_mainLoop.windowController.display();
 			s_delta = Date.now();
-			s_mainLoop._redisplay = s_mainLoop.updateMode == bg.app.FrameUpdate.AUTO;
+			if (s_mainLoop.updateMode==bg.app.FrameUpdate.AUTO) {
+				s_mainLoop._redisplayFrames = 1;
+			}
+			else {
+				s_mainLoop._redisplayFrames--;
+			}
 		}
 	}
 	
@@ -1277,8 +1291,8 @@ bg.app = {};
 		// touchMove(evt)
 		// touchEnd(evt)
 		
-		postRedisplay() {
-			bg.app.MainLoop.singleton.postRedisplay();
+		postRedisplay(frames=1) {
+			bg.app.MainLoop.singleton.postRedisplay(frames);
 		}
 		
 		postReshape() {
