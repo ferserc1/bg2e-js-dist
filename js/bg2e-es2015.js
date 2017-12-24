@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.6 - build: 3c43c10";
+bg.version = "1.2.7 - build: 455ed8c";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -7893,6 +7893,8 @@ bg.scene = {};
 			super();
 			
 			this._node = null;
+
+			this._drawGizmo = true;
 		}
 		
 		clone() {
@@ -7903,6 +7905,9 @@ bg.scene = {};
 		get node() { return this._node; }
 		
 		get typeId() { return this._typeId; }
+
+		get draw3DGizmo() { return this._drawGizmo; }
+		set draw3DGizmo(d) { this._drawGizmo = d; }
 		
 		removedFromNode(node) {}
 		addedToNode(node) {}
@@ -8108,7 +8113,7 @@ bg.scene = {};
 
 		displayGizmo(pipeline,matrixState) {
 			this.forEachComponent((comp) => {
-				comp.displayGizmo(pipeline,matrixState);
+				if (comp.draw3DGizmo) comp.displayGizmo(pipeline,matrixState);
 			});
 		}
 		
@@ -9340,6 +9345,7 @@ bg.scene = {};
 		
 		frame(delta) {
 			this._rebuildTransform = true;
+			this.transform;
 		}
 
 		displayGizmo(pipeline,matrixState) {
@@ -14015,6 +14021,40 @@ bg.render = {
 			});
 			camera.viewport = vp;
 		}
+
+		getImage(scene,camera,width,height) {
+			let prevViewport = camera.viewport;
+			camera.viewport = new bg.Viewport(0,0,width,height);
+			this.draw(scene,camera);
+
+			let canvas = document.createElement('canvas');
+			canvas.width = width;
+			canvas.height = height;
+			let ctx = canvas.getContext('2d');
+
+			let buffer = this.pipeline.renderSurface.readBuffer(new bg.Viewport(0,0,width,height));
+			let imgData = ctx.createImageData(width,height);
+			let len = width * 4;
+			// Flip image data
+			for (let i = 0; i<height; ++i) {
+				for (let j = 0; j<len; j+=4) {
+					let srcRow = i * width * 4;
+					let dstRow = (height - i) * width * 4;
+					imgData.data[dstRow + j + 0] = buffer[srcRow + j + 0];
+					imgData.data[dstRow + j + 1] = buffer[srcRow + j + 1];
+					imgData.data[dstRow + j + 2] = buffer[srcRow + j + 2];
+					imgData.data[dstRow + j + 3] = buffer[srcRow + j + 3];
+				}
+			}
+			ctx.putImageData(imgData,0,0);
+
+			let img = canvas.toDataURL('image/jpeg');
+
+			camera.viewport = prevViewport;
+			this.viewport = prevViewport;
+			this.draw(scene,camera);
+			return img;
+		}
 	}
 
 	bg.render.DeferredRenderer = DeferredRenderer;
@@ -14064,8 +14104,10 @@ bg.render = {
 			this.matrixState.projectionMatrixStack.set(camera.projection);
 			this.matrixState.viewMatrixStack.set(camera.viewMatrix);
 		
+			bg.base.Pipeline.SetCurrent(this._pipeline);
+			this._pipeline.viewport = camera.viewport;
+
 			this.willDraw(scene,camera);
-			scene.accept(this._drawVisitor);
 			this.performDraw(scene,camera);
 		}
 
@@ -14141,6 +14183,41 @@ bg.render = {
 			this._opaqueLayer.pipeline.clearColor = this.clearColor;
 			this._opaqueLayer.draw(scene,camera);
 			this._transparentLayer.draw(scene,camera);
+		}
+
+		getImage(scene,camera,width,height) {
+			let prevViewport = camera.viewport;
+			camera.viewport = new bg.Viewport(0,0,width,height);
+			this.draw(scene,camera);
+			this.draw(scene,camera);
+
+			let canvas = document.createElement('canvas');
+			canvas.width = width;
+			canvas.height = height;
+			let ctx = canvas.getContext('2d');
+
+			let buffer = this._opaqueLayer.pipeline.renderSurface.readBuffer(new bg.Viewport(0,0,width,height));
+			let imgData = ctx.createImageData(width,height);
+			let len = width * 4;
+			// Flip image data
+			for (let i = 0; i<height; ++i) {
+				for (let j = 0; j<len; j+=4) {
+					let srcRow = i * width * 4;
+					let dstRow = (height - i) * width * 4;
+					imgData.data[dstRow + j + 0] = buffer[srcRow + j + 0];
+					imgData.data[dstRow + j + 1] = buffer[srcRow + j + 1];
+					imgData.data[dstRow + j + 2] = buffer[srcRow + j + 2];
+					imgData.data[dstRow + j + 3] = buffer[srcRow + j + 3];
+				}
+			}
+			ctx.putImageData(imgData,0,0);
+
+			let img = canvas.toDataURL('image/jpeg');
+
+			camera.viewport = prevViewport;
+			this._opaqueLayer.viewport = prevViewport;
+			this._transparentLayer.viewport = prevViewport;
+			return img;
 		}
 	}
 
@@ -15691,6 +15768,13 @@ bg.webgl1 = {};
 		}
 		resize(gl,renderSurface,size) {}
 		destroy(gl,renderSurface) {}
+
+		readBuffer(gl,renderSurface,rectangle,viewportSize) {
+			let pixels = new Uint8Array(rectangle.width * rectangle.height * 4);
+			// Note that the webgl texture is flipped vertically, so we need to convert the Y coord
+			gl.readPixels(rectangle.x, rectangle.y, rectangle.width, rectangle.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+			return pixels;
+		}
 	}
 	
 	bg.webgl1.ColorRenderSurfaceImpl = ColorRenderSurfaceImpl;

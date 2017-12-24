@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.6 - build: 3c43c10";
+bg.version = "1.2.7 - build: 455ed8c";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -7962,6 +7962,7 @@ bg.scene = {};
     function Component() {
       $traceurRuntime.superConstructor(Component).call(this);
       this._node = null;
+      this._drawGizmo = true;
     }
     return ($traceurRuntime.createClass)(Component, {
       clone: function() {
@@ -7973,6 +7974,12 @@ bg.scene = {};
       },
       get typeId() {
         return this._typeId;
+      },
+      get draw3DGizmo() {
+        return this._drawGizmo;
+      },
+      set draw3DGizmo(d) {
+        this._drawGizmo = d;
       },
       removedFromNode: function(node) {},
       addedToNode: function(node) {},
@@ -8250,7 +8257,8 @@ bg.scene = {};
       },
       displayGizmo: function(pipeline, matrixState) {
         this.forEachComponent(function(comp) {
-          comp.displayGizmo(pipeline, matrixState);
+          if (comp.draw3DGizmo)
+            comp.displayGizmo(pipeline, matrixState);
         });
       },
       didDisplay: function(pipeline, matrixState) {
@@ -9397,6 +9405,7 @@ bg.scene = {};
       },
       frame: function(delta) {
         this._rebuildTransform = true;
+        this.transform;
       },
       displayGizmo: function(pipeline, matrixState) {
         var plist = getGizmo.apply(this);
@@ -13626,6 +13635,34 @@ bg.render = {};
         this.pipeline.clearBuffers();
         this.pipeline.drawTexture({texture: this._mixPipeline.renderSurface.getTexture(0)});
         camera.viewport = vp;
+      },
+      getImage: function(scene, camera, width, height) {
+        var prevViewport = camera.viewport;
+        camera.viewport = new bg.Viewport(0, 0, width, height);
+        this.draw(scene, camera);
+        var canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        var ctx = canvas.getContext('2d');
+        var buffer = this.pipeline.renderSurface.readBuffer(new bg.Viewport(0, 0, width, height));
+        var imgData = ctx.createImageData(width, height);
+        var len = width * 4;
+        for (var i = 0; i < height; ++i) {
+          for (var j = 0; j < len; j += 4) {
+            var srcRow = i * width * 4;
+            var dstRow = (height - i) * width * 4;
+            imgData.data[dstRow + j + 0] = buffer[srcRow + j + 0];
+            imgData.data[dstRow + j + 1] = buffer[srcRow + j + 1];
+            imgData.data[dstRow + j + 2] = buffer[srcRow + j + 2];
+            imgData.data[dstRow + j + 3] = buffer[srcRow + j + 3];
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+        var img = canvas.toDataURL('image/jpeg');
+        camera.viewport = prevViewport;
+        this.viewport = prevViewport;
+        this.draw(scene, camera);
+        return img;
       }
     }, {}, $__super);
   }(bg.render.Renderer);
@@ -13671,8 +13708,9 @@ bg.render = {};
         }
         this.matrixState.projectionMatrixStack.set(camera.projection);
         this.matrixState.viewMatrixStack.set(camera.viewMatrix);
+        bg.base.Pipeline.SetCurrent(this._pipeline);
+        this._pipeline.viewport = camera.viewport;
         this.willDraw(scene, camera);
-        scene.accept(this._drawVisitor);
         this.performDraw(scene, camera);
       },
       willDraw: function(scene, camera) {
@@ -13740,6 +13778,35 @@ bg.render = {};
         this._opaqueLayer.pipeline.clearColor = this.clearColor;
         this._opaqueLayer.draw(scene, camera);
         this._transparentLayer.draw(scene, camera);
+      },
+      getImage: function(scene, camera, width, height) {
+        var prevViewport = camera.viewport;
+        camera.viewport = new bg.Viewport(0, 0, width, height);
+        this.draw(scene, camera);
+        this.draw(scene, camera);
+        var canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        var ctx = canvas.getContext('2d');
+        var buffer = this._opaqueLayer.pipeline.renderSurface.readBuffer(new bg.Viewport(0, 0, width, height));
+        var imgData = ctx.createImageData(width, height);
+        var len = width * 4;
+        for (var i = 0; i < height; ++i) {
+          for (var j = 0; j < len; j += 4) {
+            var srcRow = i * width * 4;
+            var dstRow = (height - i) * width * 4;
+            imgData.data[dstRow + j + 0] = buffer[srcRow + j + 0];
+            imgData.data[dstRow + j + 1] = buffer[srcRow + j + 1];
+            imgData.data[dstRow + j + 2] = buffer[srcRow + j + 2];
+            imgData.data[dstRow + j + 3] = buffer[srcRow + j + 3];
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+        var img = canvas.toDataURL('image/jpeg');
+        camera.viewport = prevViewport;
+        this._opaqueLayer.viewport = prevViewport;
+        this._transparentLayer.viewport = prevViewport;
+        return img;
       }
     }, {}, $__super);
   }(bg.render.Renderer);
@@ -15138,7 +15205,12 @@ bg.webgl1 = {};
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       },
       resize: function(gl, renderSurface, size) {},
-      destroy: function(gl, renderSurface) {}
+      destroy: function(gl, renderSurface) {},
+      readBuffer: function(gl, renderSurface, rectangle, viewportSize) {
+        var pixels = new Uint8Array(rectangle.width * rectangle.height * 4);
+        gl.readPixels(rectangle.x, rectangle.y, rectangle.width, rectangle.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels;
+      }
     }, {}, $__super);
   }(WebGLRenderSurfaceImpl);
   bg.webgl1.ColorRenderSurfaceImpl = ColorRenderSurfaceImpl;

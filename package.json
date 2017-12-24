@@ -1,6 +1,6 @@
 {
 	"name": "bg2e-js",
-    "version": "1.2.6",
+    "version": "1.2.7",
     "description": "Advanced JavaScript and C++ graphic engine",
     "main": "index.js",
     "scripts": {
