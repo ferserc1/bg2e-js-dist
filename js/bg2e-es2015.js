@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.7 - build: d3f169e";
+bg.version = "1.2.8 - build: e2399f3";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
