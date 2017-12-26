@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.7 - build: 455ed8c";
+bg.version = "1.2.7 - build: d3f169e";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -11172,10 +11172,15 @@ bg.manipulation = {};
             this._gizmoScale = 1;
 
             this._gizmoIcons = [];
+
+            this._show3dGizmos = true;
         }
 
         get gizmoScale() { return this._gizmoScale; }
         set gizmoScale(s) { this._gizmoScale = s; }
+
+        get show3dGizmos() { return this._show3dGizmos; }
+        set show3dGizmos(g) { this._show3dGizmos = g; }
 
         clearGizmoIcons() { this._gizmoIcons = []; }
         addGizmoIcon(type,icon,visible=true) { this._gizmoIcons.push({ type:type, icon:icon, visible:visible }); }
@@ -11229,7 +11234,9 @@ bg.manipulation = {};
                 this.pipeline.effect.gizmoOpacity = gizmoOpacity;
                 this.pipeline.effect.texture = null;
             }
-            node.displayGizmo(this.pipeline,this.matrixState);
+            if (this._show3dGizmos) {
+                node.displayGizmo(this.pipeline,this.matrixState);
+            }
             this.pipeline.effect.color = gizmoColor;
             this.pipeline.depthTest = dt;
         }
@@ -11273,6 +11280,9 @@ bg.manipulation = {};
 		
 		get gizmoOpacity() { return this._gizmoOpacity; }
 		set gizmoOpacity(o) { this._gizmoOpacity = o; }
+
+		get show3dGizmos() { return this.drawVisitor.show3dGizmos; }
+		set show3dGizmos(g) { this.drawVisitor.show3dGizmos = g; }
 		
 		get working() { return this._working; }
 

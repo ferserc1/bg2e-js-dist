@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.7 - build: 455ed8c";
+bg.version = "1.2.7 - build: d3f169e";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -10964,6 +10964,7 @@ bg.manipulation = {};
       this._sprite = bg.scene.PrimitiveFactory.PlanePolyList(pipeline.context, 1, 1, "z");
       this._gizmoScale = 1;
       this._gizmoIcons = [];
+      this._show3dGizmos = true;
     }
     return ($traceurRuntime.createClass)(DrawGizmoVisitor, {
       get gizmoScale() {
@@ -10971,6 +10972,12 @@ bg.manipulation = {};
       },
       set gizmoScale(s) {
         this._gizmoScale = s;
+      },
+      get show3dGizmos() {
+        return this._show3dGizmos;
+      },
+      set show3dGizmos(g) {
+        this._show3dGizmos = g;
       },
       clearGizmoIcons: function() {
         this._gizmoIcons = [];
@@ -11030,7 +11037,9 @@ bg.manipulation = {};
           this.pipeline.effect.gizmoOpacity = gizmoOpacity;
           this.pipeline.effect.texture = null;
         }
-        node.displayGizmo(this.pipeline, this.matrixState);
+        if (this._show3dGizmos) {
+          node.displayGizmo(this.pipeline, this.matrixState);
+        }
         this.pipeline.effect.color = gizmoColor;
         this.pipeline.depthTest = dt;
       }
@@ -11073,6 +11082,12 @@ bg.manipulation = {};
       },
       set gizmoOpacity(o) {
         this._gizmoOpacity = o;
+      },
+      get show3dGizmos() {
+        return this.drawVisitor.show3dGizmos;
+      },
+      set show3dGizmos(g) {
+        this.drawVisitor.show3dGizmos = g;
       },
       get working() {
         return this._working;
