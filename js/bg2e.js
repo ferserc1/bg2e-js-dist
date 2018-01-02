@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.8 - build: e2399f3";
+bg.version = "1.2.9 - build: 1d14c77";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -5274,6 +5274,56 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     SOFT: 1,
     STRATIFIED: 2
   };
+  bg.base.ShadowCascade = {
+    NEAR: 0,
+    FAR: 1,
+    MID: 2
+  };
+  function updateDirectional(scene, camera, light, lightTransform, cascade) {
+    var ms = bg.base.MatrixState.Current();
+    bg.base.MatrixState.SetCurrent(this._matrixState);
+    this._pipeline.effect.light = light;
+    this._viewMatrix = new bg.Matrix4(lightTransform);
+    var rotation = this._viewMatrix.rotation;
+    var cameraTransform = camera.transform ? new bg.Matrix4(camera.transform.matrix) : bg.Matrix4.Identity();
+    var cameraPos = cameraTransform.position;
+    var target = cameraPos.add(cameraTransform.forwardVector.scale(-camera.focus));
+    this._viewMatrix.identity().translate(target).mult(rotation).translate(0, 0, 10).invert();
+    this._pipeline.effect.lightTransform = this._viewMatrix;
+    bg.base.Pipeline.SetCurrent(this._pipeline);
+    this._pipeline.clearBuffers(bg.base.ClearBuffers.COLOR_DEPTH);
+    var mult = 1;
+    if (cascade == bg.base.ShadowCascade.FAR) {
+      mult = 20;
+      light.shadowBias = 0.0001;
+    } else if (cascade == bg.base.ShadowCascade.NEAR) {
+      mult = 2;
+      light.shadowBias = 0.00002;
+    } else if (cascade == bg.base.ShadowCascade.MID) {
+      mult = 6;
+      light.shadowBias = 0.0001;
+    }
+    light.projection = bg.Matrix4.Ortho(-camera.focus * mult, camera.focus * mult, -camera.focus * mult, camera.focus * mult, 1, 300 * camera.focus);
+    this._projection = light.projection;
+    scene.accept(this._drawVisitor);
+    bg.base.MatrixState.SetCurrent(ms);
+  }
+  function updateSpot(scene, camera, light, lightTransform) {
+    var ms = bg.base.MatrixState.Current();
+    bg.base.MatrixState.SetCurrent(this._matrixState);
+    this._pipeline.effect.light = light;
+    this._viewMatrix = new bg.Matrix4(lightTransform);
+    var cutoff = light.spotCutoff;
+    light.projection = bg.Matrix4.Perspective(cutoff * 2, 1, 0.1, 200.0);
+    light.shadowBias = 0.0005;
+    this._viewMatrix.invert();
+    this._projection = light.projection;
+    this._pipeline.effect.lightTransform = this._viewMatrix;
+    bg.base.Pipeline.SetCurrent(this._pipeline);
+    this._pipeline.clearBuffers(bg.base.ClearBuffers.COLOR_DEPTH);
+    scene.accept(this._drawVisitor);
+    bg.base.MatrixState.SetCurrent(ms);
+  }
   var ShadowMap = function($__super) {
     function ShadowMap(context) {
       $traceurRuntime.superConstructor(ShadowMap).call(this, context);
@@ -5320,29 +5370,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         return this._pipeline.renderSurface.getTexture(0);
       },
       update: function(scene, camera, light, lightTransform) {
-        var ms = bg.base.MatrixState.Current();
-        bg.base.MatrixState.SetCurrent(this._matrixState);
-        this._pipeline.effect.light = light;
-        this._viewMatrix = new bg.Matrix4(lightTransform);
+        var cascade = arguments[4] !== (void 0) ? arguments[4] : bg.base.ShadowCascade.NEAR;
         if (light.type == bg.base.LightType.DIRECTIONAL) {
-          var rotation = this._viewMatrix.rotation;
-          var cameraPos = camera.transform.matrix.position;
-          var cameraTransform = new bg.Matrix4(camera.transform.matrix);
-          var target = cameraPos.add(cameraTransform.forwardVector.scale(-camera.focus));
-          this._viewMatrix.identity().translate(target).mult(rotation).translate(0, 0, 10).invert();
-          light.projection = bg.Matrix4.Ortho(-camera.focus, camera.focus, -camera.focus, camera.focus, 1, 300 * camera.focus);
+          updateDirectional.apply(this, [scene, camera, light, lightTransform, cascade]);
         } else if (light.type == bg.base.LightType.SPOT) {
-          var cutoff = light.spotCutoff;
-          light.projection = bg.Matrix4.Perspective(cutoff * 2, 1, 0.1, 200.0);
-          light.shadowBias = 0.0002;
-          this._viewMatrix.invert();
+          updateSpot.apply(this, [scene, camera, light, lightTransform]);
         }
-        this._projection = light.projection;
-        this._pipeline.effect.lightTransform = this._viewMatrix;
-        bg.base.Pipeline.SetCurrent(this._pipeline);
-        this._pipeline.clearBuffers(bg.base.ClearBuffers.COLOR_DEPTH);
-        scene.accept(this._drawVisitor);
-        bg.base.MatrixState.SetCurrent(ms);
       }
     }, {}, $__super);
   }(bg.app.ContextObject);
@@ -13497,7 +13530,15 @@ bg.render = {};
         var lightIndex = 0;
         bg.scene.Light.GetActiveLights().forEach(function(lightComponent) {
           if (lightComponent.light && lightComponent.light.enabled && lightComponent.node && lightComponent.node.enabled) {
-            if (lightComponent.light.type == bg.base.LightType.DIRECTIONAL || lightComponent.light.type == bg.base.LightType.SPOT) {
+            if (lightComponent.light.type == bg.base.LightType.DIRECTIONAL) {
+              $__2._shadowMap.update(scene, camera, lightComponent.light, lightComponent.transform, bg.base.ShadowCascade.NEAR);
+              bg.base.Pipeline.SetCurrent($__2._shadow);
+              $__2._shadow.viewport = camera.viewport;
+              $__2._shadow.clearBuffers();
+              $__2._shadow.effect.light = lightComponent.light;
+              $__2._shadow.effect.shadowMap = $__2._shadowMap;
+              scene.accept($__2.shadowVisitor);
+            } else if (lightComponent.light.type == bg.base.LightType.SPOT) {
               $__2._shadowMap.shadowType = $__2.settings.shadows.type;
               $__2._shadowMap.update(scene, camera, lightComponent.light, lightComponent.transform);
               bg.base.Pipeline.SetCurrent($__2._shadow);
@@ -13782,7 +13823,7 @@ bg.render = {};
           }
         });
         if (shadowLight) {
-          this._shadowMap.update(scene, camera, shadowLight.light, shadowLight.transform);
+          this._shadowMap.update(scene, camera, shadowLight.light, shadowLight.transform, bg.base.ShadowCascade.MID);
         }
         if (lightSources.length) {
           this._opaqueLayer.setLightSources(lightSources);

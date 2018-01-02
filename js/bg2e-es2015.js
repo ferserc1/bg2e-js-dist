@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.8 - build: e2399f3";
+bg.version = "1.2.9 - build: 1d14c77";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -5324,7 +5324,79 @@ Object.defineProperty(bg, "isElectronApp", {
 		SOFT: 1,
 		STRATIFIED: 2
 	};
-	
+
+	bg.base.ShadowCascade = {
+		NEAR: 0,
+		FAR: 1,
+		MID: 2
+	}
+
+	function updateDirectional(scene,camera,light,lightTransform,cascade) {
+		let ms = bg.base.MatrixState.Current();
+		bg.base.MatrixState.SetCurrent(this._matrixState);
+		this._pipeline.effect.light = light;
+		this._viewMatrix = new bg.Matrix4(lightTransform);
+
+		let rotation = this._viewMatrix.rotation;
+		let cameraTransform = camera.transform ? new bg.Matrix4(camera.transform.matrix) : bg.Matrix4.Identity();
+		let cameraPos = cameraTransform.position;
+		let target = cameraPos.add(cameraTransform.forwardVector.scale(-camera.focus))
+		
+		this._viewMatrix
+			.identity()
+			.translate(target)
+			.mult(rotation)
+			.translate(0,0,10)
+			.invert();
+
+		this._pipeline.effect.lightTransform = this._viewMatrix;
+					
+		bg.base.Pipeline.SetCurrent(this._pipeline);
+		this._pipeline.clearBuffers(bg.base.ClearBuffers.COLOR_DEPTH);
+
+		let mult = 1;
+		// Far cascade
+		if (cascade==bg.base.ShadowCascade.FAR) {
+			mult = 20;
+			light.shadowBias = 0.0001;
+		}
+		// Near cascade
+		else if (cascade==bg.base.ShadowCascade.NEAR) {
+			mult = 2;
+			light.shadowBias = 0.00002;
+		}
+		else if (cascade==bg.base.ShadowCascade.MID) {
+			mult = 6;
+			light.shadowBias = 0.0001;
+		}
+		light.projection = bg.Matrix4.Ortho(-camera.focus * mult ,camera.focus * mult,-camera.focus * mult,camera.focus * mult,1,300*camera.focus);
+		this._projection = light.projection;
+		scene.accept(this._drawVisitor);
+
+		bg.base.MatrixState.SetCurrent(ms);
+	}
+
+	function updateSpot(scene,camera,light,lightTransform) {
+		let ms = bg.base.MatrixState.Current();
+		bg.base.MatrixState.SetCurrent(this._matrixState);
+		this._pipeline.effect.light = light;
+		this._viewMatrix = new bg.Matrix4(lightTransform);
+
+		let cutoff = light.spotCutoff;
+		light.projection = bg.Matrix4.Perspective(cutoff * 2,1,0.1,200.0);
+		light.shadowBias = 0.0005;
+		this._viewMatrix.invert();
+
+		this._projection = light.projection;
+		this._pipeline.effect.lightTransform = this._viewMatrix;
+					
+		bg.base.Pipeline.SetCurrent(this._pipeline);
+		this._pipeline.clearBuffers(bg.base.ClearBuffers.COLOR_DEPTH);
+		
+		scene.accept(this._drawVisitor);
+		bg.base.MatrixState.SetCurrent(ms);
+	}
+
 	class ShadowMap extends bg.app.ContextObject {
 		constructor(context) {
 			super(context);
@@ -5366,42 +5438,13 @@ Object.defineProperty(bg, "isElectronApp", {
 		get texture() { return this._pipeline.renderSurface.getTexture(0); }
 		
 		// it's important that the camera has set the focus to calculate the projection of the directional lights
-		update(scene,camera,light,lightTransform) {
-			let ms = bg.base.MatrixState.Current();
-			bg.base.MatrixState.SetCurrent(this._matrixState);
-			this._pipeline.effect.light = light;
-			this._viewMatrix = new bg.Matrix4(lightTransform);
-			
+		update(scene,camera,light,lightTransform,cascade=bg.base.ShadowCascade.NEAR) {
 			if (light.type==bg.base.LightType.DIRECTIONAL) {
-				let rotation = this._viewMatrix.rotation;
-				let cameraPos = camera.transform.matrix.position;
-				let cameraTransform = new bg.Matrix4(camera.transform.matrix);
-				let target = cameraPos.add(cameraTransform.forwardVector.scale(-camera.focus))
-				
-				this._viewMatrix
-					.identity()
-					.translate(target)
-					.mult(rotation)
-					.translate(0,0,10)
-					.invert();
-	
-				light.projection = bg.Matrix4.Ortho(-camera.focus,camera.focus,-camera.focus,camera.focus,1,300*camera.focus);
+				updateDirectional.apply(this,[scene,camera,light,lightTransform,cascade]);
 			}
 			else if (light.type==bg.base.LightType.SPOT) {
-				let cutoff = light.spotCutoff;
-				light.projection = bg.Matrix4.Perspective(cutoff * 2,1,0.1,200.0);
-				light.shadowBias = 0.0002;
-				this._viewMatrix.invert();
+				updateSpot.apply(this,[scene,camera,light,lightTransform]);
 			}
-			
-			this._projection = light.projection;
-			this._pipeline.effect.lightTransform = this._viewMatrix;
-						
-			bg.base.Pipeline.SetCurrent(this._pipeline);
-			this._pipeline.clearBuffers(bg.base.ClearBuffers.COLOR_DEPTH);
-			
-			scene.accept(this._drawVisitor);
-			bg.base.MatrixState.SetCurrent(ms);
 		}
 	}
 	
@@ -13843,9 +13886,18 @@ bg.render = {
 				if (lightComponent.light && lightComponent.light.enabled &&
 					lightComponent.node && lightComponent.node.enabled)
 				{
-					if (lightComponent.light.type==bg.base.LightType.DIRECTIONAL ||
-						lightComponent.light.type==bg.base.LightType.SPOT)
+					if (lightComponent.light.type==bg.base.LightType.DIRECTIONAL)
 					{
+						this._shadowMap.update(scene,camera,lightComponent.light,lightComponent.transform,bg.base.ShadowCascade.NEAR);
+					
+						bg.base.Pipeline.SetCurrent(this._shadow);
+						this._shadow.viewport = camera.viewport;
+						this._shadow.clearBuffers();
+						this._shadow.effect.light = lightComponent.light;
+						this._shadow.effect.shadowMap = this._shadowMap;
+						scene.accept(this.shadowVisitor);	
+					}
+					else if (lightComponent.light.type==bg.base.LightType.SPOT) {
 						this._shadowMap.shadowType = this.settings.shadows.type;
 						this._shadowMap.update(scene,camera,lightComponent.light,lightComponent.transform);
 						bg.base.Pipeline.SetCurrent(this._shadow);
@@ -14179,7 +14231,7 @@ bg.render = {
 			});
 			
 			if (shadowLight) {
-				this._shadowMap.update(scene,camera,shadowLight.light,shadowLight.transform);
+				this._shadowMap.update(scene,camera,shadowLight.light,shadowLight.transform,bg.base.ShadowCascade.MID);
 			}
 			if (lightSources.length) {
 				this._opaqueLayer.setLightSources(lightSources);
