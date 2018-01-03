@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.9 - build: 1d14c77";
+bg.version = "1.2.10 - build: f223f23";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -5300,7 +5300,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       mult = 2;
       light.shadowBias = 0.00002;
     } else if (cascade == bg.base.ShadowCascade.MID) {
-      mult = 6;
+      mult = 4;
       light.shadowBias = 0.0001;
     }
     light.projection = bg.Matrix4.Ortho(-camera.focus * mult, camera.focus * mult, -camera.focus * mult, camera.focus * mult, 1, 300 * camera.focus);
@@ -13808,6 +13808,7 @@ bg.render = {};
         this._opaqueLayer = new bg.render.ForwardRenderLayer(ctx, bg.base.OpacityLayer.OPAQUE);
         this._shadowMap = new bg.base.ShadowMap(ctx);
         this._shadowMap.size = new bg.Vector2(2048);
+        this.settings.shadows.cascade = bg.base.ShadowCascade.NEAR;
       },
       draw: function(scene, camera) {
         var shadowLight = null;
@@ -13823,7 +13824,10 @@ bg.render = {};
           }
         });
         if (shadowLight) {
-          this._shadowMap.update(scene, camera, shadowLight.light, shadowLight.transform, bg.base.ShadowCascade.MID);
+          if (this._shadowMap.size.x != this.settings.shadows.quality) {
+            this._shadowMap.size = new bg.Vector2(this.settings.shadows.quality);
+          }
+          this._shadowMap.update(scene, camera, shadowLight.light, shadowLight.transform, this.settings.shadows.cascade);
         }
         if (lightSources.length) {
           this._opaqueLayer.setLightSources(lightSources);
