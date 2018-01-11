@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.11 - build: fd14c4f";
+bg.version = "1.2.11 - build: 61a77ce";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -2287,11 +2287,11 @@ Object.defineProperty(bg, "isElectronApp", {
 			if (bg.Engine.Get().id=="webgl1") {	
 				s_fragmentSource.setMainBody(`
 					vec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);
+					vec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);
 					if (inUnlit && diffuseColor.a>=inAlphaCutoff) {
-						gl_FragColor = diffuseColor;
+						gl_FragColor = diffuseColor * lightmapColor;
 					}
 					else if (diffuseColor.a>=inAlphaCutoff) {
-						vec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);
 						vec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);
 						normalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);
 						vec4 shadowColor = vec4(1.0);
