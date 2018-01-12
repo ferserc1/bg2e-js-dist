@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.11 - build: 61a77ce";
+bg.version = "1.2.12 - build: 54f05ff";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -13469,11 +13469,13 @@ bg.render = {
 			sampleRadius: 0.4,
 			kernelSize: 16,
 			blur: 2,
-			maxDistance: 300
+			maxDistance: 300,
+			scale: 1.0
 		},
 		raytracer: {
 			enabled: true,
-			quality: bg.render.RaytracerQuality.mid
+			quality: bg.render.RaytracerQuality.mid,
+			scale: 0.5
 		},
 		antialiasing: {
 			enabled: false
@@ -13550,6 +13552,8 @@ bg.render = {
 	class DeferredMixEffect extends bg.base.TextureEffect {
 		constructor(context) {
 			super(context);
+
+			this._ssrtScale = 0.5;
 		}
 		
 		get fragmentShaderSource() {
@@ -13567,6 +13571,7 @@ bg.render = {
 					{ name:"inOpaqueDepthMap", dataType:"sampler2D", role:"value"},
 					{ name:"inViewSize", dataType:"vec2", role:"value"},
 					{ name:"inSSAOBlur", dataType:"int", role:"value"},
+					{ name:"inSSRTScale", dataType:"float", role:"value" },
 
 					{ name:"fsTexCoord", dataType:"vec2", role:"in" }	// vTexturePosition
 				]);
@@ -13588,8 +13593,9 @@ bg.render = {
 					vec4 specular = texture2D(inSpecularMap,fsTexCoord);	// The roughness parameter is stored on A component, inside specular map
 
 					float roughness = specular.a;
-					roughness *= 400.0;
-					vec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize);
+					float ssrtScale = inSSRTScale;
+					roughness *= 400.0 * ssrtScale;
+					vec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);
 
 					vec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);
 					if (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {
@@ -13620,6 +13626,7 @@ bg.render = {
 			this.shader.setTexture("inOpaqueDepthMap",this._surface.opaqueDepthMap,bg.base.TextureUnit.TEXTURE_7);
 	
 			this.shader.setValueInt("inSSAOBlur",this.ssaoBlur);
+			this.shader.setValueFloat("inSSRTScale",this.ssrtScale);
 		}
 
 		set viewport(vp) { this._viewport = vp; }
@@ -13630,6 +13637,9 @@ bg.render = {
 		
 		set ssaoBlur(b) { this._ssaoBlur = b; }
 		get ssaoBlur() { return this._ssaoBlur; }
+
+		set ssrtScale(s) { this._ssrtScale = s; }
+		get ssrtScale() { return this._ssrtScale; }
 
 		get colorCorrection() {
 			if (!this._colorCorrection) {
@@ -13654,6 +13664,9 @@ bg.render = {
 		OPAQUE: 1,
 		TRANSPARENT: 2
 	};
+
+	let g_ssrtScale = 0.5;
+	let g_ssaoScale = 1.0;
 
 	class DeferredRenderSurfaces extends bg.app.ContextObject {
 		constructor(context) {
@@ -13688,8 +13701,8 @@ bg.render = {
 			this._gbufferFloatSurface.size = s;
 			this._lightingSurface.size = s;
 			this._shadowSurface.size = s;
-			this._ssaoSurface.size = s;
-			this._ssrtSurface.size = s;
+			this._ssaoSurface.size = new bg.Vector2(s.x * g_ssaoScale,s.y * g_ssaoScale);
+			this._ssrtSurface.size = new bg.Vector2(s.x * g_ssrtScale,s.y * g_ssrtScale);
 			this._mixSurface.size = s;
 		}
 
@@ -13846,21 +13859,27 @@ bg.render = {
 		get pipeline() { return this._mix; }
 		get texture() { return this.maps.mix; }
 
-		draw(scene,camera) {		
+		draw(scene,camera) {
+			g_ssaoScale = this.settings.ambientOcclusion.scale || 1;
+			g_ssrtScale = this.settings.raytracer.scale || 0.5;
+
 			this.matrixState.projectionMatrixStack.set(camera.projection);
 			this.matrixState.viewMatrixStack.set(camera.viewMatrix);
 			this.matrixState.modelMatrixStack.identity();
-
+			
 			this.performDraw(scene,camera);
 		}
-
+		
 		get maps() { return this._surfaces; }
-
+		
 		resize(camera) {
+			g_ssaoScale = this.settings.ambientOcclusion.scale || 1;
+			g_ssrtScale = this.settings.raytracer.scale || 0.5;
+
 			let vp = camera.viewport;
 			this.maps.resize(new bg.Size2D(vp.width,vp.height));
 		}
-
+		
 		performDraw(scene,camera) {
 			bg.base.Pipeline.SetCurrent(this._gbufferUbyte);
 			this._gbufferUbyte.viewport = camera.viewport;
@@ -13923,13 +13942,14 @@ bg.render = {
 			let renderSSAO = this.settings.ambientOcclusion.enabled;
 			let renderSSRT = this.settings.raytracer.enabled;
 			let vp = new bg.Viewport(camera.viewport);
+
 			this._ssao.textureEffect.enabled = renderSSAO;
 			this._ssao.textureEffect.settings.kernelSize = this.settings.ambientOcclusion.kernelSize;
 			this._ssao.textureEffect.settings.sampleRadius = this.settings.ambientOcclusion.sampleRadius;
 			this._ssao.textureEffect.settings.maxDistance = this.settings.ambientOcclusion.maxDistance;
 			if (renderSSAO) {
 				bg.base.Pipeline.SetCurrent(this._ssao);
-				this._ssao.viewport = camera.viewport;
+				this._ssao.viewport = new bg.Viewport(vp.x,vp.y,vp.width * g_ssaoScale, vp.height * g_ssaoScale);
 				this._ssao.clearBuffers();
 				this._ssao.textureEffect.viewport = camera.viewport;
 				this._ssao.textureEffect.projectionMatrix = camera.projection;
@@ -13940,7 +13960,7 @@ bg.render = {
 			// SSRT
 			bg.base.Pipeline.SetCurrent(this._ssrt);
 			if (renderSSRT) {
-				this._ssrt.viewport = vp;
+				this._ssrt.viewport = new bg.Viewport(vp.x,vp.y,vp.width * g_ssrtScale, vp.height * g_ssrtScale);
 				this._ssrt.clearBuffers();
 				this._ssrt.textureEffect.quality = this.settings.raytracer.quality;
 				var cameraTransform = camera.node.component("bg.scene.Transform");
@@ -13961,6 +13981,7 @@ bg.render = {
 			this.pipeline.textureEffect.viewport = camera.viewport;
 			this.pipeline.textureEffect.ssaoBlur = renderSSAO ? this.settings.ambientOcclusion.blur : 1;
 	
+			this.pipeline.textureEffect.ssrtScale = g_ssrtScale;
 			this.pipeline.drawTexture({
 				lightingMap:this.maps.lighting,
 				diffuseMap:this.maps.diffuse,
@@ -13971,6 +13992,8 @@ bg.render = {
 				materialMap:this.maps.material,
 				opaqueDepthMap:this.maps.mixDepthMap
 			});	// null: all textures are specified as parameters to the effect
+
+			camera.viewport = vp;
 		}
 	}
 	
@@ -15172,10 +15195,10 @@ bg.render = {
 	}
 
 	bg.render.RaytracerQuality = {
-		low : { maxSamples: 20, rayIncrement: 0.05 },
-		mid: { maxSamples: 50, rayIncrement: 0.025 },
-		high: { maxSamples: 100, rayIncrement: 0.0125 },
-		extreme: { maxSamples: 200, rayIncrement: 0.0062 }
+		low : { maxSamples: 50, rayIncrement: 0.025 },
+		mid: { maxSamples: 100, rayIncrement: 0.0125 },
+		high: { maxSamples: 200, rayIncrement: 0.0062 },
+		extreme: { maxSamples: 300, rayIncrement: 0.0031 }
 	}; 
 
 	class SSRTEffect extends bg.base.TextureEffect {
@@ -15932,7 +15955,7 @@ bg.webgl1 = {};
 (function() {
 	let MAX_BLUR_ITERATIONS = 40;
 	
-	let BLUR_DOWNSAMPLE = 30;
+	let BLUR_DOWNSAMPLE = 15 	;
 
 	let textureCubeDownsampleParams = {
 		textureInput:'samplerCube', texCoord:'vec3', size:'vec2', reduction:'vec2'

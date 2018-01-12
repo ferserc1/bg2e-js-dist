@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.11 - build: 61a77ce";
+bg.version = "1.2.12 - build: 54f05ff";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -13096,11 +13096,13 @@ bg.render = {};
       sampleRadius: 0.4,
       kernelSize: 16,
       blur: 2,
-      maxDistance: 300
+      maxDistance: 300,
+      scale: 1.0
     },
     raytracer: {
       enabled: true,
-      quality: bg.render.RaytracerQuality.mid
+      quality: bg.render.RaytracerQuality.mid,
+      scale: 0.5
     },
     antialiasing: {enabled: false},
     shadows: {
@@ -13166,6 +13168,7 @@ bg.render = {};
   var DeferredMixEffect = function($__super) {
     function DeferredMixEffect(context) {
       $traceurRuntime.superConstructor(DeferredMixEffect).call(this, context);
+      this._ssrtScale = 0.5;
     }
     return ($traceurRuntime.createClass)(DeferredMixEffect, {
       get fragmentShaderSource() {
@@ -13212,6 +13215,10 @@ bg.render = {};
             dataType: "int",
             role: "value"
           }, {
+            name: "inSSRTScale",
+            dataType: "float",
+            role: "value"
+          }, {
             name: "fsTexCoord",
             dataType: "vec2",
             role: "in"
@@ -13220,7 +13227,7 @@ bg.render = {};
             this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
             this._fragmentShaderSource.addFunction(lib().functions.blur.blur);
             this._fragmentShaderSource.addFunction(lib().functions.blur.glowBlur);
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\troughness *= 400.0;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 400.0 * ssrtScale;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
           }
         }
         return this._fragmentShaderSource;
@@ -13236,6 +13243,7 @@ bg.render = {};
         this.shader.setTexture("inSpecularMap", this._surface.specularMap, bg.base.TextureUnit.TEXTURE_6);
         this.shader.setTexture("inOpaqueDepthMap", this._surface.opaqueDepthMap, bg.base.TextureUnit.TEXTURE_7);
         this.shader.setValueInt("inSSAOBlur", this.ssaoBlur);
+        this.shader.setValueFloat("inSSRTScale", this.ssrtScale);
       },
       set viewport(vp) {
         this._viewport = vp;
@@ -13254,6 +13262,12 @@ bg.render = {};
       },
       get ssaoBlur() {
         return this._ssaoBlur;
+      },
+      set ssrtScale(s) {
+        this._ssrtScale = s;
+      },
+      get ssrtScale() {
+        return this._ssrtScale;
       },
       get colorCorrection() {
         if (!this._colorCorrection) {
@@ -13279,6 +13293,8 @@ bg.render = {};
     OPAQUE: 1,
     TRANSPARENT: 2
   };
+  var g_ssrtScale = 0.5;
+  var g_ssaoScale = 1.0;
   var DeferredRenderSurfaces = function($__super) {
     function DeferredRenderSurfaces(context) {
       $traceurRuntime.superConstructor(DeferredRenderSurfaces).call(this, context);
@@ -13308,8 +13324,8 @@ bg.render = {};
         this._gbufferFloatSurface.size = s;
         this._lightingSurface.size = s;
         this._shadowSurface.size = s;
-        this._ssaoSurface.size = s;
-        this._ssrtSurface.size = s;
+        this._ssaoSurface.size = new bg.Vector2(s.x * g_ssaoScale, s.y * g_ssaoScale);
+        this._ssrtSurface.size = new bg.Vector2(s.x * g_ssrtScale, s.y * g_ssrtScale);
         this._mixSurface.size = s;
       },
       get type() {
@@ -13498,6 +13514,8 @@ bg.render = {};
         return this.maps.mix;
       },
       draw: function(scene, camera) {
+        g_ssaoScale = this.settings.ambientOcclusion.scale || 1;
+        g_ssrtScale = this.settings.raytracer.scale || 0.5;
         this.matrixState.projectionMatrixStack.set(camera.projection);
         this.matrixState.viewMatrixStack.set(camera.viewMatrix);
         this.matrixState.modelMatrixStack.identity();
@@ -13507,6 +13525,8 @@ bg.render = {};
         return this._surfaces;
       },
       resize: function(camera) {
+        g_ssaoScale = this.settings.ambientOcclusion.scale || 1;
+        g_ssrtScale = this.settings.raytracer.scale || 0.5;
         var vp = camera.viewport;
         this.maps.resize(new bg.Size2D(vp.width, vp.height));
       },
@@ -13566,7 +13586,7 @@ bg.render = {};
         this._ssao.textureEffect.settings.maxDistance = this.settings.ambientOcclusion.maxDistance;
         if (renderSSAO) {
           bg.base.Pipeline.SetCurrent(this._ssao);
-          this._ssao.viewport = camera.viewport;
+          this._ssao.viewport = new bg.Viewport(vp.x, vp.y, vp.width * g_ssaoScale, vp.height * g_ssaoScale);
           this._ssao.clearBuffers();
           this._ssao.textureEffect.viewport = camera.viewport;
           this._ssao.textureEffect.projectionMatrix = camera.projection;
@@ -13574,7 +13594,7 @@ bg.render = {};
         }
         bg.base.Pipeline.SetCurrent(this._ssrt);
         if (renderSSRT) {
-          this._ssrt.viewport = vp;
+          this._ssrt.viewport = new bg.Viewport(vp.x, vp.y, vp.width * g_ssrtScale, vp.height * g_ssrtScale);
           this._ssrt.clearBuffers();
           this._ssrt.textureEffect.quality = this.settings.raytracer.quality;
           var cameraTransform = camera.node.component("bg.scene.Transform");
@@ -13593,6 +13613,7 @@ bg.render = {};
         this.pipeline.clearBuffers();
         this.pipeline.textureEffect.viewport = camera.viewport;
         this.pipeline.textureEffect.ssaoBlur = renderSSAO ? this.settings.ambientOcclusion.blur : 1;
+        this.pipeline.textureEffect.ssrtScale = g_ssrtScale;
         this.pipeline.drawTexture({
           lightingMap: this.maps.lighting,
           diffuseMap: this.maps.diffuse,
@@ -13603,6 +13624,7 @@ bg.render = {};
           materialMap: this.maps.material,
           opaqueDepthMap: this.maps.mixDepthMap
         });
+        camera.viewport = vp;
       }
     }, {}, $__super);
   }(bg.render.RenderLayer);
@@ -14660,20 +14682,20 @@ bg.render = {};
   }
   bg.render.RaytracerQuality = {
     low: {
-      maxSamples: 20,
-      rayIncrement: 0.05
-    },
-    mid: {
       maxSamples: 50,
       rayIncrement: 0.025
     },
-    high: {
+    mid: {
       maxSamples: 100,
       rayIncrement: 0.0125
     },
-    extreme: {
+    high: {
       maxSamples: 200,
       rayIncrement: 0.0062
+    },
+    extreme: {
+      maxSamples: 300,
+      rayIncrement: 0.0031
     }
   };
   var SSRTEffect = function($__super) {
@@ -15353,7 +15375,7 @@ bg.webgl1 = {};
 "use strict";
 (function() {
   var MAX_BLUR_ITERATIONS = 40;
-  var BLUR_DOWNSAMPLE = 30;
+  var BLUR_DOWNSAMPLE = 15;
   var textureCubeDownsampleParams = {
     textureInput: 'samplerCube',
     texCoord: 'vec3',
