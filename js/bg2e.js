@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.2.12 - build: 54f05ff";
+bg.version = "1.3.0 - build: 44f6204";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -662,7 +662,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       touchMove: function(evt) {},
       touchEnd: function(evt) {},
       postRedisplay: function() {
-        var frames = arguments[0] !== (void 0) ? arguments[0] : 1;
+        var frames = arguments[0] !== (void 0) ? arguments[0] : 4;
         bg.app.MainLoop.singleton.postRedisplay(frames);
       },
       postReshape: function() {
@@ -1021,7 +1021,7 @@ bg.app = {};
         animationLoop();
       },
       postRedisplay: function() {
-        var frames = arguments[0] !== (void 0) ? arguments[0] : 1;
+        var frames = arguments[0] !== (void 0) ? arguments[0] : 4;
         this._redisplayFrames = frames;
       },
       postReshape: function() {
@@ -1272,7 +1272,7 @@ bg.app = {};
     }
     return ($traceurRuntime.createClass)(WindowController, {
       postRedisplay: function() {
-        var frames = arguments[0] !== (void 0) ? arguments[0] : 1;
+        var frames = arguments[0] !== (void 0) ? arguments[0] : 4;
         bg.app.MainLoop.singleton.postRedisplay(frames);
       },
       postReshape: function() {
@@ -2149,7 +2149,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       s_fragmentSource.addFunction(lib().functions.lighting.all);
       s_fragmentSource.addFunction(lib().functions.blur.blurCube);
       if (bg.Engine.Get().id == "webgl1") {
-        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\tif (inUnlit && diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tgl_FragColor = diffuseColor * lightmapColor;\n\t\t\t\t\t}\n\t\t\t\t\telse if (diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tfor (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t\tif (i>=inNumLights) break;\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[i],\n\t\t\t\t\t\t\t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t\t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tfloat dist = distance(fsPosition,cameraPos);\n\t\t\t\t\t\tfloat maxRough = 50.0;\n\t\t\t\t\t\tfloat rough = max(inRoughness * 10.0,1.0);\n\t\t\t\t\t\trough = max(rough*dist,rough);\n\t\t\t\t\t\tfloat blur = min(rough,maxRough);\n\t\t\t\t\t\tvec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;\n\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tvec3 finalColor = light.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += cubemapColor * reflectionAmount;\n\t\t\t\t\t\tvec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t\tresult.a = diffuseColor.a;\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
+        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\tif (inUnlit && diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tgl_FragColor = diffuseColor * lightmapColor;\n\t\t\t\t\t}\n\t\t\t\t\telse if (diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tfor (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t\tif (i>=inNumLights) break;\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[i],\n\t\t\t\t\t\t\t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t\t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tfloat dist = distance(fsPosition,cameraPos);\n\t\t\t\t\t\tfloat maxRough = 50.0;\n\t\t\t\t\t\tfloat rough = max(inRoughness * 10.0,1.0);\n\t\t\t\t\t\trough = max(rough*dist,rough);\n\t\t\t\t\t\tfloat blur = min(rough,maxRough);\n\t\t\t\t\t\tvec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;\n\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tvec3 finalColor = light.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += cubemapColor * reflectionAmount * diffuseColor.rgb;\n\t\t\t\t\t\tvec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t\tresult.a = diffuseColor.a;\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
       }
     }
     return s_fragmentSource;
@@ -6014,6 +6014,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     TWO_PI: 6.283185307179586,
     EPSILON: 0.0000001,
     Array: Float32Array,
+    ArrayHighP: Array,
     FLOAT_MAX: 3.402823e38,
     checkZero: function(v) {
       return v > -this.EPSILON && v < this.EPSILON ? 0 : v;
@@ -7012,7 +7013,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     function Vector2() {
       var x = arguments[0] !== (void 0) ? arguments[0] : 0;
       var y = arguments[1];
-      $traceurRuntime.superConstructor(Vector2).call(this, new bg.Math.Array(2));
+      $traceurRuntime.superConstructor(Vector2).call(this, new bg.Math.ArrayHighP(2));
       if (x instanceof Vector2) {
         this._v[0] = x._v[0];
         this._v[1] = x._v[1];
@@ -7113,7 +7114,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       var x = arguments[0] !== (void 0) ? arguments[0] : 0;
       var y = arguments[1] !== (void 0) ? arguments[1] : 0;
       var z = arguments[2] !== (void 0) ? arguments[2] : 0;
-      $traceurRuntime.superConstructor(Vector3).call(this, new bg.Math.Array(3));
+      $traceurRuntime.superConstructor(Vector3).call(this, new bg.Math.ArrayHighP(3));
       if (x instanceof Vector2) {
         this._v[0] = x._v[0];
         this._v[1] = x._v[1];
@@ -7256,7 +7257,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       var y = arguments[1] !== (void 0) ? arguments[1] : 0;
       var z = arguments[2] !== (void 0) ? arguments[2] : 0;
       var w = arguments[3] !== (void 0) ? arguments[3] : 0;
-      $traceurRuntime.superConstructor(Vector4).call(this, new bg.Math.Array(4));
+      $traceurRuntime.superConstructor(Vector4).call(this, new bg.Math.ArrayHighP(4));
       if (x instanceof Vector2) {
         this._v[0] = x._v[0];
         this._v[1] = x._v[1];
@@ -13227,7 +13228,7 @@ bg.render = {};
             this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
             this._fragmentShaderSource.addFunction(lib().functions.blur.blur);
             this._fragmentShaderSource.addFunction(lib().functions.blur.glowBlur);
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 400.0 * ssrtScale;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 400.0 * ssrtScale * 1.1;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
           }
         }
         return this._fragmentShaderSource;
@@ -13595,7 +13596,7 @@ bg.render = {};
         bg.base.Pipeline.SetCurrent(this._ssrt);
         if (renderSSRT) {
           this._ssrt.viewport = new bg.Viewport(vp.x, vp.y, vp.width * g_ssrtScale, vp.height * g_ssrtScale);
-          this._ssrt.clearBuffers();
+          this._ssrt.clearBuffers(bg.base.ClearBuffers.DEPTH);
           this._ssrt.textureEffect.quality = this.settings.raytracer.quality;
           var cameraTransform = camera.node.component("bg.scene.Transform");
           if (cameraTransform) {
@@ -13606,6 +13607,7 @@ bg.render = {};
           this._ssrt.textureEffect.projectionMatrix = camera.projection;
           this._ssrt.textureEffect.rayFailColor = this.settings.raytracer.clearColor || bg.Color.Black();
           this._ssrt.textureEffect.basic = this.settings.raytracer.basicReflections || false;
+          this._ssrt.textureEffect.viewportSize = new bg.Vector2(this._ssrt.viewport.width, this._ssrt.viewport.height);
           this._ssrt.drawTexture(this.maps);
         }
         bg.base.Pipeline.SetCurrent(this.pipeline);
@@ -14698,10 +14700,12 @@ bg.render = {};
       rayIncrement: 0.0031
     }
   };
+  var g_frameIndex = 0;
   var SSRTEffect = function($__super) {
     function SSRTEffect(context) {
       $traceurRuntime.superConstructor(SSRTEffect).call(this, context);
       this._basic = false;
+      this._viewportSize = new bg.Vector2(1920, 1080);
     }
     return ($traceurRuntime.createClass)(SSRTEffect, {
       get fragmentShaderSource() {
@@ -14745,6 +14749,10 @@ bg.render = {};
             dataType: "bool",
             role: "value"
           }, {
+            name: "inFrameIndex",
+            dataType: "float",
+            role: "value"
+          }, {
             name: "inCubeMap",
             dataType: "samplerCube",
             role: "value"
@@ -14754,12 +14762,13 @@ bg.render = {};
             role: "in"
           }]);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\n\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\tif (!inBasicMode && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\n\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\n\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\n\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t//if (rayActualPos.w<0.6) {\n\t\t\t\t\t\t\t\t//\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t//\tbreak;\n\t\t\t\t\t\t\t\t//}\n\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));\n\t\t\t\t\t\tif (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\t\n\t\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\t\tif (!inBasicMode && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\n\t\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\t\n\t\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\t\n\t\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
       },
       setupVars: function() {
+        g_frameIndex = (g_frameIndex + 1) % 4;
         this.shader.setTexture("inPositionMap", this._surface.position, bg.base.TextureUnit.TEXTURE_0);
         this.shader.setTexture("inNormalMap", this._surface.normal, bg.base.TextureUnit.TEXTURE_1);
         this.shader.setTexture("inLightingMap", this._surface.reflectionColor, bg.base.TextureUnit.TEXTURE_2);
@@ -14769,6 +14778,7 @@ bg.render = {};
         this.shader.setVector3("inCameraPos", this._cameraPos);
         this.shader.setVector4("inRayFailColor", this.rayFailColor);
         this.shader.setValueInt("inBasicMode", this.basic);
+        this.shader.setValueFloat("inFrameIndex", g_frameIndex);
         this.shader.setTexture("inCubeMap", bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_5);
       },
       get projectionMatrix() {
@@ -14788,6 +14798,12 @@ bg.render = {};
       },
       set rayFailColor(c) {
         this._rayFailColor = c;
+      },
+      get viewportSize() {
+        return this._viewportSize;
+      },
+      set viewportSize(s) {
+        this._viewportSize = s;
       },
       get quality() {
         return this._quality || bg.render.RaytracerQuality.low;

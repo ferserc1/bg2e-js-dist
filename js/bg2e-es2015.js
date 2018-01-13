@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.2.12 - build: 54f05ff";
+bg.version = "1.3.0 - build: 44f6204";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -720,7 +720,8 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 		touchEnd(evt) {}
 
 		// Utility functions: do not override
-		postRedisplay(frames=1) {
+		// 4 frames to ensure that the reflections are fully updated
+		postRedisplay(frames=4) {
 			bg.app.MainLoop.singleton.postRedisplay(frames);
 		}
 
@@ -1002,7 +1003,8 @@ bg.app = {};
 			animationLoop();
 		}
 		
-		postRedisplay(frames=1) {
+		// 4 frames to ensure that the reflections are fully updated
+		postRedisplay(frames=4) {
 			this._redisplayFrames = frames;
 		}
 		
@@ -1291,7 +1293,8 @@ bg.app = {};
 		// touchMove(evt)
 		// touchEnd(evt)
 		
-		postRedisplay(frames=1) {
+		// 4 frames to ensure that the reflections are fully updated
+		postRedisplay(frames=4) {
 			bg.app.MainLoop.singleton.postRedisplay(frames);
 		}
 		
@@ -2335,7 +2338,7 @@ Object.defineProperty(bg, "isElectronApp", {
 
 						light.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));
 						vec3 finalColor = light.rgb * (1.0 - reflectionAmount);
-						finalColor += cubemapColor * reflectionAmount;
+						finalColor += cubemapColor * reflectionAmount * diffuseColor.rgb;
 						vec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);
 						result.a = diffuseColor.a;
 						gl_FragColor = result;
@@ -6161,6 +6164,7 @@ Object.defineProperty(bg, "isElectronApp", {
 		
 		EPSILON:0.0000001,
 		Array:Float32Array,
+		ArrayHighP:Array,
 		FLOAT_MAX:3.402823e38,
 		
 		checkZero:function(v) {
@@ -7068,7 +7072,7 @@ bg.Matrix4 = Matrix4;
 		}
 
 		constructor(x = 0,y) {
-			super(new bg.Math.Array(2));
+			super(new bg.Math.ArrayHighP(2));
 			if (x instanceof Vector2) {
 				this._v[0] = x._v[0];
 				this._v[1] = x._v[1];
@@ -7160,7 +7164,7 @@ bg.Matrix4 = Matrix4;
 		}
 
 		constructor(x = 0, y = 0, z = 0) {
-			super(new bg.Math.Array(3));
+			super(new bg.Math.ArrayHighP(3));
 			if (x instanceof Vector2) {
 				this._v[0] = x._v[0];
 				this._v[1] = x._v[1];
@@ -7296,7 +7300,7 @@ bg.Matrix4 = Matrix4;
 		static Transparent() { return new bg.Vector4(0,0,0,0); }
 		
 		constructor(x = 0, y = 0, z = 0, w = 0) {
-			super(new bg.Math.Array(4));
+			super(new bg.Math.ArrayHighP(4));
 			if (x instanceof Vector2) {
 				this._v[0] = x._v[0];
 				this._v[1] = x._v[1];
@@ -13594,7 +13598,7 @@ bg.render = {
 
 					float roughness = specular.a;
 					float ssrtScale = inSSRTScale;
-					roughness *= 400.0 * ssrtScale;
+					roughness *= 400.0 * ssrtScale * 1.1;
 					vec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);
 
 					vec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);
@@ -13604,7 +13608,7 @@ bg.render = {
 					else {
 						float reflectionAmount = material.b;
 						vec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);
-						finalColor += reflect.rgb * reflectionAmount;
+						finalColor += reflect.rgb * reflectionAmount * diffuse.rgb;
 						finalColor *= ssao.rgb;
 						gl_FragColor = vec4(finalColor,diffuse.a);
 					}`);
@@ -13961,7 +13965,7 @@ bg.render = {
 			bg.base.Pipeline.SetCurrent(this._ssrt);
 			if (renderSSRT) {
 				this._ssrt.viewport = new bg.Viewport(vp.x,vp.y,vp.width * g_ssrtScale, vp.height * g_ssrtScale);
-				this._ssrt.clearBuffers();
+				this._ssrt.clearBuffers(bg.base.ClearBuffers.DEPTH);
 				this._ssrt.textureEffect.quality = this.settings.raytracer.quality;
 				var cameraTransform = camera.node.component("bg.scene.Transform");
 				if (cameraTransform) {
@@ -13972,6 +13976,7 @@ bg.render = {
 				this._ssrt.textureEffect.projectionMatrix = camera.projection;
 				this._ssrt.textureEffect.rayFailColor = this.settings.raytracer.clearColor || bg.Color.Black();
 				this._ssrt.textureEffect.basic = this.settings.raytracer.basicReflections || false;
+				this._ssrt.textureEffect.viewportSize = new bg.Vector2(this._ssrt.viewport.width,this._ssrt.viewport.height);
 				this._ssrt.drawTexture(this.maps);
 			}
 
@@ -15201,10 +15206,12 @@ bg.render = {
 		extreme: { maxSamples: 300, rayIncrement: 0.0031 }
 	}; 
 
+	let g_frameIndex = 0;
 	class SSRTEffect extends bg.base.TextureEffect {
 		constructor(context) {
 			super(context);
 			this._basic = false;
+			this._viewportSize = new bg.Vector2(1920,1080);
 		}
 		
 		get fragmentShaderSource() {
@@ -15222,6 +15229,7 @@ bg.render = {
 					{ name:"inCameraPos", dataType:"vec3", role:"value" },
 					{ name:"inRayFailColor", dataType:"vec4", role:"value" },
 					{ name:"inBasicMode", dataType:"bool", role:"value" },
+					{ name:"inFrameIndex", dataType:"float", role:"value" },
 
 					{ name:"inCubeMap", dataType:"samplerCube", role:"value" },
 
@@ -15230,55 +15238,66 @@ bg.render = {
 				
 				if (bg.Engine.Get().id=="webgl1") {
 					this._fragmentShaderSource.setMainBody(`
-						vec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;
-						vec4 vertexPos = texture2D(inPositionMap,fsTexCoord);
-						vec3 cameraVector = vertexPos.xyz - inCameraPos;
-						vec3 rayDirection = reflect(cameraVector,normal);
-						vec4 lighting = texture2D(inLightingMap,fsTexCoord);
-						vec4 material = texture2D(inMaterialMap,fsTexCoord);
-						vec4 rayFailColor = inRayFailColor;
-
-						vec3 lookup = reflect(cameraVector,normal);
-						rayFailColor = textureCube(inCubeMap, lookup);
-						
-						float increment = ${q.rayIncrement};
-						vec4 result = rayFailColor;
-						if (!inBasicMode && material.b>0.0) {	// material[2] is reflectionAmount
-							result = rayFailColor;
-							for (float i=0.0; i<${q.maxSamples}.0; ++i) {
-								if (i==${q.maxSamples}.0) {
-									break;
-								}
-
-								float radius = i * increment;
-								increment *= 1.01;
-								vec3 ray = vertexPos.xyz + rayDirection * radius;
-
-								vec4 offset = inProjectionMatrix * vec4(ray, 1.0);	// -w, w
-								offset.xyz /= offset.w;	// -1, 1
-								offset.xyz = offset.xyz * 0.5 + 0.5;	// 0, 1
-
-								vec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);
-								float hitDistance = rayActualPos.z - ray.z;
-								//if (rayActualPos.w<0.6) {
-								//	result = rayFailColor;
-								//	break;
-								//}
-								if (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {
-									result = rayFailColor;
-									break;
-								}
-								else if (hitDistance>0.02 && hitDistance<0.15) {
-									result = texture2D(inLightingMap,offset.xy);
-									break;
-								}
-							}
+						vec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));
+						if (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {
+							discard;
 						}
-						if (result.a==0.0) {
-							gl_FragColor = rayFailColor;
+						else if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {
+							discard;
+						}
+						else if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {
+							discard;
+						}
+						else if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {
+							discard;
 						}
 						else {
-							gl_FragColor = result;
+							vec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;
+							vec4 vertexPos = texture2D(inPositionMap,fsTexCoord);
+							vec3 cameraVector = vertexPos.xyz - inCameraPos;
+							vec3 rayDirection = reflect(cameraVector,normal);
+							vec4 lighting = texture2D(inLightingMap,fsTexCoord);
+							vec4 material = texture2D(inMaterialMap,fsTexCoord);
+							vec4 rayFailColor = inRayFailColor;
+	
+							vec3 lookup = reflect(cameraVector,normal);
+							rayFailColor = textureCube(inCubeMap, lookup);
+							
+							float increment = ${q.rayIncrement};
+							vec4 result = rayFailColor;
+							if (!inBasicMode && material.b>0.0) {	// material[2] is reflectionAmount
+								result = rayFailColor;
+								for (float i=0.0; i<${q.maxSamples}.0; ++i) {
+									if (i==${q.maxSamples}.0) {
+										break;
+									}
+	
+									float radius = i * increment;
+									increment *= 1.01;
+									vec3 ray = vertexPos.xyz + rayDirection * radius;
+	
+									vec4 offset = inProjectionMatrix * vec4(ray, 1.0);	// -w, w
+									offset.xyz /= offset.w;	// -1, 1
+									offset.xyz = offset.xyz * 0.5 + 0.5;	// 0, 1
+	
+									vec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);
+									float hitDistance = rayActualPos.z - ray.z;
+									if (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {
+										result = rayFailColor;
+										break;
+									}
+									else if (hitDistance>0.02 && hitDistance<0.15) {
+										result = texture2D(inLightingMap,offset.xy);
+										break;
+									}
+								}
+							}
+							if (result.a==0.0) {
+								gl_FragColor = rayFailColor;
+							}
+							else {
+								gl_FragColor = result;
+							}
 						}`);
 				}
 			}
@@ -15286,6 +15305,7 @@ bg.render = {
 		}
 		
 		setupVars() {
+			g_frameIndex = (g_frameIndex + 1) % 4;
 			this.shader.setTexture("inPositionMap",this._surface.position,bg.base.TextureUnit.TEXTURE_0);
 			this.shader.setTexture("inNormalMap",this._surface.normal,bg.base.TextureUnit.TEXTURE_1);
 			this.shader.setTexture("inLightingMap",this._surface.reflectionColor,bg.base.TextureUnit.TEXTURE_2);
@@ -15295,7 +15315,8 @@ bg.render = {
 			this.shader.setVector3("inCameraPos",this._cameraPos);
 			this.shader.setVector4("inRayFailColor",this.rayFailColor);
 			this.shader.setValueInt("inBasicMode",this.basic);
-
+			this.shader.setValueFloat("inFrameIndex",g_frameIndex);
+			
 			this.shader.setTexture("inCubeMap",bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_5);
 		}
 
@@ -15307,6 +15328,9 @@ bg.render = {
 
 		get rayFailColor() { return this._rayFailColor || bg.Color.Black(); }
 		set rayFailColor(c) { this._rayFailColor = c; }
+
+		get viewportSize() { return this._viewportSize; }
+		set viewportSize(s) { this._viewportSize = s; }
 
 		get quality() { return this._quality || bg.render.RaytracerQuality.low; }
 		set quality(q) {
