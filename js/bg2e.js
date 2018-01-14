@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.0 - build: 44f6204";
+bg.version = "1.3.1 - build: 87da4eb";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -11522,15 +11522,19 @@ bg.manipulation = {};
             pipeline.depthTest = false;
           }
           this._gizmoItems.forEach(function(item) {
-            pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
-            pipeline.draw(item.plist);
+            if (item.plist.visible) {
+              pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
+              pipeline.draw(item.plist);
+            }
           });
           pipeline.depthTest = dt;
         } else if (pipeline.effect instanceof bg.manipulation.GizmoEffect) {
           this._gizmoItems.forEach(function(item) {
-            pipeline.effect.texture = item.material.texture;
-            pipeline.effect.color = item.material.diffuse;
-            pipeline.draw(item.plist);
+            if (item.plist.visible) {
+              pipeline.effect.texture = item.material.texture;
+              pipeline.effect.color = item.material.diffuse;
+              pipeline.draw(item.plist);
+            }
           });
         }
         matrixState.modelMatrixStack.pop();
@@ -11713,15 +11717,19 @@ bg.manipulation = {};
             pipeline.depthTest = false;
           }
           this._gizmoItems.forEach(function(item) {
-            pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
-            pipeline.draw(item.plist);
+            if (item.plist.visible) {
+              pipeline.effect.pickId = new bg.Color(item.id.a / 255, item.id.b / 255, item.id.g / 255, item.id.r / 255);
+              pipeline.draw(item.plist);
+            }
           });
           pipeline.depthTest = dt;
         } else if (pipeline.effect instanceof bg.manipulation.GizmoEffect) {
           this._gizmoItems.forEach(function(item) {
-            pipeline.effect.texture = item.material.texture;
-            pipeline.effect.color = item.material.diffuse;
-            pipeline.draw(item.plist);
+            if (item.plist.visible) {
+              pipeline.effect.texture = item.material.texture;
+              pipeline.effect.color = item.material.diffuse;
+              pipeline.draw(item.plist);
+            }
           });
         }
         matrixState.modelMatrixStack.pop();

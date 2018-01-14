@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.0 - build: 44f6204";
+bg.version = "1.3.1 - build: 87da4eb";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -11816,17 +11816,21 @@ bg.manipulation = {};
 				this._gizmoItems.forEach((item) => {
 					// The RGBA values are inverted because the alpha channel must be major than zero to
 					// produce any output in the framebuffer
-					pipeline.effect.pickId = new bg.Color(item.id.a/255,item.id.b/255,item.id.g/255,item.id.r/255);
-					pipeline.draw(item.plist);
+					if (item.plist.visible) {
+						pipeline.effect.pickId = new bg.Color(item.id.a/255,item.id.b/255,item.id.g/255,item.id.r/255);
+						pipeline.draw(item.plist);
+					}
 				});
 				pipeline.depthTest = dt;
 			}
 			else if (pipeline.effect instanceof bg.manipulation.GizmoEffect) {
 				// Draw gizmo
 				this._gizmoItems.forEach((item) => {
-					pipeline.effect.texture = item.material.texture;
-					pipeline.effect.color = item.material.diffuse;
-					pipeline.draw(item.plist);
+					if (item.plist.visible) {
+						pipeline.effect.texture = item.material.texture;
+						pipeline.effect.color = item.material.diffuse;
+						pipeline.draw(item.plist);
+					}
 				})
 			}
 			matrixState.modelMatrixStack.pop();
@@ -12051,17 +12055,21 @@ bg.manipulation = {};
 				this._gizmoItems.forEach((item) => {
 					// The RGBA values are inverted because the alpha channel must be major than zero to
 					// produce any output in the framebuffer
-					pipeline.effect.pickId = new bg.Color(item.id.a/255,item.id.b/255,item.id.g/255,item.id.r/255);
-					pipeline.draw(item.plist);
+					if (item.plist.visible) {
+						pipeline.effect.pickId = new bg.Color(item.id.a/255,item.id.b/255,item.id.g/255,item.id.r/255);
+						pipeline.draw(item.plist);
+					}
 				});
 				pipeline.depthTest = dt;
 			}
 			else if (pipeline.effect instanceof bg.manipulation.GizmoEffect) {
 				// Draw gizmo
 				this._gizmoItems.forEach((item) => {
-					pipeline.effect.texture = item.material.texture;
-					pipeline.effect.color = item.material.diffuse;
-					pipeline.draw(item.plist);
+					if (item.plist.visible) {
+						pipeline.effect.texture = item.material.texture;
+						pipeline.effect.color = item.material.diffuse;
+						pipeline.draw(item.plist);
+					}
 				})
 			}
 			matrixState.modelMatrixStack.pop();
