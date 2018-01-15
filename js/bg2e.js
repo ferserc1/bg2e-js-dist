@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.1 - build: 87da4eb";
+bg.version = "1.3.2 - build: 5bc5302";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -13178,6 +13178,7 @@ bg.render = {};
     function DeferredMixEffect(context) {
       $traceurRuntime.superConstructor(DeferredMixEffect).call(this, context);
       this._ssrtScale = 0.5;
+      this._frameScale = 1.0;
     }
     return ($traceurRuntime.createClass)(DeferredMixEffect, {
       get fragmentShaderSource() {
@@ -13252,7 +13253,7 @@ bg.render = {};
         this.shader.setTexture("inSpecularMap", this._surface.specularMap, bg.base.TextureUnit.TEXTURE_6);
         this.shader.setTexture("inOpaqueDepthMap", this._surface.opaqueDepthMap, bg.base.TextureUnit.TEXTURE_7);
         this.shader.setValueInt("inSSAOBlur", this.ssaoBlur);
-        this.shader.setValueFloat("inSSRTScale", this.ssrtScale);
+        this.shader.setValueFloat("inSSRTScale", this.ssrtScale * this.frameScale);
       },
       set viewport(vp) {
         this._viewport = vp;
@@ -13277,6 +13278,12 @@ bg.render = {};
       },
       get ssrtScale() {
         return this._ssrtScale;
+      },
+      set frameScale(s) {
+        this._frameScale = s;
+      },
+      get frameScale() {
+        return this._frameScale;
       },
       get colorCorrection() {
         if (!this._colorCorrection) {
@@ -13623,7 +13630,7 @@ bg.render = {};
         this.pipeline.clearBuffers();
         this.pipeline.textureEffect.viewport = camera.viewport;
         this.pipeline.textureEffect.ssaoBlur = renderSSAO ? this.settings.ambientOcclusion.blur : 1;
-        this.pipeline.textureEffect.ssrtScale = g_ssrtScale;
+        this.pipeline.textureEffect.ssrtScale = g_ssrtScale * this.settings.renderScale;
         this.pipeline.drawTexture({
           lightingMap: this.maps.lighting,
           diffuseMap: this.maps.diffuse,
@@ -13674,6 +13681,7 @@ bg.render = {};
         this._mixPipeline.renderSurface = mixSurface;
         this._pipeline = new bg.base.Pipeline(ctx);
         this._pipeline.textureEffect = new bg.render.PostprocessEffect(ctx);
+        this.settings.renderScale = this.settings.renderScale || 1.0;
       },
       draw: function(scene, camera) {
         if (this._shadowMap.size.x != this.settings.shadows.quality) {
@@ -13681,13 +13689,23 @@ bg.render = {};
         }
         var vp = camera.viewport;
         var aa = this.settings.antialiasing || {};
+        var maxSize = aa.maxTextureSize || 4096;
+        var ratio = vp.aspectRatio;
         var scaledWidth = vp.width;
         var scaledHeight = vp.height;
         if (aa.enabled) {
-          var maxSize = aa.maxTextureSize || 4096;
-          var ratio = vp.aspectRatio;
           scaledWidth = vp.width * 2;
           scaledHeight = vp.height * 2;
+          if (ratio > 1 && scaledWidth > maxSize) {
+            scaledWidth = maxSize;
+            scaledHeight = maxSize / ratio;
+          } else if (scaledHeight > maxSize) {
+            scaledHeight = maxSize;
+            scaledWidth = maxSize * ratio;
+          }
+        } else if (true) {
+          scaledWidth = vp.width * this.settings.renderScale;
+          scaledHeight = vp.height * this.settings.renderScale;
           if (ratio > 1 && scaledWidth > maxSize) {
             scaledWidth = maxSize;
             scaledHeight = maxSize / ratio;

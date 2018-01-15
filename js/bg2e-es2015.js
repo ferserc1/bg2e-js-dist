@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.1 - build: 87da4eb";
+bg.version = "1.3.2 - build: 5bc5302";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -13566,6 +13566,7 @@ bg.render = {
 			super(context);
 
 			this._ssrtScale = 0.5;
+			this._frameScale = 1.0;
 		}
 		
 		get fragmentShaderSource() {
@@ -13638,7 +13639,7 @@ bg.render = {
 			this.shader.setTexture("inOpaqueDepthMap",this._surface.opaqueDepthMap,bg.base.TextureUnit.TEXTURE_7);
 	
 			this.shader.setValueInt("inSSAOBlur",this.ssaoBlur);
-			this.shader.setValueFloat("inSSRTScale",this.ssrtScale);
+			this.shader.setValueFloat("inSSRTScale",this.ssrtScale * this.frameScale);
 		}
 
 		set viewport(vp) { this._viewport = vp; }
@@ -13652,6 +13653,9 @@ bg.render = {
 
 		set ssrtScale(s) { this._ssrtScale = s; }
 		get ssrtScale() { return this._ssrtScale; }
+
+		set frameScale(s) { this._frameScale = s; }
+		get frameScale() { return this._frameScale; }
 
 		get colorCorrection() {
 			if (!this._colorCorrection) {
@@ -13994,7 +13998,7 @@ bg.render = {
 			this.pipeline.textureEffect.viewport = camera.viewport;
 			this.pipeline.textureEffect.ssaoBlur = renderSSAO ? this.settings.ambientOcclusion.blur : 1;
 	
-			this.pipeline.textureEffect.ssrtScale = g_ssrtScale;
+			this.pipeline.textureEffect.ssrtScale = g_ssrtScale * this.settings.renderScale;
 			this.pipeline.drawTexture({
 				lightingMap:this.maps.lighting,
 				diffuseMap:this.maps.diffuse,
@@ -14057,7 +14061,8 @@ bg.render = {
 
 			this._pipeline = new bg.base.Pipeline(ctx);
 			this._pipeline.textureEffect = new bg.render.PostprocessEffect(ctx);
-			// TODO: render settings
+			
+			this.settings.renderScale = this.settings.renderScale || 1.0;
 		}
 
 		draw(scene,camera) {
@@ -14067,11 +14072,11 @@ bg.render = {
 			
 			let vp = camera.viewport;
 			let aa = this.settings.antialiasing || {};
+			let maxSize = aa.maxTextureSize || 4096;
+			let ratio = vp.aspectRatio;
 			let scaledWidth = vp.width;
 			let scaledHeight = vp.height;
 			if (aa.enabled) {
-				let maxSize = aa.maxTextureSize || 4096;
-				let ratio = vp.aspectRatio;
 				scaledWidth = vp.width * 2;
 				scaledHeight = vp.height * 2;
 				if (ratio>1 && scaledWidth>maxSize) {	// Landscape
@@ -14083,6 +14088,19 @@ bg.render = {
 					scaledWidth = maxSize * ratio;
 				}
 			}
+			else if (true) {
+				scaledWidth = vp.width * this.settings.renderScale;
+				scaledHeight = vp.height * this.settings.renderScale;
+				if (ratio>1 && scaledWidth>maxSize) {	// Landscape
+					scaledWidth = maxSize;
+					scaledHeight = maxSize / ratio;
+				}
+				else if (scaledHeight>maxSize) {	// Portrait
+					scaledHeight = maxSize;
+					scaledWidth = maxSize * ratio;
+				}
+			}
+
 			let scaledViewport = new bg.Viewport(0,0,scaledWidth,scaledHeight);
 			camera.viewport = scaledViewport;
 			let mainLight = null;
