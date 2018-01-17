@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.2 - build: 5bc5302";
+bg.version = "1.3.3 - build: 4633e83";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -1105,8 +1105,7 @@ bg.app = {};
 	function onUpdate() {
 		if (s_mainLoop.redisplay) {
 			if (s_delta==-1) s_delta = Date.now();
-			s_mainLoop.windowController.frame(Date.now() - s_delta);
-			s_mainLoop.windowController.display();
+			s_mainLoop.windowController.frame((Date.now() - s_delta) * 2);
 			s_delta = Date.now();
 			if (s_mainLoop.updateMode==bg.app.FrameUpdate.AUTO) {
 				s_mainLoop._redisplayFrames = 1;
@@ -1114,6 +1113,7 @@ bg.app = {};
 			else {
 				s_mainLoop._redisplayFrames--;
 			}
+			s_mainLoop.windowController.display();
 		}
 	}
 	
@@ -2296,7 +2296,11 @@ Object.defineProperty(bg, "isElectronApp", {
 					}
 					else if (diffuseColor.a>=inAlphaCutoff) {
 						vec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);
-						normalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);
+						vec3 frontFacingNormal = fsNormal;
+						if (!gl_FrontFacing) {
+							frontFacingNormal *= -1.0;
+						}
+						normalMap = combineNormalWithMap(frontFacingNormal,fsTangent,fsBitangent,normalMap);
 						vec4 shadowColor = vec4(1.0);
 						if (inReceiveShadows) {
 							shadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);
@@ -2518,6 +2522,7 @@ Object.defineProperty(bg, "isElectronApp", {
 				this.shader.setTexture('inLightEmissionMask',lightEmissionMask,bg.base.TextureUnit.TEXTURE_4);
 				this.shader.setVector4('inLightEmissionMaskChannel',this.material.lightEmissionMaskChannelVector);
 				this.shader.setValueInt('inLightEmissionMaskInvert',this.material.lightEmissionMaskInvert);
+				this.shader.setValueFloat('inAlphaCutoff',this.material.alphaCutoff);
 				
 				this.shader.setTexture('inTexture',texture,bg.base.TextureUnit.TEXTURE_0);
 				this.shader.setVector2('inTextureOffset',this.material.textureOffset);
@@ -3784,7 +3789,7 @@ Object.defineProperty(bg, "isElectronApp", {
 				mod.unlit = this.unlit;
 			}
 
-			mod.setFlags(modifierMask);
+			mod.modifierFlags = modifierMask;
 		}
 		
 		static GetMaterialWithJson(context,data,path) {
@@ -5455,6 +5460,79 @@ Object.defineProperty(bg, "isElectronApp", {
 	
 })();
 (function() {
+
+    class TextProperties {
+
+        constructor() {
+            this._font = "Verdana";
+            this._size = 30;
+            this._color = "#FFFFFF";
+            this._background = "transparent";
+            this._align = "start";
+            this._bold = false;
+            this._italic = false;
+
+            this._dirty = true;
+        }
+
+        clone() {
+            let newInstance = new TextProperties();
+
+            newInstance._font = this._font;
+            newInstance._size = this._size;
+            newInstance._color = this._color;
+            newInstance._background = this._background;
+            newInstance._align = this._align;
+            newInstance._bold = this._bold;
+            newInstance._italic = this._italic;
+
+            return newInstance;
+        }
+
+        get font() { return this._font; }
+        set font(v) { this._dirty = true; this._font = v; }
+        get size() { return this._size; }
+        set size(v) { this._dirty = true; this._size = v; }
+        get color() { return this._color; }
+        set color(v) { this._dirty = true; this._color = v; }
+        get background() { return this._background; }
+        set background(v) { this._dirty = true; this._background = v; }
+        get align() { return this._align; }
+        set align(v) { this._dirty = true; this._align = v; }
+        get bold() { return this._bold; }
+        set bold(v) { this._dirty = true; this._bold = v; }
+        get italic() { return this._italic; }
+        set italic(v) { this._dirty = true; this._italic = v; }
+        
+
+        // this property is set to true every time some property is changed
+        set dirty(d) { this._dirty = d; }
+        get dirty() { return this._dirty; }
+
+        serialize(jsonData) {
+            jsonData.font = this.font;
+            jsonData.size = this.size;
+            jsonData.color = this.color;
+            jsonData.background = this.background;
+            jsonData.align = this.align;
+            jsonData.bold = this.bold;
+            jsonData.italic = this.italic;
+        }
+
+        deserialize(jsonData) {
+            this.font = jsonData.font;
+            this.size = jsonData.size;
+            this.color = jsonData.color;
+            this.background = jsonData.background;
+            this.align = jsonData.align;
+            this.bold = jsonData.bold;
+            this.italic = jsonData.italic;
+        }
+    }
+
+    bg.base.TextProperties = TextProperties;
+})();
+(function() {
 	let s_textureCache = {};
 	
 	let COLOR_TEXTURE_SIZE = 8;
@@ -5806,23 +5884,83 @@ Object.defineProperty(bg, "isElectronApp", {
 	let g_base64TexturePreventRemove = [];
 
 	class Texture extends bg.app.ContextObject {
+		static IsPowerOfTwoImage(image) {
+			return bg.Math.checkPowerOfTwo(image.width) && bg.Math.checkPowerOfTwo(image.height);
+		}
+
+		static FromCanvas(context,canvas2d) {
+			return Texture.FromBase64Image(context,canvas2d.toDataURL("image/png"));
+		}
+
+		static UpdateCanvasImage(texture,canvas2d) {
+			if (!texture.valid) {
+				return false;
+			}
+			let imageData = canvas2d.toDataURL("image/png");
+			let recreate = false;
+			if (texture.img.width!=imageData.width || texture.img.height!=imageData.height) {
+				recreate = true;
+			}
+			texture.img = new Image();
+			g_base64TexturePreventRemove.push(texture);
+			//tex.onload = function(evt,img) {
+			// Check this: use onload or setTimeout?
+			// onload seems to not work in all situations
+			setTimeout(() => {
+				texture.bind();
+				if (Texture.IsPowerOfTwoImage(texture.img)) {
+					texture.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+					texture.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
+				}
+				else {
+					texture.minFilter = bg.base.TextureFilter.NEAREST;
+					texture.magFilter = bg.base.TextureFilter.NEAREST;
+					texture.wrapX = bg.base.TextureWrap.CLAMP;
+					texture.wrapY = bg.base.TextureWrap.CLAMP;
+				}
+				texture.setImage(texture.img,true);
+				texture.unbind();
+				let index = g_base64TexturePreventRemove.indexOf(texture);
+				if (index!=-1) {
+					g_base64TexturePreventRemove.splice(index,1);
+				}
+				bg.emitImageLoadEvent();
+			//}
+			},10);
+			texture.img.src = imageData;
+			
+			return texture;
+		}
+
 		static FromBase64Image(context,imgData) {
 			let tex = new bg.base.Texture(context);
 			tex.img = new Image();
 			g_base64TexturePreventRemove.push(tex);
-			tex.onload = function(evt,img) {
+			//tex.onload = function(evt,img) {
+			// Check this: use onload or setTimeout?
+			// onload seems to not work in all situations
+			setTimeout(() => {
 				tex.create();
 				tex.bind();
-				tex.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
-				tex.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
-				tex.setImage(tex.img);
+				if (Texture.IsPowerOfTwoImage(tex.img)) {
+					tex.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+					tex.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
+				}
+				else {
+					tex.minFilter = bg.base.TextureFilter.NEAREST;
+					tex.magFilter = bg.base.TextureFilter.NEAREST;
+					tex.wrapX = bg.base.TextureWrap.CLAMP;
+					tex.wrapY = bg.base.TextureWrap.CLAMP;
+				}
+				tex.setImage(tex.img,false);	// Check this: flip base64 image?
 				tex.unbind();
 				let index = g_base64TexturePreventRemove.indexOf(tex);
 				if (index!=-1) {
 					g_base64TexturePreventRemove.splice(index,1);
 				}
 				bg.emitImageLoadEvent();
-			}
+			//}
+			},10);
 			tex.img.src = imgData;
 			
 			return tex;
@@ -6039,6 +6177,21 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._cubeMapData = null;
 			this._video = null;
 		}
+
+		updateImage(img, flipY) {
+			if (flipY===undefined) flipY = true;
+			this._size.width = img.width;
+			this._size.height = img.height;
+			bg.Engine.Get().texture.setTextureWrapX(this.context,this._target,this._texture,this._wrapX);
+			bg.Engine.Get().texture.setTextureWrapY(this.context,this._target,this._texture,this._wrapY);
+			bg.Engine.Get().texture.setImage(this.context,this._target,this._minFilter,this._magFilter,this._texture,img,flipY);
+
+			this._image = img;
+			this._imageData = null;
+			this._cubeMapImages = null;
+			this._cubeMapData = null;
+			this._video = null;
+		}
 		
 		setImageRaw(width,height,data,type,format) {
 			if (!type) {
@@ -6167,6 +6320,15 @@ Object.defineProperty(bg, "isElectronApp", {
 		ArrayHighP:Array,
 		FLOAT_MAX:3.402823e38,
 		
+		checkPowerOfTwo:function(n) {
+			if (typeof n !== 'number') {
+				return false;
+			}
+			else {
+				return n && (n & (n - 1)) === 0;
+			}  
+		},
+
 		checkZero:function(v) {
 			return v>-this.EPSILON && v<this.EPSILON ? 0:v;
 		},
@@ -9975,6 +10137,23 @@ bg.scene = {};
 							0.000000, x, y,
 							0.000000,-x, y,
 							0.000000,-x,-y];
+			
+			plist.normal = [1.000000,0.000000,0.000000,
+							1.000000,0.000000,0.000000,
+							1.000000,0.000000,0.000000,
+							1.000000,0.000000,0.000000,
+							1.000000,0.000000,0.000000,
+							1.000000,0.000000,0.000000];
+
+			plist.texCoord0 = [	0.000000,0.000000,
+				1.000000,0.000000,
+				1.000000,1.000000,
+				1.000000,1.000000,
+				0.000000,1.000000,
+				0.000000,0.000000];
+	
+
+			plist.index = [2,1,0,5,4,3];
 			break;
 		case 'y':
 			plist.vertex =[	-x,0.000000,-y,
@@ -9983,39 +10162,55 @@ bg.scene = {};
 							 x,0.000000, y,
 							-x,0.000000, y,
 							-x,0.000000,-y];
-			break;
-		case 'z':
-			plist.vertex =[	-x,-y,0.000000,
-							 x,-y,0.000000,
-							 x, y,0.000000,
-							 x, y,0.000000,
-							-x, y,0.000000,
-							-x,-y,0.000000];
-			break;
-		}
 
-		plist.normal = [	0.000000,1.000000,0.000000,
+			plist.normal = [0.000000,1.000000,0.000000,
 							0.000000,1.000000,0.000000,
 							0.000000,1.000000,0.000000,
 							0.000000,1.000000,0.000000,
 							0.000000,1.000000,0.000000,
 							0.000000,1.000000,0.000000];
 
-		plist.texCoord0 = [	0.000000,0.000000,
-							1.000000,0.000000,
-							1.000000,1.000000,
-							1.000000,1.000000,
-							0.000000,1.000000,
-							0.000000,0.000000];
+			plist.texCoord0 = [	0.000000,0.000000,
+				1.000000,0.000000,
+				1.000000,1.000000,
+				1.000000,1.000000,
+				0.000000,1.000000,
+				0.000000,0.000000];
+	
 
-		plist.texCoord1 = [	0.000000,0.000000,
-							1.000000,0.000000,
-							1.000000,1.000000,
-							1.000000,1.000000,
-							0.000000,1.000000,
-							0.000000,0.000000];
+			plist.index = [2,1,0,5,4,3];
+			break;
+		case 'z':
+			plist.vertex =[-x, y,0.000000,
+						-x,-y,0.000000,
+						   x,-y,0.000000,
+						   x,-y,0.000000,
+						   x, y,0.000000,
+						-x, y,0.000000];
 
-		plist.index = [2,1,0,5,4,3];
+			plist.normal = [0.000000,0.000000,1.000000,
+							0.000000,0.000000,1.000000,
+							0.000000,0.000000,1.000000,
+							0.000000,0.000000,1.000000,
+							0.000000,0.000000,1.000000,
+							0.000000,0.000000,1.000000];
+	
+			plist.texCoord0 = [
+				0.000000,1.000000,
+				0.000000,0.000000,
+				1.000000,0.000000,
+				1.000000,0.000000,
+				1.000000,1.000000,
+				0.000000,1.000000];
+	
+			plist.index = [0,1,2,3,4,5];
+			break;
+		}
+
+	
+		plist.texCoord1 = plist.texCoord0;
+
+		
 		
 		plist.build();
 		return plist;
@@ -10498,6 +10693,164 @@ bg.scene = {};
     }
 
     bg.scene.registerComponent(bg.scene,Skybox,"bg.scene.Skybox");
+})();
+(function() {
+    class TextRect extends bg.scene.Component {
+        constructor(rectSize = new bg.Vector2(1,1),textureSize = new bg.Vector2(1000,1000)) {
+            super();
+
+            this._rectSize = rectSize;
+            this._textureSize = textureSize;
+
+            this._textProperties = new bg.base.TextProperties();
+            this._doubleSided = true;
+            this._unlit = false;
+            this._text = "Hello, World!";
+
+            this._sprite = null;
+            this._material = null;
+
+            this._sizeMatrix = bg.Matrix4.Scale(this._rectSize.x,this._rectSize.y,1);
+
+            this._canvasTexture = null;
+            this._dirty = true;
+        }
+
+        clone() {
+            let newInstance = new bg.scene.TextRect();
+            newInstance._text = this._text;
+            newInstance._sprite = this._sprite && this._sprite.clone();
+            newInstance._material = this._material && this._material.clone();
+
+            // TODO: Clone other properties
+            return newInstance;
+        }
+
+        get textProperties() { return this._textProperties; }
+        get text() { return this._text; }
+        set text(t) { this._dirty = true; this._text = t; }
+        get doubleSided() { return this._doubleSided; }
+        set doubleSided(ds) { this._dirty = true; this._doubleSided = ds; }
+        get unlit() { return this._unlit; }
+        set unlit(ul) { this._dirty = true; this._unlit = ul; }
+        get rectSize() { return this._rectSize; }
+        set rectSize(s) {
+            this._sizeMatrix.identity().scale(s.x,s.y,1);
+            this._rectSize = s;
+        }
+
+        // TODO: update texture size
+        get textureSize() { return this._textureSize; }
+        set textureSize(t) { this._dirty = true; this._textureSize = t; }
+
+        get material() { return this._material; }
+
+        init() {
+            if (!this._sprite && this.node && this.node.context) {
+                this._sprite = bg.scene.PrimitiveFactory.PlanePolyList(this.node.context,1,1,'z');
+                this._material = new bg.base.Material();
+                this._material.alphaCutoff = 0.9;
+                this._dirty = true;
+            }
+            if (!this._canvasTexture && this.node && this.node.context) {
+                this._canvasTexture = new bg.tools.CanvasTexture(this.node.context,this._textureSize.x,this._textureSize.y,
+                    (ctx,w,h) => {
+                        ctx.clearRect(0,0,w,h);
+                        if (this._textProperties.background!="transparent") {
+                            ctx.fillStyle = this._textProperties.background;
+                            ctx.fillRect(0,0,w,h);
+                        }
+                        ctx.fillStyle = this._textProperties.color;
+                        let textSize = this._textProperties.size;
+                        let font = this._textProperties.font;
+                        let padding = 0;
+                        let italic = this._textProperties.italic ? "italic" : "";
+                        let bold = this._textProperties.bold ? "bold" : "";
+                        ctx.textAlign = this._textProperties.align;
+                        ctx.font = `${ italic } ${ bold } ${ textSize }px ${ font }`;    // TODO: Font and size
+                        let textWidth = ctx.measureText(this._text);
+                        let x = 0;
+                        let y = 0;
+                        switch (ctx.textAlign) {
+                        case "center":
+                            x = w / 2;
+                            y = textSize + padding;
+                            break;
+                        case "right":
+                            x = w;
+                            y = textSize + padding;
+                            break;
+                        default:
+                            x = padding;
+                            y = textSize + padding;
+                        }
+                        let textLines = this._text.split("\n");
+                        textLines.forEach((line) => {
+                            ctx.fillText(line,x, y);
+                            y += textSize;
+                        });
+                    }
+                );
+                this._dirty = true;
+            }
+        }
+
+        frame(delta) {
+            if ((this._dirty || this._textProperties.dirty)  && this._material && this._canvasTexture) {
+                this._canvasTexture.update();
+                this._material.texture = this._canvasTexture.texture;
+                this._material.unlit = this._unlit;
+                this._material.cullFace = !this._doubleSided;
+                this._dirty = false;
+                this.textProperties.dirty = false;
+            }
+        }
+
+        display(pipeline,matrixState) {
+            if (!pipeline.effect) {
+                throw new Error("Could not draw TextRect: invalid effect");
+            }
+            if (!this.node.enabled) {
+                return;
+            }
+            else if (this._sprite && this._material) {
+                if (this._sprite.visible) {
+                    let curMaterial = pipeline.effect.material;
+                    matrixState.modelMatrixStack.push();
+                    matrixState.modelMatrixStack.mult(this._sizeMatrix);
+
+                    if (pipeline.shouldDraw(this._material)) {
+                        pipeline.effect.material = this._material;
+                        pipeline.draw(this._sprite);
+                    }
+
+                    matrixState.modelMatrixStack.pop();
+                    pipeline.effect.material = curMaterial;
+                }
+            }
+        }
+
+        serialize(componentData,promises,url) {
+            componentData.textProperties = {};
+            this.textProperties.serialize(componentData.textProperties);
+            componentData.text = this.text;
+            componentData.doubleSided = this.doubleSided;
+            componentData.unlit = this.unlit;
+            componentData.textureSize = this.textureSize.toArray();
+            componentData.rectSize = this.rectSize.toArray();
+        }
+
+        deserialize(context,sceneData,url) {
+            this.textProperties.deserialize(sceneData.textProperties);
+            this.text = sceneData.text;
+            this.doubleSided = sceneData.doubleSided;
+            this.unlit = sceneData.unlit;
+            this.textureSize = new bg.Vector2(sceneData.textureSize);
+            this.rectSize = new bg.Vector2(sceneData.rectSize);
+        }
+    }
+
+    bg.scene.registerComponent(bg.scene,TextRect,"bg.scene.TextRect");
 })();
 (function() {
 	
@@ -13392,6 +13745,57 @@ bg.tools = {
 
 	bg.tools.BoundingBox = BoundingBox;
 })();
+(function() {
+    function createCanvas(width,height) {
+        let result = document.createElement("canvas");
+        result.width  = width;
+        result.height = height;
+        result.style.width  = width + "px";
+        result.style.height = height + "px";
+        return result;
+    }
+
+    function resizeCanvas(canvas,w,h) {
+        canvas.width  = w;
+        canvas.height = h;
+        canvas.style.width  = w + 'px';
+        canvas.style.height = h + 'px'; 
+    }
+
+    let g_texturePreventRemove = [];
+
+    class CanvasTexture extends bg.app.ContextObject {
+
+        constructor(context,width,height,drawCallback) {
+            super(context);
+
+            this._canvas = createCanvas(width,height);
+                
+            this._drawCallback = drawCallback;
+
+            this._drawCallback(this._canvas.getContext("2d",{preserverDrawingBuffer:true}),this._canvas.width,this._canvas.height);
+            this._texture = bg.base.Texture.FromCanvas(context,this._canvas);
+        }
+
+        get width() { return this._canvas.width; }
+        get height() { return this._canvas.height; }
+        get canvas() { return this._canvas; }
+        get texture() { return this._texture; }
+
+        resize(w,h) {
+            resizeCanvas(this._canvas,w,h);
+            this.update();
+        }
+
+        update() {
+            this._drawCallback(this._canvas.getContext("2d",{preserverDrawingBuffer:true}),this.width,this.height);
+
+			bg.base.Texture.UpdateCanvasImage(this._texture,this._canvas);
+        }
+    }
+
+    bg.tools.CanvasTexture = CanvasTexture;
+})();
 bg.render = {
 	
 };
@@ -13617,7 +14021,7 @@ bg.render = {
 					else {
 						float reflectionAmount = material.b;
 						vec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);
-						finalColor += reflect.rgb * reflectionAmount * diffuse.rgb;
+						finalColor += reflect.rgb * reflectionAmount;
 						finalColor *= ssao.rgb;
 						gl_FragColor = vec4(finalColor,diffuse.a);
 					}`);
@@ -14437,10 +14841,17 @@ bg.render = {
 
 							gl_FragData[0] = diffuse;
 							gl_FragData[1] = vec4(specular.rgb,roughnessMask); // Store roughness on A component of specular
+							if (!gl_FrontFacing) {	// Flip the normal if back face
+								normal *= -1.0;
+							}
 							gl_FragData[2] = vec4(normal * 0.5 + 0.5, inUnlit ? 0.0 : 1.0);	// Store !unlit parameter on A component of normal
 							gl_FragData[3] = vec4(lightEmission,inShininess/255.0,reflectionMask,float(inCastShadows));
 						}
 						else {
+							gl_FragData[0] = vec4(0.0);
+							gl_FragData[1] = vec4(0.0);
+							gl_FragData[2] = vec4(0.0);
+							gl_FragData[3] = vec4(0.0);
 							discard;
 						}`);
 				}
@@ -14483,6 +14894,7 @@ bg.render = {
 					lib().inputs.material.texture,
 					lib().inputs.material.textureScale,
 					lib().inputs.material.textureOffset,
+					lib().inputs.material.alphaCutoff,
 					null,
 					{ name:"fsPosition", dataType:"vec4", role:"in" },
 					{ name:"fsTex0Coord", dataType:"vec2", role:"in" }
@@ -14493,10 +14905,13 @@ bg.render = {
 				if (bg.Engine.Get().id=="webgl1") {
 					s_floatGbufferFragment.setMainBody(`
 					float alpha = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale).a;
-					// TODO: texture alpha
-					// if (a<alphaCutoff....etc)
-					
-					gl_FragColor = vec4(fsPosition.xyz,gl_FragCoord.z);`)
+					if (alpha<inAlphaCutoff) {
+						discard;
+					}
+					else {
+						gl_FragColor = vec4(fsPosition.xyz,gl_FragCoord.z);
+					}
+					`)
 				}
 			}
 			return s_floatGbufferFragment;
@@ -14613,6 +15028,7 @@ bg.render = {
 				this.shader.setTexture('inTexture',texture,bg.base.TextureUnit.TEXTURE_0);
 				this.shader.setVector2('inTextureOffset',this.material.textureOffset);
 				this.shader.setVector2('inTextureScale',this.material.textureScale);
+				this.shader.setValueFloat('inAlphaCutoff',this.material.alphaCutoff);
 			}
 		}
 	}
@@ -15131,7 +15547,6 @@ bg.render = {
 							}
 							occlusion = 1.0 - (occlusion / float(inKernelSize));
 							gl_FragColor = clamp(vec4(occlusion, occlusion, occlusion, 1.0) + inSSAOColor, 0.0, 1.0);
-							//gl_FragColor = vec4(1.0, 0.0, 0.0 ,1.0);
 						}
 					}`);
 				}
