@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.3 - build: 4633e83";
+bg.version = "1.3.4 - build: bdc2ed1";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -5527,6 +5527,7 @@ Object.defineProperty(bg, "isElectronApp", {
             this.align = jsonData.align;
             this.bold = jsonData.bold;
             this.italic = jsonData.italic;
+            this._dirty = true;
         }
     }
 
@@ -10741,7 +10742,11 @@ bg.scene = {};
 
         // TODO: update texture size
         get textureSize() { return this._textureSize; }
-        set textureSize(t) { this._dirty = true; this._textureSize = t; }
+        set textureSize(t) {
+            this._dirty = true;
+            this._canvasTexture.resize(t.x,t.y);
+            this._textureSize = t;
+        }
 
         get material() { return this._material; }
 
@@ -11625,7 +11630,6 @@ bg.manipulation = {};
                 this.matrixState.viewMatrixStack.matrix.setRow(1,new bg.Vector4(0,1,0,0));
                 this.matrixState.viewMatrixStack.matrix.setRow(2,new bg.Vector4(0,0,1,0));
                 let s = this.matrixState.cameraDistanceScale * 0.05 * this._gizmoScale;
-                this.matrixState.viewMatrixStack.rotate(bg.Math.PI,0,1,0);
                 this.matrixState.viewMatrixStack.scale(s,s,s);
                 this.pipeline.draw(this._sprite);
     
@@ -12902,7 +12906,8 @@ bg.manipulation = {};
 	let g_selectableIcons = [
 		"bg.scene.Camera",
 		"bg.scene.Light",
-		"bg.scene.Transform"
+		"bg.scene.Transform",
+		"bg.scene.TextRect"
 	];
 
 	
