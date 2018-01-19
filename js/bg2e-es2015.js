@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.4 - build: bdc2ed1";
+bg.version = "1.3.5 - build: 13bc132";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -15652,12 +15652,12 @@ bg.render = {
 		extreme: { maxSamples: 300, rayIncrement: 0.0031 }
 	}; 
 
-	let g_frameIndex = 0;
 	class SSRTEffect extends bg.base.TextureEffect {
 		constructor(context) {
 			super(context);
 			this._basic = false;
 			this._viewportSize = new bg.Vector2(1920,1080);
+			this._frameIndex = 0;
 		}
 		
 		get fragmentShaderSource() {
@@ -15685,19 +15685,21 @@ bg.render = {
 				if (bg.Engine.Get().id=="webgl1") {
 					this._fragmentShaderSource.setMainBody(`
 						vec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));
+						bool renderFrame = false;
 						if (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {
-							discard;
+							renderFrame = true;
 						}
 						else if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {
-							discard;
+							renderFrame = true;
 						}
 						else if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {
-							discard;
+							renderFrame = true;
 						}
 						else if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {
-							discard;
+							renderFrame = true;
 						}
-						else {
+
+						if (renderFrame) {
 							vec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;
 							vec4 vertexPos = texture2D(inPositionMap,fsTexCoord);
 							vec3 cameraVector = vertexPos.xyz - inCameraPos;
@@ -15744,6 +15746,9 @@ bg.render = {
 							else {
 								gl_FragColor = result;
 							}
+						}
+						else {
+							discard;
 						}`);
 				}
 			}
@@ -15751,7 +15756,7 @@ bg.render = {
 		}
 		
 		setupVars() {
-			g_frameIndex = (g_frameIndex + 1) % 4;
+			this._frameIndex = (this._frameIndex + 1) % 4;
 			this.shader.setTexture("inPositionMap",this._surface.position,bg.base.TextureUnit.TEXTURE_0);
 			this.shader.setTexture("inNormalMap",this._surface.normal,bg.base.TextureUnit.TEXTURE_1);
 			this.shader.setTexture("inLightingMap",this._surface.reflectionColor,bg.base.TextureUnit.TEXTURE_2);
@@ -15761,7 +15766,7 @@ bg.render = {
 			this.shader.setVector3("inCameraPos",this._cameraPos);
 			this.shader.setVector4("inRayFailColor",this.rayFailColor);
 			this.shader.setValueInt("inBasicMode",this.basic);
-			this.shader.setValueFloat("inFrameIndex",g_frameIndex);
+			this.shader.setValueFloat("inFrameIndex",this._frameIndex);
 			
 			this.shader.setTexture("inCubeMap",bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_5);
 		}

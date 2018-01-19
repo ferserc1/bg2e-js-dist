@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.4 - build: bdc2ed1";
+bg.version = "1.3.5 - build: 13bc132";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -15124,12 +15124,12 @@ bg.render = {};
       rayIncrement: 0.0031
     }
   };
-  var g_frameIndex = 0;
   var SSRTEffect = function($__super) {
     function SSRTEffect(context) {
       $traceurRuntime.superConstructor(SSRTEffect).call(this, context);
       this._basic = false;
       this._viewportSize = new bg.Vector2(1920, 1080);
+      this._frameIndex = 0;
     }
     return ($traceurRuntime.createClass)(SSRTEffect, {
       get fragmentShaderSource() {
@@ -15186,13 +15186,13 @@ bg.render = {};
             role: "in"
           }]);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));\n\t\t\t\t\t\tif (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\t\n\t\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\t\tif (!inBasicMode && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\n\t\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\t\n\t\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\t\n\t\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));\n\t\t\t\t\t\tbool renderFrame = false;\n\t\t\t\t\t\tif (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tif (renderFrame) {\n\t\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\t\n\t\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\t\tif (!inBasicMode && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\n\t\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\t\n\t\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\t\n\t\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
       },
       setupVars: function() {
-        g_frameIndex = (g_frameIndex + 1) % 4;
+        this._frameIndex = (this._frameIndex + 1) % 4;
         this.shader.setTexture("inPositionMap", this._surface.position, bg.base.TextureUnit.TEXTURE_0);
         this.shader.setTexture("inNormalMap", this._surface.normal, bg.base.TextureUnit.TEXTURE_1);
         this.shader.setTexture("inLightingMap", this._surface.reflectionColor, bg.base.TextureUnit.TEXTURE_2);
@@ -15202,7 +15202,7 @@ bg.render = {};
         this.shader.setVector3("inCameraPos", this._cameraPos);
         this.shader.setVector4("inRayFailColor", this.rayFailColor);
         this.shader.setValueInt("inBasicMode", this.basic);
-        this.shader.setValueFloat("inFrameIndex", g_frameIndex);
+        this.shader.setValueFloat("inFrameIndex", this._frameIndex);
         this.shader.setTexture("inCubeMap", bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_5);
       },
       get projectionMatrix() {
