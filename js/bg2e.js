@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.5 - build: 13bc132";
+bg.version = "1.3.6 - build: 199b1e8";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -13634,7 +13634,7 @@ bg.render = {};
             this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
             this._fragmentShaderSource.addFunction(lib().functions.blur.blur);
             this._fragmentShaderSource.addFunction(lib().functions.blur.glowBlur);
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 400.0 * ssrtScale * 1.1;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 400.0 * ssrtScale * 1.1;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
           }
         }
         return this._fragmentShaderSource;

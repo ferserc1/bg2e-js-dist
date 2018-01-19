@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.5 - build: 13bc132";
+bg.version = "1.3.6 - build: 199b1e8";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -14026,7 +14026,7 @@ bg.render = {
 					else {
 						float reflectionAmount = material.b;
 						vec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);
-						finalColor += reflect.rgb * reflectionAmount;
+						finalColor += reflect.rgb * reflectionAmount * diffuse.rgb;
 						finalColor *= ssao.rgb;
 						gl_FragColor = vec4(finalColor,diffuse.a);
 					}`);
