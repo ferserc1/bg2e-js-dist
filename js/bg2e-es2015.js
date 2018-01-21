@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.6 - build: 199b1e8";
+bg.version = "1.3.7 - build: 5f1a235";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -13373,6 +13373,8 @@ bg.manipulation = {};
 			this._keys = {};
 			this._showLimitGizmo = true;
 			this._limitGizmoColor = bg.Color.Green();
+
+			this._lastTouch = [];
 		}
 		
 		setRotateButtons(left,middle,right) {
