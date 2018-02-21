@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.7 - build: 5f1a235";
+bg.version = "1.3.8 - build: f6859a8";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -1771,6 +1771,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         "reflectionMask": writeTexture(material.reflectionMask, fileData),
         "roughnessMask": writeTexture(material.roughnessMask, fileData),
         "visible": plist.visible,
+        "visibleToShadows": plist.visibleToShadows,
         "groupName": material.groupName
       });
     });
@@ -4426,6 +4427,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       this._name = "";
       this._groupName = "";
       this._visible = true;
+      this._visibleToShadows = true;
       this._vertex = [];
       this._normal = [];
       this._texCoord0 = [];
@@ -4446,6 +4448,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         pl2.name = this.name + " clone";
         pl2.groupName = this.groupName;
         pl2.visible = this.visible;
+        pl2.visibleToShadows = this.visibleToShadows;
         pl2.drawMode = this.drawMode;
         copy(this.vertex, pl2.vertex);
         copy(this.normal, pl2.normal);
@@ -4474,6 +4477,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       set visible(v) {
         this._visible = v;
+      },
+      get visibleToShadows() {
+        return this._visibleToShadows;
+      },
+      set visibleToShadows(v) {
+        this._visibleToShadows = v;
       },
       get drawMode() {
         return this._drawMode;
@@ -4863,6 +4872,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         sceneData.type = "Node";
         sceneData.name = node.name;
         sceneData.enabled = node.enabled;
+        sceneData.steady = node.steady;
         sceneData.children = [];
         sceneData.components = [];
         node.forEachComponent(function(component) {
@@ -8268,6 +8278,7 @@ bg.scene = {};
       $traceurRuntime.superConstructor(SceneObject).call(this, context);
       this._name = name;
       this._enabled = true;
+      this._steady = false;
       this._components = {};
     }
     return ($traceurRuntime.createClass)(SceneObject, {
@@ -8290,6 +8301,12 @@ bg.scene = {};
       },
       set enabled(e) {
         this._enabled = e;
+      },
+      get steady() {
+        return this._steady;
+      },
+      set steady(s) {
+        this._steady = s;
       },
       addComponent: function(c) {
         if (c._node) {
@@ -9392,11 +9409,12 @@ bg.scene = {};
         if (!pipeline.effect) {
           throw new Error("Could not draw component: invalid effect found.");
         }
+        var isShadowMap = pipeline.effect instanceof bg.base.ShadowMapEffect;
         if (!this.node.enabled) {
           return;
         } else {
           this.forEach(function(plist, mat, trx) {
-            if (plist.visible) {
+            if ((!isShadowMap && plist.visible) || (isShadowMap && plist.visibleToShadows)) {
               var currMaterial = pipeline.effect.material;
               if (trx) {
                 matrixState.modelMatrixStack.push();
@@ -10241,6 +10259,7 @@ bg.scene = {};
         var $__2 = this;
         var node = new bg.scene.Node(context, jsonData.name);
         node.enabled = jsonData.enabled;
+        node.steady = jsonData.steady || false;
         parent.addChild(node);
         jsonData.components.forEach(function(compData) {
           promises.push(bg.scene.Component.Factory(context, compData, node, $__2.url));
@@ -11224,6 +11243,7 @@ bg.scene = {};
           polyList.index = plistData.indices || polyList.index;
           polyList.groupName = materialData.groupName;
           polyList.visible = materialData.visible;
+          polyList.visibleToShadows = materialData.visibleToShadows !== undefined ? materialData.visibleToShadows : true;
           polyList.build();
           promises.push(bg.base.Material.GetMaterialWithJson($__1._context, materialData, path).then(function(material) {
             drawable.addPolyList(polyList, material);

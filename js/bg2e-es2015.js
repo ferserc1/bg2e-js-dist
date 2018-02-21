@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.7 - build: 5f1a235";
+bg.version = "1.3.8 - build: f6859a8";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -1892,6 +1892,7 @@ Object.defineProperty(bg, "isElectronApp", {
                 "reflectionMask": writeTexture(material.reflectionMask,fileData),
                 "roughnessMask": writeTexture(material.roughnessMask,fileData),
                 "visible": plist.visible,
+                "visibleToShadows": plist.visibleToShadows,
                 "groupName": material.groupName
             });
         });
@@ -4425,6 +4426,7 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._name = "";
 			this._groupName = "";
 			this._visible = true;
+			this._visibleToShadows = true;
 			
 			this._vertex = [];
 			this._normal = [];
@@ -4448,6 +4450,7 @@ Object.defineProperty(bg, "isElectronApp", {
 			pl2.name = this.name + " clone";
 			pl2.groupName = this.groupName;
 			pl2.visible = this.visible;
+			pl2.visibleToShadows = this.visibleToShadows;
 			pl2.drawMode = this.drawMode;
 			
 			copy(this.vertex,pl2.vertex);
@@ -4470,6 +4473,9 @@ Object.defineProperty(bg, "isElectronApp", {
 		
 		get visible() { return this._visible; }
 		set visible(v) { this._visible = v; }
+
+		get visibleToShadows() { return this._visibleToShadows; }
+		set visibleToShadows(v) { this._visibleToShadows = v; }
 		
 		get drawMode() { return this._drawMode; }
 		set drawMode(m) { this._drawMode = m; }
@@ -4857,6 +4863,7 @@ Object.defineProperty(bg, "isElectronApp", {
             sceneData.type = "Node";
             sceneData.name = node.name;
             sceneData.enabled = node.enabled;
+            sceneData.steady = node.steady;
             sceneData.children = [];
             sceneData.components = [];
             node.forEachComponent((component) => {
@@ -8192,6 +8199,7 @@ bg.scene = {};
 			
 			this._name = name;
 			this._enabled = true;
+			this._steady = false;
 			
 			this._components = {};
 		}
@@ -8211,6 +8219,9 @@ bg.scene = {};
 		
 		get enabled() { return this._enabled; }
 		set enabled(e) { this._enabled = e; }
+
+		get steady() { return this._steady; }
+		set steady(s) { this._steady = s; }
 		
 		addComponent(c) {
 			if (c._node) {
@@ -9287,12 +9298,15 @@ bg.scene = {};
 			if (!pipeline.effect) {
 				throw new Error("Could not draw component: invalid effect found.");
 			}
+
+			let isShadowMap = pipeline.effect instanceof bg.base.ShadowMapEffect;
+
 			if (!this.node.enabled) {
 				return;
 			}
 			else {
 				this.forEach((plist,mat,trx) => {
-					if (plist.visible) {
+					if ((!isShadowMap && plist.visible) || (isShadowMap && plist.visibleToShadows)) {
 						let currMaterial = pipeline.effect.material;
 						if (trx) {
 							matrixState.modelMatrixStack.push();
@@ -10381,7 +10395,8 @@ bg.scene = {};
             // parent: scene node, input. The parent node to which we must to add the new scene node.
             // promises: array, output. Add promises from component.deserialize()
             let node = new bg.scene.Node(context,jsonData.name);
-            node.enabled = jsonData.enabled;
+			node.enabled = jsonData.enabled;
+			node.steady = jsonData.steady || false;
             parent.addChild(node);
             jsonData.components.forEach((compData) => {
                 promises.push(bg.scene.Component.Factory(context,compData,node,this.url));
@@ -11443,6 +11458,7 @@ bg.scene = {};
 				
 				polyList.groupName = materialData.groupName;
 				polyList.visible = materialData.visible;
+				polyList.visibleToShadows = materialData.visibleToShadows!==undefined ? materialData.visibleToShadows : true;
 				
 				polyList.build();
 
