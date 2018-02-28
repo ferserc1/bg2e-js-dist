@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.8 - build: f6859a8";
+bg.version = "1.3.9 - build: 70b346d";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -440,7 +440,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 			img.addEventListener("abort",function(event) {
 				onFail(new Error(`Image load aborted: ${url}`));
 			});
-			img.src = url;
+			img.src = url + '?' + bg.utils.generateUUID();
 		}
 
 		loadVideo(url,onSuccess,onFail) {
@@ -1798,13 +1798,16 @@ Object.defineProperty(bg, "isElectronApp", {
         if (texture) {
             let dstPath = bg.base.Writer.StandarizePath(fileData.path).split("/");
             dstPath.pop();
-            let srcFileName = texture.fileName.split("/").pop();
+            let paths = {
+                src: bg.base.Writer.StandarizePath(texture.fileName),
+                dst: null
+            };
+
+            let srcFileName = paths.src.split("/").pop();
             dstPath.push(srcFileName);
             dstPath = dstPath.join("/");
-            let paths = {
-                src: texture.fileName,
-                dst: dstPath
-            };
+            paths.dst = dstPath;
+
             if (paths.src!=paths.dst) {
                 fileData.copyFiles.push(paths);
             }
@@ -1994,7 +1997,7 @@ Object.defineProperty(bg, "isElectronApp", {
         writeTextures() {
             let promises = [];
             this.copyFiles.forEach((copyData) => {
-                promises.push(new Promise((resolve) => {
+                promises.push(new Promise((resolve,reject) => {
                     let rd = fs.createReadStream(copyData.src);
                     rd.on('error',rejectCleanup);
                     let wr = fs.createWriteStream(copyData.dst);
@@ -8203,6 +8206,10 @@ bg.scene = {};
 			
 			this._components = {};
 		}
+
+		toString() {
+			return " scene object: " + this._name;
+		}
 		
 		// Create a new instance of this node, with a copy of all it's components
 		cloneComponents() {
@@ -8458,6 +8465,10 @@ bg.scene = {};
 			
 			this._children = [];
 			this._parent = null;
+		}
+
+		toString() {
+			return super.toString() + " (" + this._children.length + " children and " + Object.keys(this._components).length + " components)";
 		}
 		
 		addChild(child) {

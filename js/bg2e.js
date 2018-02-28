@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.8 - build: f6859a8";
+bg.version = "1.3.9 - build: 70b346d";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -396,7 +396,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
         img.addEventListener("abort", function(event) {
           onFail(new Error(("Image load aborted: " + url)));
         });
-        img.src = url;
+        img.src = url + '?' + bg.utils.generateUUID();
       },
       loadVideo: function(url, onSuccess, onFail) {
         var video = document.createElement('video');
@@ -1693,13 +1693,14 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     if (texture) {
       var dstPath = bg.base.Writer.StandarizePath(fileData.path).split("/");
       dstPath.pop();
-      var srcFileName = texture.fileName.split("/").pop();
+      var paths = {
+        src: bg.base.Writer.StandarizePath(texture.fileName),
+        dst: null
+      };
+      var srcFileName = paths.src.split("/").pop();
       dstPath.push(srcFileName);
       dstPath = dstPath.join("/");
-      var paths = {
-        src: texture.fileName,
-        dst: dstPath
-      };
+      paths.dst = dstPath;
       if (paths.src != paths.dst) {
         fileData.copyFiles.push(paths);
       }
@@ -1866,7 +1867,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       writeTextures: function() {
         var promises = [];
         this.copyFiles.forEach(function(copyData) {
-          promises.push(new Promise(function(resolve) {
+          promises.push(new Promise(function(resolve, reject) {
             var rd = fs.createReadStream(copyData.src);
             rd.on('error', rejectCleanup);
             var wr = fs.createWriteStream(copyData.dst);
@@ -8282,6 +8283,9 @@ bg.scene = {};
       this._components = {};
     }
     return ($traceurRuntime.createClass)(SceneObject, {
+      toString: function() {
+        return " scene object: " + this._name;
+      },
       cloneComponents: function() {
         var newNode = new bg.scene.Node(this.context, this.name ? ("copy of " + this.name) : "");
         newNode.enabled = this.enabled;
@@ -8590,6 +8594,9 @@ bg.scene = {};
       this._parent = null;
     }
     return ($traceurRuntime.createClass)(Node, {
+      toString: function() {
+        return $traceurRuntime.superGet(this, Node.prototype, "toString").call(this) + " (" + this._children.length + " children and " + Object.keys(this._components).length + " components)";
+      },
       addChild: function(child) {
         if (child && !this.isAncientOf(child) && child != this) {
           if (child.parent) {
