@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.9 - build: 70b346d";
+bg.version = "1.3.10 - build: 6d8c77c";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -9917,7 +9917,8 @@ bg.scene = {};
     return ($traceurRuntime.createClass)(OBJParser, {loadDrawable: function(data) {
         var $__2 = this;
         return new Promise(function(resolve, reject) {
-          var drawable = new bg.scene.Drawable($__2.url);
+          var name = $__2.url.replace(/[\\\/]/ig, '-');
+          var drawable = new bg.scene.Drawable(name);
           var lines = data.split('\n');
           lines.forEach(function(line) {
             line = line.trim();
@@ -10072,8 +10073,8 @@ bg.scene = {};
     plist.vertex = [x, -y, -z, -x, -y, -z, -x, y, -z, x, y, -z, x, -y, z, x, -y, -z, x, y, -z, x, y, z, -x, -y, z, x, -y, z, x, y, z, -x, y, z, -x, -y, -z, -x, -y, z, -x, y, z, -x, y, -z, -x, y, z, x, y, z, x, y, -z, -x, y, -z, x, -y, z, -x, -y, z, -x, -y, -z, x, -y, -z];
     plist.normal = [0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0];
     plist.texCoord0 = [0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1];
-    plist.texCoord1 = [0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1];
     plist.index = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4, 8, 9, 10, 10, 11, 8, 12, 13, 14, 14, 15, 12, 16, 17, 18, 18, 19, 16, 20, 21, 22, 22, 23, 20];
+    plist.texCoord1 = bg.tools.UVMap.atlas(plist.vertex, plist.index, 0.03);
     plist.build();
     return plist;
   }
@@ -10102,7 +10103,7 @@ bg.scene = {};
         plist.index = [0, 1, 2, 3, 4, 5];
         break;
     }
-    plist.texCoord1 = plist.texCoord0;
+    plist.texCoord1 = [0.00, 0.95, 0.00, 0.00, 0.95, 0.00, 0.95, 0.00, 0.95, 0.95, 0.00, 0.95];
     plist.build();
     return plist;
   }
@@ -10143,7 +10144,7 @@ bg.scene = {};
     plist.vertex = vertex;
     plist.normal = normal;
     plist.texCoord0 = texCoord;
-    plist.texCoord1 = texCoord;
+    plist.texCoord1 = bg.tools.UVMap.atlas(vertex, index, 0.03);
     plist.index = index;
     plist.build();
     return plist;
@@ -13430,6 +13431,173 @@ bg.tools = {};
     }, {}, $__super);
   }(bg.app.ContextObject);
   bg.tools.CanvasTexture = CanvasTexture;
+})();
+
+"use strict";
+(function() {
+  bg.tools = bg.tools || {};
+  function packUVs(rect, t1, t2, uvs, pad) {
+    var hpad = pad / 2;
+    uvs[t1.uv0.x] = rect.left + pad;
+    uvs[t1.uv0.y] = rect.top + hpad;
+    uvs[t1.uv1.x] = rect.right - hpad;
+    uvs[t1.uv1.y] = rect.top + hpad;
+    uvs[t1.uv2.x] = rect.right - hpad;
+    uvs[t1.uv2.y] = rect.bottom - pad;
+    if (t2) {
+      uvs[t2.uv0.x] = rect.right - pad;
+      uvs[t2.uv0.y] = rect.bottom - hpad;
+      uvs[t2.uv1.x] = rect.left + hpad;
+      uvs[t2.uv1.y] = rect.bottom - hpad;
+      uvs[t2.uv2.x] = rect.left + hpad;
+      uvs[t2.uv2.y] = rect.top + pad;
+    }
+  }
+  function atlasPolyList(vertex, index) {
+    var padding = arguments[2] !== (void 0) ? arguments[2] : 0;
+    var triangles = [];
+    var uv = [];
+    for (var i = 0; i < index.length; i += 3) {
+      var i0 = index[i];
+      var i1 = index[i + 1];
+      var i2 = index[i + 2];
+      triangles.push({
+        indices: [i0, i1, i2],
+        uv0: {
+          x: i0 * 2,
+          y: i0 * 2 + 1
+        },
+        uv1: {
+          x: i1 * 2,
+          y: i1 * 2 + 1
+        },
+        uv2: {
+          x: i2 * 2,
+          y: i2 * 2 + 1
+        }
+      });
+    }
+    var numQuads = triangles.length / 2 + triangles.length % 2;
+    var rows = numQuads,
+        cols = Math.round(Math.sqrt(numQuads));
+    while (rows % cols) {
+      cols--;
+    }
+    rows = cols;
+    cols = numQuads / cols;
+    var currentTriangle = 0;
+    var w = 1 / cols;
+    var h = 1 / rows;
+    for (var i$__2 = 0; i$__2 < rows; ++i$__2) {
+      for (var j = 0; j < cols; ++j) {
+        var rect = {
+          left: w * j,
+          top: h * i$__2,
+          right: w * j + w,
+          bottom: h * i$__2 + h
+        };
+        var t1 = triangles[currentTriangle];
+        var t2 = currentTriangle + 1 < triangles.length ? triangles[currentTriangle + 1] : null;
+        packUVs(rect, t1, t2, uv, padding);
+        currentTriangle += 2;
+      }
+    }
+    return uv;
+  }
+  function generateLightmapQuads(drawable) {
+    var triangleCount = 0;
+    drawable.forEach(function(polyList) {
+      var numTriangles = (polyList.index.length / 3);
+      if (numTriangles % 2 != 0)
+        numTriangles++;
+      triangleCount += numTriangles;
+    });
+    var numQuads = triangleCount / 2;
+    var rows = numQuads,
+        cols = Math.round(Math.sqrt(numQuads));
+    while (rows % cols) {
+      cols--;
+    }
+    rows = cols;
+    cols = numQuads / cols;
+    return {
+      rows: rows,
+      cols: cols,
+      triangleCount: triangleCount,
+      quadSize: {
+        width: 1 / cols,
+        height: 1 / rows
+      },
+      currentRow: 0,
+      currentCol: 0,
+      nextRect: function() {
+        var rect = {
+          left: this.quadSize.width * this.currentCol,
+          top: this.quadSize.height * this.currentRow,
+          right: this.quadSize.width * this.currentCol + this.quadSize.width,
+          bottom: this.quadSize.height * this.currentRow + this.quadSize.height
+        };
+        if (this.currentCol < this.cols) {
+          this.currentCol++;
+        } else {
+          this.currentCol = 0;
+          this.currentRow++;
+        }
+        if (this.currentRow >= this.rows) {
+          this.currentRow = 0;
+        }
+        return rect;
+      }
+    };
+  }
+  function atlasDrawable(drawable, padding) {
+    var quadData = generateLightmapQuads(drawable);
+    quadData.currentRow = 0;
+    quadData.currentCol = 0;
+    drawable.forEach(function(polyList) {
+      if (polyList.texCoord1.length > 0)
+        return;
+      var triangles = [];
+      var uv = [];
+      for (var i = 0; i < polyList.index.length; i += 3) {
+        var i0 = polyList.index[i];
+        var i1 = polyList.index[i + 1];
+        var i2 = polyList.index[i + 2];
+        triangles.push({
+          indices: [i0, i1, i2],
+          uv0: {
+            x: i0 * 2,
+            y: i0 * 2 + 1
+          },
+          uv1: {
+            x: i1 * 2,
+            y: i1 * 2 + 1
+          },
+          uv2: {
+            x: i2 * 2,
+            y: i2 * 2 + 1
+          }
+        });
+      }
+      for (var i$__3 = 0; i$__3 < triangles.length; i$__3 += 2) {
+        var t1 = triangles[i$__3];
+        var t2 = i$__3 + 1 < triangles.length ? triangles[i$__3 + 1] : null;
+        var rect = quadData.nextRect();
+        packUVs(rect, t1, t2, uv, padding);
+      }
+      polyList.texCoord1 = uv;
+      polyList.build();
+    });
+  }
+  bg.tools.UVMap = {atlas: function(vertexOrDrawable) {
+      var indexOrPadding = arguments[1] !== (void 0) ? arguments[1] : 0;
+      var padding = arguments[2] !== (void 0) ? arguments[2] : 0;
+      if (vertexOrDrawable instanceof bg.scene.Drawable) {
+        return atlasDrawable(vertexOrDrawable, indexOrPadding);
+      } else {
+        return atlasPolyList(vertexOrDrawable, indexOrPadding, padding);
+      }
+    }};
 })();
 
 "use strict";
