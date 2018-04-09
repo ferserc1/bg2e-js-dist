@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.10 - build: 6d8c77c";
+bg.version = "1.3.11 - build: d70a51b";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -703,7 +703,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 		init() {}
 		frame(delta) {}
 		willDisplay(pipeline,matrixState) {}
-		display(pipeline,matrixState) {}
+		display(pipeline,matrixState,forceDraw=false) {}
 		displayGizmo(pipeline,matrixState) {}
 		didDisplay(pipeline,matrixState) {}
 		reshape(pipeline,matrixState,width,height) {}
@@ -1896,7 +1896,7 @@ Object.defineProperty(bg, "isElectronApp", {
                 "roughnessMask": writeTexture(material.roughnessMask,fileData),
                 "visible": plist.visible,
                 "visibleToShadows": plist.visibleToShadows,
-                "groupName": material.groupName
+                "groupName": plist.groupName
             });
         });
         return JSON.stringify(mat);
@@ -8333,9 +8333,9 @@ bg.scene = {};
 			});
 		}
 		
-		display(pipeline,matrixState) {
+		display(pipeline,matrixState,forceDraw=false) {
 			this.forEachComponent((comp) => {
-				comp.display(pipeline,matrixState);
+				comp.display(pipeline,matrixState,forceDraw);
 			});
 		}
 
@@ -9305,7 +9305,7 @@ bg.scene = {};
 			return true;
 		}
 		
-		display(pipeline,matrixState) {
+		display(pipeline,matrixState,forceDraw=false) {
 			if (!pipeline.effect) {
 				throw new Error("Could not draw component: invalid effect found.");
 			}
@@ -9317,7 +9317,7 @@ bg.scene = {};
 			}
 			else {
 				this.forEach((plist,mat,trx) => {
-					if ((!isShadowMap && plist.visible) || (isShadowMap && plist.visibleToShadows)) {
+					if ((!isShadowMap && plist.visible) || (isShadowMap && plist.visibleToShadows) || forceDraw) {
 						let currMaterial = pipeline.effect.material;
 						if (trx) {
 							matrixState.modelMatrixStack.push();
@@ -11001,14 +11001,18 @@ bg.scene = {};
 			super();
 			this._pipeline = pipeline || bg.base.Pipeline.Current();
 			this._matrixState = matrixState || bg.base.MatrixState.Current();
+			this._forceDraw = false;
 		}
+
+		get forceDraw() { return this._forceDraw; }
+		set forceDraw(f) { this._forceDraw = f; }
 		
 		get pipeline() { return this._pipeline; }
 		get matrixState() { return this._matrixState; }
 		
 		visit(node) {
 			node.willDisplay(this.pipeline,this.matrixState);
-			node.display(this.pipeline,this.matrixState);
+			node.display(this.pipeline,this.matrixState,this.forceDraw);
 		}
 		
 		didVisit(node) {
@@ -13232,6 +13236,7 @@ bg.manipulation = {};
             this._matrixState = new bg.base.MatrixState();
 
             this._drawVisitor = new bg.scene.DrawVisitor(this._offscreenPipeline,this._matrixState);
+            this._drawVisitor.forceDraw = true;
         }
 
         get highlightColor() { return this._pipeline.textureEffect.highlightColor; }
@@ -14203,7 +14208,7 @@ bg.render = {
 
 					float roughness = specular.a;
 					float ssrtScale = inSSRTScale;
-					roughness *= 400.0 * ssrtScale * 1.1;
+					roughness *= 250.0 * ssrtScale;
 					vec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);
 
 					vec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);
@@ -15854,6 +15859,7 @@ bg.render = {
 
 				this._fragmentShaderSource.addParameter([
 					{ name:"inPositionMap", dataType:"sampler2D", role:"value"},
+					{ name:"inSpecularMap", dataType:"sampler2D", role:"value" },
 					{ name:"inNormalMap", dataType:"sampler2D", role:"value"},
 					{ name:"inLightingMap", dataType:"sampler2D", role:"value"},
 					{ name:"inMaterialMap", dataType:"sampler2D", role:"value"},
@@ -15863,11 +15869,14 @@ bg.render = {
 					{ name:"inRayFailColor", dataType:"vec4", role:"value" },
 					{ name:"inBasicMode", dataType:"bool", role:"value" },
 					{ name:"inFrameIndex", dataType:"float", role:"value" },
-
 					{ name:"inCubeMap", dataType:"samplerCube", role:"value" },
+
+					{ name:"inRandomTexture", dataType:"sampler2D", role:"value" },
 
 					{ name:"fsTexCoord", dataType:"vec2", role:"in" }	// vTexturePosition
 				]);
+
+				this._fragmentShaderSource.addFunction(lib().functions.utils.random);
 				
 				if (bg.Engine.Get().id=="webgl1") {
 					this._fragmentShaderSource.setMainBody(`
@@ -15888,11 +15897,17 @@ bg.render = {
 
 						if (renderFrame) {
 							vec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;
+							vec4 material = texture2D(inMaterialMap,fsTexCoord);
+							vec4 specular = texture2D(inSpecularMap,fsTexCoord);
+							float roughness = specular.a * 0.3;
+							vec3 r = texture2D(inRandomTexture,fsTexCoord*200.0).xyz * 2.0 - 1.0;
+							vec3 roughnessFactor = normalize(r) * roughness;
+							normal = normal + roughnessFactor;
 							vec4 vertexPos = texture2D(inPositionMap,fsTexCoord);
 							vec3 cameraVector = vertexPos.xyz - inCameraPos;
 							vec3 rayDirection = reflect(cameraVector,normal);
 							vec4 lighting = texture2D(inLightingMap,fsTexCoord);
-							vec4 material = texture2D(inMaterialMap,fsTexCoord);
+							
 							vec4 rayFailColor = inRayFailColor;
 	
 							vec3 lookup = reflect(cameraVector,normal);
@@ -15956,6 +15971,14 @@ bg.render = {
 			this.shader.setValueFloat("inFrameIndex",this._frameIndex);
 			
 			this.shader.setTexture("inCubeMap",bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_5);
+			
+			
+			if (!this._randomTexture) {
+				this._randomTexture = bg.base.TextureCache.RandomTexture(this.context,new bg.Vector2(1024));
+			}
+			this.shader.setTexture("inRandomTexture",this._randomTexture, bg.base.TextureUnit.TEXTURE_6);
+
+			this.shader.setTexture("inSpecularMap",this._surface.specular,bg.base.TextureUnit.TEXTURE_7);
 		}
 
 		get projectionMatrix() { return this._projectionMatrix; }

@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.10 - build: 6d8c77c";
+bg.version = "1.3.11 - build: d70a51b";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -646,7 +646,9 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       init: function() {},
       frame: function(delta) {},
       willDisplay: function(pipeline, matrixState) {},
-      display: function(pipeline, matrixState) {},
+      display: function(pipeline, matrixState) {
+        var forceDraw = arguments[2] !== (void 0) ? arguments[2] : false;
+      },
       displayGizmo: function(pipeline, matrixState) {},
       didDisplay: function(pipeline, matrixState) {},
       reshape: function(pipeline, matrixState, width, height) {},
@@ -1773,7 +1775,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         "roughnessMask": writeTexture(material.roughnessMask, fileData),
         "visible": plist.visible,
         "visibleToShadows": plist.visibleToShadows,
-        "groupName": material.groupName
+        "groupName": plist.groupName
       });
     });
     return JSON.stringify(mat);
@@ -8478,8 +8480,9 @@ bg.scene = {};
         });
       },
       display: function(pipeline, matrixState) {
+        var forceDraw = arguments[2] !== (void 0) ? arguments[2] : false;
         this.forEachComponent(function(comp) {
-          comp.display(pipeline, matrixState);
+          comp.display(pipeline, matrixState, forceDraw);
         });
       },
       displayGizmo: function(pipeline, matrixState) {
@@ -9413,6 +9416,7 @@ bg.scene = {};
         return true;
       },
       display: function(pipeline, matrixState) {
+        var forceDraw = arguments[2] !== (void 0) ? arguments[2] : false;
         if (!pipeline.effect) {
           throw new Error("Could not draw component: invalid effect found.");
         }
@@ -9421,7 +9425,7 @@ bg.scene = {};
           return;
         } else {
           this.forEach(function(plist, mat, trx) {
-            if ((!isShadowMap && plist.visible) || (isShadowMap && plist.visibleToShadows)) {
+            if ((!isShadowMap && plist.visible) || (isShadowMap && plist.visibleToShadows) || forceDraw) {
               var currMaterial = pipeline.effect.material;
               if (trx) {
                 matrixState.modelMatrixStack.push();
@@ -10811,8 +10815,15 @@ bg.scene = {};
       $traceurRuntime.superConstructor(DrawVisitor).call(this);
       this._pipeline = pipeline || bg.base.Pipeline.Current();
       this._matrixState = matrixState || bg.base.MatrixState.Current();
+      this._forceDraw = false;
     }
     return ($traceurRuntime.createClass)(DrawVisitor, {
+      get forceDraw() {
+        return this._forceDraw;
+      },
+      set forceDraw(f) {
+        this._forceDraw = f;
+      },
       get pipeline() {
         return this._pipeline;
       },
@@ -10821,7 +10832,7 @@ bg.scene = {};
       },
       visit: function(node) {
         node.willDisplay(this.pipeline, this.matrixState);
-        node.display(this.pipeline, this.matrixState);
+        node.display(this.pipeline, this.matrixState, this.forceDraw);
       },
       didVisit: function(node) {
         node.didDisplay(this.pipeline, this.matrixState);
@@ -12779,6 +12790,7 @@ bg.manipulation = {};
       this._pipeline.textureEffect = new bg.manipulation.BorderDetectionEffect(this.context);
       this._matrixState = new bg.base.MatrixState();
       this._drawVisitor = new bg.scene.DrawVisitor(this._offscreenPipeline, this._matrixState);
+      this._drawVisitor.forceDraw = true;
     }
     return ($traceurRuntime.createClass)(SelectionHighlight, {
       get highlightColor() {
@@ -13830,7 +13842,7 @@ bg.render = {};
             this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
             this._fragmentShaderSource.addFunction(lib().functions.blur.blur);
             this._fragmentShaderSource.addFunction(lib().functions.blur.glowBlur);
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 400.0 * ssrtScale * 1.1;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 250.0 * ssrtScale;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
           }
         }
         return this._fragmentShaderSource;
@@ -15337,6 +15349,10 @@ bg.render = {};
             dataType: "sampler2D",
             role: "value"
           }, {
+            name: "inSpecularMap",
+            dataType: "sampler2D",
+            role: "value"
+          }, {
             name: "inNormalMap",
             dataType: "sampler2D",
             role: "value"
@@ -15377,12 +15393,17 @@ bg.render = {};
             dataType: "samplerCube",
             role: "value"
           }, {
+            name: "inRandomTexture",
+            dataType: "sampler2D",
+            role: "value"
+          }, {
             name: "fsTexCoord",
             dataType: "vec2",
             role: "in"
           }]);
+          this._fragmentShaderSource.addFunction(lib().functions.utils.random);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));\n\t\t\t\t\t\tbool renderFrame = false;\n\t\t\t\t\t\tif (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tif (renderFrame) {\n\t\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\t\n\t\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\t\tif (!inBasicMode && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\n\t\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\t\n\t\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\t\n\t\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));\n\t\t\t\t\t\tbool renderFrame = false;\n\t\t\t\t\t\tif (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tif (renderFrame) {\n\t\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\n\t\t\t\t\t\t\tfloat roughness = specular.a * 0.3;\n\t\t\t\t\t\t\tvec3 r = texture2D(inRandomTexture,fsTexCoord*200.0).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec3 roughnessFactor = normalize(r) * roughness;\n\t\t\t\t\t\t\tnormal = normal + roughnessFactor;\n\t\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\t\n\t\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\t\tif (!inBasicMode && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\n\t\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\t\n\t\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\t\n\t\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
@@ -15400,6 +15421,11 @@ bg.render = {};
         this.shader.setValueInt("inBasicMode", this.basic);
         this.shader.setValueFloat("inFrameIndex", this._frameIndex);
         this.shader.setTexture("inCubeMap", bg.scene.Cubemap.Current(this.context), bg.base.TextureUnit.TEXTURE_5);
+        if (!this._randomTexture) {
+          this._randomTexture = bg.base.TextureCache.RandomTexture(this.context, new bg.Vector2(1024));
+        }
+        this.shader.setTexture("inRandomTexture", this._randomTexture, bg.base.TextureUnit.TEXTURE_6);
+        this.shader.setTexture("inSpecularMap", this._surface.specular, bg.base.TextureUnit.TEXTURE_7);
       },
       get projectionMatrix() {
         return this._projectionMatrix;
