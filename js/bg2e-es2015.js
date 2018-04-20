@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.12 - build: 08b927c";
+bg.version = "1.3.13 - build: 42ac320";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -8240,6 +8240,10 @@ bg.scene = {};
 			bg.log(`WARNING: Component with typeid ${this.typeId} does not implmement the clone() method.`);
 			return null;
 		}
+
+		destroy() {
+			
+		}
 		
 		get node() { return this._node; }
 		
@@ -9289,6 +9293,14 @@ bg.scene = {};
 				newInstance.addPolyList(plist.clone(), material.clone(), trx ? new bg.Matrix4(trx):null);
 			});
 			return newInstance;
+		}
+
+		destroy() {
+			this.forEach((plist) => {
+				plist.destroy();
+			});
+			this._name = "";
+			this._items = [];
 		}
 		
 		// It works as clone(), but it doesn't duplicate the polyList
