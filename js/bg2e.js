@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.11 - build: d70a51b";
+bg.version = "1.3.12 - build: 08b927c";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -2153,7 +2153,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       s_fragmentSource.addFunction(lib().functions.lighting.all);
       s_fragmentSource.addFunction(lib().functions.blur.blurCube);
       if (bg.Engine.Get().id == "webgl1") {
-        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\tif (inUnlit && diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tgl_FragColor = diffuseColor * lightmapColor;\n\t\t\t\t\t}\n\t\t\t\t\telse if (diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tvec3 frontFacingNormal = fsNormal;\n\t\t\t\t\t\tif (!gl_FrontFacing) {\n\t\t\t\t\t\t\tfrontFacingNormal *= -1.0;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(frontFacingNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tfor (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t\tif (i>=inNumLights) break;\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[i],\n\t\t\t\t\t\t\t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t\t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tfloat dist = distance(fsPosition,cameraPos);\n\t\t\t\t\t\tfloat maxRough = 50.0;\n\t\t\t\t\t\tfloat rough = max(inRoughness * 10.0,1.0);\n\t\t\t\t\t\trough = max(rough*dist,rough);\n\t\t\t\t\t\tfloat blur = min(rough,maxRough);\n\t\t\t\t\t\tvec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;\n\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tvec3 finalColor = light.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += cubemapColor * reflectionAmount * diffuseColor.rgb;\n\t\t\t\t\t\tvec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t\tresult.a = diffuseColor.a;\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
+        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\tif (inUnlit && diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tgl_FragColor = diffuseColor * lightmapColor;\n\t\t\t\t\t}\n\t\t\t\t\telse if (diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tvec3 frontFacingNormal = fsNormal;\n\t\t\t\t\t\tif (!gl_FrontFacing) {\n\t\t\t\t\t\t\tfrontFacingNormal *= -1.0;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(frontFacingNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tvec4 specularColor = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tfor (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t\tif (i>=inNumLights) break;\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[i],\n\t\t\t\t\t\t\t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t\t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor,\n\t\t\t\t\t\t\t\tspecularColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t\tlight.rgb += specularColor.rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tfloat dist = distance(fsPosition,cameraPos);\n\t\t\t\t\t\tfloat maxRough = 50.0;\n\t\t\t\t\t\tfloat rough = max(inRoughness * 10.0,1.0);\n\t\t\t\t\t\trough = max(rough*dist,rough);\n\t\t\t\t\t\tfloat blur = min(rough,maxRough);\n\t\t\t\t\t\tvec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;\n\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tvec3 finalColor = light.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += cubemapColor * reflectionAmount * diffuseColor.rgb;\n\t\t\t\t\t\tvec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t\tresult.a = diffuseColor.a;\n\n\t\t\t\t\t\t// TODO: add specularColor\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
       }
     }
     return s_fragmentSource;
@@ -2322,7 +2322,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           var texture = this.material.texture || whiteTex;
           var lightMap = this.material.lightmap || whiteTex;
           var normalMap = this.material.normalMap || normalTex;
-          var shininessMask = this.material.shininessMask || blackTex;
+          var shininessMask = this.material.shininessMask || whiteTex;
           var lightEmissionMask = this.material.lightEmissionMask || whiteTex;
           this.shader.setVector4('inDiffuseColor', this.material.diffuse);
           this.shader.setVector4('inSpecularColor', this.material.specular);
@@ -3172,6 +3172,116 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this._roughnessMaskChannel = mod._roughnessMaskChannel;
         this._roughnessMaskInvert = mod._roughnessMaskInvert;
         this._unlit = mod._unlit;
+      },
+      serialize: function() {
+        var result = {};
+        var mask = this._modifierFlags;
+        if (mask & bg.base.MaterialFlag.DIFFUSE) {
+          result.diffuseR = this._diffuse.r;
+          result.diffuseG = this._diffuse.g;
+          result.diffuseB = this._diffuse.b;
+          result.diffuseA = this._diffuse.a;
+        }
+        if (mask & bg.base.MaterialFlag.SPECULAR) {
+          result.specularR = this._specular.r;
+          result.specularG = this._specular.g;
+          result.specularB = this._specular.b;
+          result.specularA = this._specular.a;
+        }
+        if (mask & bg.base.MaterialFlag.SHININESS) {
+          result.shininess = this._shininess;
+        }
+        if (mask & bg.base.MaterialFlag.SHININESS_MASK) {
+          result.shininessMask = this._shininessMask;
+        }
+        if (mask & bg.base.MaterialFlag.SHININESS_MASK_CHANNEL) {
+          result.shininessMaskChannel = this._shininessMaskChannel;
+        }
+        if (mask & bg.base.MaterialFlag.SHININESS_MASK_INVERT) {
+          result.invertShininessMask = this._shininessMaskInvert;
+        }
+        if (mask & bg.base.MaterialFlag.LIGHT_EMISSION) {
+          result.lightEmission = this._lightEmission;
+        }
+        if (mask & bg.base.MaterialFlag.LIGHT_EMISSION_MASK) {
+          result.lightEmissionMask = this._lightEmissionMask;
+        }
+        if (mask & bg.base.MaterialFlag.LIGHT_EMISSION_MASK_CHANNEL) {
+          result.lightEmissionMaskChannel = this._lightEmissionMaskChannel;
+        }
+        if (mask & bg.base.MaterialFlag.LIGHT_EMISSION_MASK_INVERT) {
+          result.invertLightEmissionMask = this._lightEmissionMaskInvert;
+        }
+        if (mask & bg.base.MaterialFlag.REFRACTION_AMOUNT) {
+          result.reflectionAmount = this._refractionAmount;
+        }
+        if (mask & bg.base.MaterialFlag.REFLECTION_AMOUNT) {
+          result.refractionAmount = this._reflectionAmount;
+        }
+        if (mask & bg.base.MaterialFlag.TEXTURE) {
+          result.texture = this._texture;
+        }
+        if (mask & bg.base.MaterialFlag.LIGHT_MAP) {
+          result.lightmap = this._lightmap;
+        }
+        if (mask & bg.base.MaterialFlag.NORMAL_MAP) {
+          result.normalMap = this._normalMap;
+        }
+        if (mask & bg.base.MaterialFlag.TEXTURE_OFFSET) {
+          result.textureScaleX = this._textureScale.x;
+          result.textureScaleY = this._textureScale.y;
+        }
+        if (mask & bg.base.MaterialFlag.TEXTURE_SCALE) {
+          result.textureScaleX = this._textureScale.x;
+          result.textureScaleY = this._textureScale.y;
+        }
+        if (mask & bg.base.MaterialFlag.LIGHT_MAP_OFFSET) {
+          result.lightmapOffsetX = this._lightmapOffset.x;
+          result.lightmapOffsetY = this._lightmapOffset.y;
+        }
+        if (mask & bg.base.MaterialFlag.LIGHT_MAP_SCALE) {
+          result.lightmapScaleX = this._lightmapScale.x;
+          result.lightmapScaleY = this._lightmapScale.y;
+        }
+        if (mask & bg.base.MaterialFlag.NORMAL_MAP_OFFSET) {
+          result.normalMapOffsetX = this._normalMapOffset.x;
+          result.normalMapOffsetY = this._normalMapOffset.y;
+        }
+        if (mask & bg.base.MaterialFlag.NORMAL_MAP_SCALE) {
+          result.normalMapScaleX = this._normalMapScale.x;
+          result.normalMapScaleY = this._normalMapScale.y;
+        }
+        if (mask & bg.base.MaterialFlag.CAST_SHADOWS) {
+          result.castShadows = this._castShadows;
+        }
+        if (mask & bg.base.MaterialFlag.RECEIVE_SHADOWS) {
+          result.receiveShadows = this._receiveShadows;
+        }
+        if (mask & bg.base.MaterialFlag.ALPHA_CUTOFF) {
+          result.alphaCutoff = this._alphaCutoff;
+        }
+        if (mask & bg.base.MaterialFlag.REFLECTION_MASK) {
+          result.reflectionMask = this._reflectionMask;
+        }
+        if (mask & bg.base.MaterialFlag.REFLECTION_MASK_CHANNEL) {
+          result.reflectionMaskChannel = this._reflectionMaskChannel;
+        }
+        if (mask & bg.base.MaterialFlag.REFLECTION_MASK_INVERT) {
+          result.invertReflectionMask = this._reflectionMaskInvert;
+        }
+        if (mask & bg.base.MaterialFlag.CULL_FACE) {
+          result.cullFace = this._cullFace;
+        }
+        if (mask & bg.base.MaterialFlag.ROUGHNESS) {
+          result.roughness = this._roughness;
+          result.roughnessMask = this._roughnessMask;
+          result.roughnessMaskChannel = this._roughnessMaskChannel;
+          result.invertRoughnessMask = this._roughnessMaskInvert;
+        }
+        if (mask & bg.base.MaterialFlag.UNLIT) {
+          result.unlit = this._unlit;
+        }
+        return result;
       }
     }, {});
   }();
@@ -3744,6 +3854,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       getModifierWithMask: function(modifierMask) {
         var mod = new MaterialModifier();
+        mod.modifierFlags = modifierMask;
         if (mod.isEnabled(bg.base.MaterialFlag.DIFFUSE)) {
           mod.diffuse = this.diffuse;
         }
@@ -3837,7 +3948,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         if (mod.isEnabled(bg.base.MaterialFlag.UNLIT)) {
           mod.unlit = this.unlit;
         }
-        mod.modifierFlags = modifierMask;
+        return mod;
       }
     }, {
       FromMaterialDefinition: function(context, def) {
@@ -9995,7 +10106,7 @@ bg.scene = {};
               resolve(drawable);
             });
           } else {
-            buildDrawable.apply($__2, [$__2._plistArray]);
+            buildDrawable.apply($__2, [$__2._plistArray, {}]);
             resolve(drawable);
           }
         });
@@ -13822,6 +13933,10 @@ bg.render = {};
             dataType: "sampler2D",
             role: "value"
           }, {
+            name: "inShininessColor",
+            dataType: "sampler2D",
+            role: "value"
+          }, {
             name: "inViewSize",
             dataType: "vec2",
             role: "value"
@@ -13842,7 +13957,7 @@ bg.render = {};
             this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
             this._fragmentShaderSource.addFunction(lib().functions.blur.blur);
             this._fragmentShaderSource.addFunction(lib().functions.blur.glowBlur);
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 250.0 * ssrtScale;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 shin = texture2D(inShininessColor,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 250.0 * ssrtScale;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb + shin.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
           }
         }
         return this._fragmentShaderSource;
@@ -13857,6 +13972,7 @@ bg.render = {};
         this.shader.setTexture("inMaterial", this._surface.materialMap, bg.base.TextureUnit.TEXTURE_5);
         this.shader.setTexture("inSpecularMap", this._surface.specularMap, bg.base.TextureUnit.TEXTURE_6);
         this.shader.setTexture("inOpaqueDepthMap", this._surface.opaqueDepthMap, bg.base.TextureUnit.TEXTURE_7);
+        this.shader.setTexture("inShininessColor", this._surface.shininess, bg.base.TextureUnit.TEXTURE_8);
         this.shader.setValueInt("inSSAOBlur", this.ssaoBlur);
         this.shader.setValueFloat("inSSRTScale", this.ssrtScale * this.frameScale);
       },
@@ -14012,6 +14128,12 @@ bg.render = {};
       get mixDepthMap() {
         return this._type == bg.render.SurfaceType.OPAQUE ? this.position : this._opaqueSurfaces.position;
       },
+      get shininess() {
+        return this._lightingSurface.getTexture(1);
+      },
+      get bloom() {
+        return this._lightingSurface.getTexture(2);
+      },
       createCommon: function() {
         var ctx = this.context;
         this._gbufferUByteSurface = new bg.base.TextureSurface(ctx);
@@ -14043,6 +14165,12 @@ bg.render = {};
         this._gbufferFloatSurface.resizeOnViewportChanged = false;
         this._lightingSurface = new bg.base.TextureSurface(ctx);
         this._lightingSurface.create([{
+          type: bg.base.RenderSurfaceType.RGBA,
+          format: bg.base.RenderSurfaceFormat.FLOAT
+        }, {
+          type: bg.base.RenderSurfaceType.RGBA,
+          format: bg.base.RenderSurfaceFormat.FLOAT
+        }, {
           type: bg.base.RenderSurfaceType.RGBA,
           format: bg.base.RenderSurfaceFormat.FLOAT
         }, {
@@ -14244,7 +14372,8 @@ bg.render = {};
           reflectionMap: renderSSRT ? this.maps.reflection : this.maps.lighting,
           specularMap: this.maps.specular,
           materialMap: this.maps.material,
-          opaqueDepthMap: this.maps.mixDepthMap
+          opaqueDepthMap: this.maps.mixDepthMap,
+          shininess: this.maps.shininess
         });
         camera.viewport = vp;
       }
@@ -14838,6 +14967,7 @@ bg.render = {};
       get fragmentShaderSource() {
         if (!this._fragmentShaderSource) {
           this._fragmentShaderSource = new bg.base.ShaderSource(bg.base.ShaderType.FRAGMENT);
+          this._fragmentShaderSource.appendHeader("#extension GL_EXT_draw_buffers : require");
           this._fragmentShaderSource.addParameter([{
             name: "inDiffuse",
             dataType: "sampler2D",
@@ -14875,7 +15005,7 @@ bg.render = {};
           this._fragmentShaderSource.addFunction(lib().functions.utils.all);
           this._fragmentShaderSource.addFunction(lib().functions.lighting.all);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 specular = vec4(texture2D(inSpecular,fsTexCoord).rgb,1.0);\n\t\t\t\t\tvec4 normalTex = texture2D(inNormal,fsTexCoord);\n\t\t\t\t\tvec3 normal = normalTex.xyz * 2.0 - 1.0;\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\t\t\t\t\tvec4 position = texture2D(inPosition,fsTexCoord);\n\t\t\t\t\t\n\t\t\t\t\tvec4 shadowColor = texture2D(inShadowMap,fsTexCoord);\n\t\t\t\t\tfloat shininess = material.g * 255.0;\n\t\t\t\t\tfloat lightEmission = material.r;\n\t\t\t\t\tbool unlit = normalTex.a == 0.0;\n\t\t\t\t\tif (unlit) {\n\t\t\t\t\t\tgl_FragColor = vec4(diffuse.rgb * min(inLightEmissionFactor,1.0),1.0);\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tvec4 light = getLight(\n\t\t\t\t\t\t\tinLightType,\n\t\t\t\t\t\t\tinLightAmbient, inLightDiffuse, inLightSpecular,shininess,\n\t\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\t\tinSpotCutoff,inSpotExponent,inLightCutoffDistance,\n\t\t\t\t\t\t\tposition.rgb,normal,\n\t\t\t\t\t\t\tdiffuse,specular,shadowColor\n\t\t\t\t\t\t);\n\t\t\t\t\t\tlight.rgb = light.rgb + (lightEmission * diffuse.rgb * inLightEmissionFactor);\n\t\t\t\t\t\tgl_FragColor = light;\n\t\t\t\t\t}\n\t\t\t\t\t");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 specular = vec4(texture2D(inSpecular,fsTexCoord).rgb,1.0);\n\t\t\t\t\tvec4 normalTex = texture2D(inNormal,fsTexCoord);\n\t\t\t\t\tvec3 normal = normalTex.xyz * 2.0 - 1.0;\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\t\t\t\t\tvec4 position = texture2D(inPosition,fsTexCoord);\n\t\t\t\t\t\n\t\t\t\t\tvec4 shadowColor = texture2D(inShadowMap,fsTexCoord);\n\t\t\t\t\tfloat shininess = material.g * 255.0;\n\t\t\t\t\tfloat lightEmission = material.r;\n\t\t\t\t\tbool unlit = normalTex.a == 0.0;\n\t\t\t\t\tvec4 specularColor = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\tif (unlit) {\n\t\t\t\t\t\tgl_FragData[0] = vec4(diffuse.rgb * min(inLightEmissionFactor,1.0),1.0);\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tvec4 light = getLight(\n\t\t\t\t\t\t\tinLightType,\n\t\t\t\t\t\t\tinLightAmbient, inLightDiffuse, inLightSpecular,shininess,\n\t\t\t\t\t\t\tinLightPosition,inLightDirection,\n\t\t\t\t\t\t\tinLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,\n\t\t\t\t\t\t\tinSpotCutoff,inSpotExponent,inLightCutoffDistance,\n\t\t\t\t\t\t\tposition.rgb,normal,\n\t\t\t\t\t\t\tdiffuse,specular,shadowColor,\n\t\t\t\t\t\t\tspecularColor\n\t\t\t\t\t\t);\n\t\t\t\t\t\tlight.rgb = light.rgb + (lightEmission * diffuse.rgb * inLightEmissionFactor);\n\t\t\t\t\t\tgl_FragData[0] = light;\n\t\t\t\t\t\tgl_FragData[1] = specularColor;\n\t\t\t\t\t\tgl_FragData[2] = vec4((light.rgb - vec3(1.0,1.0,1.0)) * 2.0,1.0);\n\t\t\t\t\t}\n\t\t\t\t\t");
           }
         }
         return this._fragmentShaderSource;
@@ -16650,9 +16780,10 @@ bg.webgl1 = {};
         normal: "vec3",
         matDiffuse: "vec4",
         matSpecular: "vec4",
-        shadowColor: "vec4"
+        shadowColor: "vec4",
+        specularOut: "out vec4"
       },
-      body: "\n\t\t\t\tvec3 color = ambient.rgb * matDiffuse.rgb;\n\t\t\t\tvec3 diffuseWeight = max(0.0, dot(normal,direction)) * diffuse.rgb;\n\t\t\t\tcolor += min(diffuseWeight,shadowColor.rgb) * matDiffuse.rgb;\n\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\tvec3 eyeDirection = normalize(-vertexPos);\n\t\t\t\t\tvec3 reflectionDirection = normalize(reflect(-direction,normal));\n\t\t\t\t\tfloat specularWeight = clamp(pow(max(dot(reflectionDirection, eyeDirection), 0.0), shininess), 0.0, 1.0);\n\t\t\t\t\t//sspecularWeight = beckmannSpecular(direction,eyeDirection,normal,0.01);\n\t\t\t\t\tvec3 specularColor = specularWeight * pow(shadowColor.rgb,vec3(10.0));\n\t\t\t\t\tcolor += specularColor * specular.rgb * matSpecular.rgb;\n\t\t\t\t}\n\t\t\t\treturn vec4(color,1.0);"
+      body: "\n\t\t\t\tvec3 color = ambient.rgb * matDiffuse.rgb;\n\t\t\t\tvec3 diffuseWeight = max(0.0, dot(normal,direction)) * diffuse.rgb;\n\t\t\t\tcolor += min(diffuseWeight,shadowColor.rgb) * matDiffuse.rgb;\n\t\t\t\tspecularOut = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\tvec3 eyeDirection = normalize(-vertexPos);\n\t\t\t\t\tvec3 reflectionDirection = normalize(reflect(-direction,normal));\n\t\t\t\t\tfloat specularWeight = clamp(pow(max(dot(reflectionDirection, eyeDirection), 0.0), shininess), 0.0, 1.0);\n\t\t\t\t\t//sspecularWeight = beckmannSpecular(direction,eyeDirection,normal,0.01);\n\t\t\t\t\tvec3 specularColor = specularWeight * pow(shadowColor.rgb,vec3(10.0));\n\t\t\t\t\t//color += specularColor * specular.rgb * matSpecular.rgb;\n\t\t\t\t\tspecularOut = vec4(specularColor * specular.rgb * matSpecular.rgb,1.0);\n\t\t\t\t}\n\t\t\t\treturn vec4(color,1.0);"
     },
     getPointLight: {
       returnType: "vec4",
@@ -16669,9 +16800,10 @@ bg.webgl1 = {};
         vertexPos: "vec3",
         normal: "vec3",
         matDiffuse: "vec4",
-        matSpecular: "vec4"
+        matSpecular: "vec4",
+        specularOut: "out vec4"
       },
-      body: "\n\t\t\t\tvec3 pointToLight = position - vertexPos;\n\t\t\t\tfloat distance = length(pointToLight);\n\t\t\t\tvec3 lightDir = normalize(pointToLight);\n\t\t\t\tfloat attenuation = 1.0 / (constAtt + linearAtt * distance + expAtt * distance * distance);\n\t\t\t\tvec3 color = ambient.rgb * matDiffuse.rgb;\n\t\t\t\tvec3 diffuseWeight = max(0.0,dot(normal,lightDir)) * diffuse.rgb * attenuation;\n\t\t\t\tcolor += diffuseWeight * matDiffuse.rgb;\n\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\tvec3 eyeDirection = normalize(-vertexPos);\n\t\t\t\t\tvec3 reflectionDirection = normalize(reflect(-lightDir, normal));\n\t\t\t\t\tfloat specularWeight = clamp(pow(max(dot(reflectionDirection,eyeDirection),0.0), shininess), 0.0, 1.0);\n\t\t\t\t\tcolor += specularWeight * specular.rgb * matSpecular.rgb * attenuation;\n\t\t\t\t}\n\t\t\t\treturn vec4(color,1.0);"
+      body: "\n\t\t\t\tvec3 pointToLight = position - vertexPos;\n\t\t\t\tfloat distance = length(pointToLight);\n\t\t\t\tvec3 lightDir = normalize(pointToLight);\n\t\t\t\tfloat attenuation = 1.0 / (constAtt + linearAtt * distance + expAtt * distance * distance);\n\t\t\t\tvec3 color = ambient.rgb * matDiffuse.rgb;\n\t\t\t\tvec3 diffuseWeight = max(0.0,dot(normal,lightDir)) * diffuse.rgb * attenuation;\n\t\t\t\tcolor += diffuseWeight * matDiffuse.rgb;\n\t\t\t\tspecularOut = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\tvec3 eyeDirection = normalize(-vertexPos);\n\t\t\t\t\tvec3 reflectionDirection = normalize(reflect(-lightDir, normal));\n\t\t\t\t\tfloat specularWeight = clamp(pow(max(dot(reflectionDirection,eyeDirection),0.0), shininess), 0.0, 1.0);\n\t\t\t\t\t//color += specularWeight * specular.rgb * matSpecular.rgb * attenuation;\n\t\t\t\t\tspecularOut = vec4(specularWeight * specular.rgb * matSpecular.rgb * attenuation,1.0);\n\t\t\t\t}\n\t\t\t\treturn vec4(color,1.0);"
     },
     getSpotLight: {
       returnType: "vec4",
@@ -16692,9 +16824,10 @@ bg.webgl1 = {};
         normal: "vec3",
         matDiffuse: "vec4",
         matSpecular: "vec4",
-        shadowColor: "vec4"
+        shadowColor: "vec4",
+        specularOut: "out vec4"
       },
-      body: "\n\t\t\t\tvec4 matAmbient = vec4(1.0);\n\t\t\t\tvec3 s = normalize(position - vertexPos);\n\t\t\t\tfloat angle = acos(dot(-s, direction));\n\t\t\t\tfloat cutoff = radians(clamp(spotCutoff / 2.0,0.0,90.0));\n\t\t\t\tfloat distance = length(position - vertexPos);\n\t\t\t\tfloat attenuation = 1.0 / (constAtt );//+ linearAtt * distance + expAtt * distance * distance);\n\t\t\t\tif (angle<cutoff) {\n\t\t\t\t\tfloat spotFactor = pow(dot(-s, direction), spotExponent);\n\t\t\t\t\tvec3 v = normalize(vec3(-vertexPos));\n\t\t\t\t\tvec3 h = normalize(v + s);\n\t\t\t\t\tvec3 diffuseAmount = matDiffuse.rgb * diffuse.rgb * max(dot(s, normal), 0.0);\n\t\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\t\tdiffuseAmount += matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);\n\t\t\t\t\t\tdiffuseAmount *= pow(shadowColor.rgb,vec3(10.0));\n\t\t\t\t\t}\n\t\t\t\t\tdiffuseAmount.r = min(diffuseAmount.r, shadowColor.r);\n\t\t\t\t\tdiffuseAmount.g = min(diffuseAmount.g, shadowColor.g);\n\t\t\t\t\tdiffuseAmount.b = min(diffuseAmount.b, shadowColor.b);\n\t\t\t\t\treturn vec4(ambient.rgb * matDiffuse.rgb + attenuation * spotFactor * diffuseAmount,1.0);\n\t\t\t\t}\n\t\t\t\telse {\n\t\t\t\t\treturn vec4(ambient.rgb * matDiffuse.rgb,1.0);\n\t\t\t\t}"
+      body: "\n\t\t\t\tvec4 matAmbient = vec4(1.0);\n\t\t\t\tvec3 s = normalize(position - vertexPos);\n\t\t\t\tfloat angle = acos(dot(-s, direction));\n\t\t\t\tfloat cutoff = radians(clamp(spotCutoff / 2.0,0.0,90.0));\n\t\t\t\tfloat distance = length(position - vertexPos);\n\t\t\t\tfloat attenuation = 1.0 / (constAtt );//+ linearAtt * distance + expAtt * distance * distance);\n\t\t\t\tif (angle<cutoff) {\n\t\t\t\t\tfloat spotFactor = pow(dot(-s, direction), spotExponent);\n\t\t\t\t\tvec3 v = normalize(vec3(-vertexPos));\n\t\t\t\t\tvec3 h = normalize(v + s);\n\t\t\t\t\tvec3 diffuseAmount = matDiffuse.rgb * diffuse.rgb * max(dot(s, normal), 0.0);\n\t\t\t\t\tspecularOut = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\tif (shininess>0.0) {\n\t\t\t\t\t\tspecularOut.rgb = matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);\n\t\t\t\t\t\tspecularOut.rgb *= pow(shadowColor.rgb,vec3(10.0));\n\t\t\t\t\t\t//diffuseAmount += matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);\n\t\t\t\t\t\t//diffuseAmount *= pow(shadowColor.rgb,vec3(10.0));\n\t\t\t\t\t}\n\t\t\t\t\tdiffuseAmount.r = min(diffuseAmount.r, shadowColor.r);\n\t\t\t\t\tdiffuseAmount.g = min(diffuseAmount.g, shadowColor.g);\n\t\t\t\t\tdiffuseAmount.b = min(diffuseAmount.b, shadowColor.b);\n\t\t\t\t\treturn vec4(ambient.rgb * matDiffuse.rgb + attenuation * spotFactor * diffuseAmount,1.0);\n\t\t\t\t}\n\t\t\t\telse {\n\t\t\t\t\treturn vec4(ambient.rgb * matDiffuse.rgb,1.0);\n\t\t\t\t}"
     },
     getLight: {
       returnType: "vec4",
@@ -16717,9 +16850,10 @@ bg.webgl1 = {};
         vertexNormal: "vec3",
         matDiffuse: "vec4",
         matSpecular: "vec4",
-        shadowColor: "vec4"
+        shadowColor: "vec4",
+        specularOut: "out vec4"
       },
-      body: ("\n\t\t\t\t\tvec4 light = vec4(0.0);\n\t\t\t\t\tif (lightType==" + bg.base.LightType.DIRECTIONAL + ") {\n\t\t\t\t\t\tlight = getDirectionalLight(ambient,diffuse,specular,shininess,\n\t\t\t\t\t\t\t\t\t\t-lightDirection,vertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor);\n\t\t\t\t\t}\n\t\t\t\t\telse if (lightType==" + bg.base.LightType.SPOT + ") {\n\t\t\t\t\t\tfloat d = distance(vertexPosition,lightPosition);\n\t\t\t\t\t\tif (d<=cutoffDistance || cutoffDistance==-1.0) {\n\t\t\t\t\t\t\tlight = getSpotLight(ambient,diffuse,specular,shininess,\n\t\t\t\t\t\t\t\t\t\t\tlightPosition,lightDirection,\n\t\t\t\t\t\t\t\t\t\t\tconstAtt,linearAtt,expAtt,\n\t\t\t\t\t\t\t\t\t\t\tspotCutoff,spotExponent,\n\t\t\t\t\t\t\t\t\t\t\tvertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\telse if (lightType==" + bg.base.LightType.POINT + ") {\n\t\t\t\t\t\tfloat d = distance(vertexPosition,lightPosition);\n\t\t\t\t\t\tif (d<=cutoffDistance || cutoffDistance==-1.0) {\n\t\t\t\t\t\t\tlight = getPointLight(ambient,diffuse,specular,shininess,\n\t\t\t\t\t\t\t\t\t\t\tlightPosition,\n\t\t\t\t\t\t\t\t\t\t\tconstAtt,linearAtt,expAtt,\n\t\t\t\t\t\t\t\t\t\t\tvertexPosition,vertexNormal,matDiffuse,matSpecular);\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\treturn light;\n\t\t\t\t")
+      body: ("\n\t\t\t\t\tvec4 light = vec4(0.0);\n\t\t\t\t\tif (lightType==" + bg.base.LightType.DIRECTIONAL + ") {\n\t\t\t\t\t\tlight = getDirectionalLight(ambient,diffuse,specular,shininess,\n\t\t\t\t\t\t\t\t\t\t-lightDirection,vertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor,specularOut);\n\t\t\t\t\t}\n\t\t\t\t\telse if (lightType==" + bg.base.LightType.SPOT + ") {\n\t\t\t\t\t\tfloat d = distance(vertexPosition,lightPosition);\n\t\t\t\t\t\tif (d<=cutoffDistance || cutoffDistance==-1.0) {\n\t\t\t\t\t\t\tlight = getSpotLight(ambient,diffuse,specular,shininess,\n\t\t\t\t\t\t\t\t\t\t\tlightPosition,lightDirection,\n\t\t\t\t\t\t\t\t\t\t\tconstAtt,linearAtt,expAtt,\n\t\t\t\t\t\t\t\t\t\t\tspotCutoff,spotExponent,\n\t\t\t\t\t\t\t\t\t\t\tvertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor,specularOut);\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\telse if (lightType==" + bg.base.LightType.POINT + ") {\n\t\t\t\t\t\tfloat d = distance(vertexPosition,lightPosition);\n\t\t\t\t\t\tif (d<=cutoffDistance || cutoffDistance==-1.0) {\n\t\t\t\t\t\t\tlight = getPointLight(ambient,diffuse,specular,shininess,\n\t\t\t\t\t\t\t\t\t\t\tlightPosition,\n\t\t\t\t\t\t\t\t\t\t\tconstAtt,linearAtt,expAtt,\n\t\t\t\t\t\t\t\t\t\t\tvertexPosition,vertexNormal,matDiffuse,matSpecular,specularOut);\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\treturn light;\n\t\t\t\t")
     },
     getShadowColor: {
       returnType: "vec4",

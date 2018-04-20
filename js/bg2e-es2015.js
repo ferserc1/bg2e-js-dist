@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.11 - build: d70a51b";
+bg.version = "1.3.12 - build: 08b927c";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -2317,6 +2317,7 @@ Object.defineProperty(bg, "isElectronApp", {
 						diffuseColor = diffuseColor * inDiffuseColor * lightmapColor;
 						
 						vec4 light = vec4(0.0,0.0,0.0,1.0);
+						vec4 specularColor = vec4(0.0,0.0,0.0,1.0);
 						for (int i=0; i<${ bg.base.MAX_FORWARD_LIGHTS}; ++i) {
 							if (i>=inNumLights) break;
 							light.rgb += getLight(
@@ -2326,8 +2327,10 @@ Object.defineProperty(bg, "isElectronApp", {
 								inLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,
 								inSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],
 								fsPosition,normalMap,
-								diffuseColor,specular,shadowColor
+								diffuseColor,specular,shadowColor,
+								specularColor
 							).rgb;
+							light.rgb += specularColor.rgb;
 						}
 
 						vec3 cameraPos = vec3(0.0);
@@ -2349,6 +2352,8 @@ Object.defineProperty(bg, "isElectronApp", {
 						finalColor += cubemapColor * reflectionAmount * diffuseColor.rgb;
 						vec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);
 						result.a = diffuseColor.a;
+
+						// TODO: add specularColor
 						gl_FragColor = result;
 					}
 					else {
@@ -2513,7 +2518,7 @@ Object.defineProperty(bg, "isElectronApp", {
 				let texture = this.material.texture || whiteTex;
 				let lightMap = this.material.lightmap || whiteTex;
 				let normalMap = this.material.normalMap || normalTex;
-				let shininessMask = this.material.shininessMask || blackTex;
+				let shininessMask = this.material.shininessMask || whiteTex;
 				let lightEmissionMask = this.material.lightEmissionMask || whiteTex;
 
 				this.shader.setVector4('inDiffuseColor',this.material.diffuse);
@@ -3170,6 +3175,118 @@ Object.defineProperty(bg, "isElectronApp", {
 			this._roughnessMaskInvert = mod._roughnessMaskInvert;
 			this._unlit = mod._unlit;
 		}
+
+		serialize() {
+			let result = {};
+			let mask = this._modifierFlags;
+
+			if ( mask & bg.base.MaterialFlag.DIFFUSE) {
+				result.diffuseR = this._diffuse.r;
+				result.diffuseG = this._diffuse.g;
+				result.diffuseB = this._diffuse.b;
+				result.diffuseA = this._diffuse.a;
+			}
+			if ( mask & bg.base.MaterialFlag.SPECULAR) {
+				result.specularR = this._specular.r;
+				result.specularG = this._specular.g;
+				result.specularB = this._specular.b;
+				result.specularA = this._specular.a;
+			}
+			if ( mask & bg.base.MaterialFlag.SHININESS) {
+				result.shininess = this._shininess;
+			}
+			if ( mask & bg.base.MaterialFlag.SHININESS_MASK) {
+				result.shininessMask = this._shininessMask;
+			}
+			if ( mask & bg.base.MaterialFlag.SHININESS_MASK_CHANNEL) {
+				result.shininessMaskChannel = this._shininessMaskChannel;
+			}
+			if ( mask & bg.base.MaterialFlag.SHININESS_MASK_INVERT) {
+				result.invertShininessMask = this._shininessMaskInvert;
+			}
+			if ( mask & bg.base.MaterialFlag.LIGHT_EMISSION) {
+				result.lightEmission = this._lightEmission;
+			}
+			if ( mask & bg.base.MaterialFlag.LIGHT_EMISSION_MASK) {
+				result.lightEmissionMask = this._lightEmissionMask;
+			}
+			if ( mask & bg.base.MaterialFlag.LIGHT_EMISSION_MASK_CHANNEL) {
+				result.lightEmissionMaskChannel = this._lightEmissionMaskChannel;
+			}
+			if ( mask & bg.base.MaterialFlag.LIGHT_EMISSION_MASK_INVERT) {
+				result.invertLightEmissionMask = this._lightEmissionMaskInvert;
+			}
+			if ( mask & bg.base.MaterialFlag.REFRACTION_AMOUNT) {
+				result.reflectionAmount = this._refractionAmount;
+			}
+			if ( mask & bg.base.MaterialFlag.REFLECTION_AMOUNT) {
+				result.refractionAmount = this._reflectionAmount;
+			}
+			if ( mask & bg.base.MaterialFlag.TEXTURE) {
+				result.texture = this._texture;
+			}
+			if ( mask & bg.base.MaterialFlag.LIGHT_MAP) {
+				result.lightmap = this._lightmap;
+			}
+			if ( mask & bg.base.MaterialFlag.NORMAL_MAP) {
+				result.normalMap = this._normalMap;
+			}
+			if ( mask & bg.base.MaterialFlag.TEXTURE_OFFSET) {
+				result.textureScaleX = this._textureScale.x;
+				result.textureScaleY = this._textureScale.y;
+			}
+			if ( mask & bg.base.MaterialFlag.TEXTURE_SCALE) {
+				result.textureScaleX = this._textureScale.x;
+				result.textureScaleY = this._textureScale.y;
+			}
+			if ( mask & bg.base.MaterialFlag.LIGHT_MAP_OFFSET) {
+				result.lightmapOffsetX = this._lightmapOffset.x;
+				result.lightmapOffsetY = this._lightmapOffset.y;
+			}
+			if ( mask & bg.base.MaterialFlag.LIGHT_MAP_SCALE) {
+				result.lightmapScaleX = this._lightmapScale.x;
+				result.lightmapScaleY = this._lightmapScale.y;
+			}
+			if ( mask & bg.base.MaterialFlag.NORMAL_MAP_OFFSET) {
+				result.normalMapOffsetX = this._normalMapOffset.x;
+				result.normalMapOffsetY = this._normalMapOffset.y;
+			}
+			if ( mask & bg.base.MaterialFlag.NORMAL_MAP_SCALE) {
+				result.normalMapScaleX = this._normalMapScale.x;
+				result.normalMapScaleY = this._normalMapScale.y;
+			}
+			if ( mask & bg.base.MaterialFlag.CAST_SHADOWS) {
+				result.castShadows = this._castShadows;
+			}
+			if ( mask & bg.base.MaterialFlag.RECEIVE_SHADOWS) {
+				result.receiveShadows = this._receiveShadows;
+			}
+			if ( mask & bg.base.MaterialFlag.ALPHA_CUTOFF) {
+				result.alphaCutoff = this._alphaCutoff;
+			}
+			if ( mask & bg.base.MaterialFlag.REFLECTION_MASK) {
+				result.reflectionMask = this._reflectionMask;
+			}
+			if ( mask & bg.base.MaterialFlag.REFLECTION_MASK_CHANNEL) {
+				result.reflectionMaskChannel = this._reflectionMaskChannel;
+			}
+			if ( mask & bg.base.MaterialFlag.REFLECTION_MASK_INVERT) {
+				result.invertReflectionMask = this._reflectionMaskInvert;
+			}
+			if ( mask & bg.base.MaterialFlag.CULL_FACE) {
+				result.cullFace = this._cullFace;
+			}
+			if ( mask & bg.base.MaterialFlag.ROUGHNESS) {
+				result.roughness = this._roughness;
+				result.roughnessMask = this._roughnessMask;
+				result.roughnessMaskChannel = this._roughnessMaskChannel;
+				result.invertRoughnessMask = this._roughnessMaskInvert;
+			}
+			if (mask & bg.base.MaterialFlag.UNLIT) {
+				result.unlit = this._unlit;
+			}
+			return result;
+		}
 	}
 	
 	bg.base.MaterialModifier = MaterialModifier;
@@ -3695,6 +3812,8 @@ Object.defineProperty(bg, "isElectronApp", {
 		
 		getModifierWithMask(modifierMask) {
 			var mod = new MaterialModifier();
+
+			mod.modifierFlags = modifierMask;
 			
 			if (mod.isEnabled(bg.base.MaterialFlag.DIFFUSE)) {
 				mod.diffuse = this.diffuse;
@@ -3793,7 +3912,7 @@ Object.defineProperty(bg, "isElectronApp", {
 				mod.unlit = this.unlit;
 			}
 
-			mod.modifierFlags = modifierMask;
+			return mod;
 		}
 		
 		static GetMaterialWithJson(context,data,path) {
@@ -10009,7 +10128,7 @@ bg.scene = {};
                         });
                 }
                 else {
-                    buildDrawable.apply(this,[this._plistArray]);
+                    buildDrawable.apply(this,[this._plistArray,{}]);
                     resolve(drawable);
                 }
             });
@@ -14183,6 +14302,7 @@ bg.render = {
 					{ name:"inSpecularMap", dataType:"sampler2D", role:"value" },
 					{ name:"inMaterial", dataType:"sampler2D", role:"value"},
 					{ name:"inOpaqueDepthMap", dataType:"sampler2D", role:"value"},
+					{ name:"inShininessColor", dataType:"sampler2D", role:"value" }, 
 					{ name:"inViewSize", dataType:"vec2", role:"value"},
 					{ name:"inSSAOBlur", dataType:"int", role:"value"},
 					{ name:"inSSRTScale", dataType:"float", role:"value" },
@@ -14201,6 +14321,7 @@ bg.render = {
 					vec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));
 					vec4 diffuse = texture2D(inDiffuse,fsTexCoord);
 					vec4 pos = texture2D(inPositionMap,fsTexCoord);
+					vec4 shin = texture2D(inShininessColor,fsTexCoord);
 					vec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);
 					vec4 material = texture2D(inMaterial,fsTexCoord);
 
@@ -14218,7 +14339,7 @@ bg.render = {
 					else {
 						float reflectionAmount = material.b;
 						vec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);
-						finalColor += reflect.rgb * reflectionAmount * diffuse.rgb;
+						finalColor += reflect.rgb * reflectionAmount * diffuse.rgb + shin.rgb;
 						finalColor *= ssao.rgb;
 						gl_FragColor = vec4(finalColor,diffuse.a);
 					}`);
@@ -14238,6 +14359,7 @@ bg.render = {
 			this.shader.setTexture("inMaterial",this._surface.materialMap,bg.base.TextureUnit.TEXTURE_5);
 			this.shader.setTexture("inSpecularMap",this._surface.specularMap,bg.base.TextureUnit.TEXTURE_6);
 			this.shader.setTexture("inOpaqueDepthMap",this._surface.opaqueDepthMap,bg.base.TextureUnit.TEXTURE_7);
+			this.shader.setTexture("inShininessColor",this._surface.shininess,bg.base.TextureUnit.TEXTURE_8);
 	
 			this.shader.setValueInt("inSSAOBlur",this.ssaoBlur);
 			this.shader.setValueFloat("inSSRTScale",this.ssrtScale * this.frameScale);
@@ -14347,6 +14469,9 @@ bg.render = {
 		get reflectionDepth() { return this._type==bg.render.SurfaceType.OPAQUE ? this.position : this._opaqueSurfaces.position; }
 		get mixDepthMap() { return this._type==bg.render.SurfaceType.OPAQUE ? this.position : this._opaqueSurfaces.position; }
 		
+		// Generated in lighting shader
+		get shininess() { return this._lightingSurface.getTexture(1); }
+		get bloom() { return this._lightingSurface.getTexture(2); }
 		
 		createCommon() {
 			var ctx = this.context;
@@ -14369,6 +14494,8 @@ bg.render = {
 
 			this._lightingSurface = new bg.base.TextureSurface(ctx);
 			this._lightingSurface.create([
+				{ type:bg.base.RenderSurfaceType.RGBA, format:bg.base.RenderSurfaceFormat.FLOAT },
+				{ type:bg.base.RenderSurfaceType.RGBA, format:bg.base.RenderSurfaceFormat.FLOAT },
 				{ type:bg.base.RenderSurfaceType.RGBA, format:bg.base.RenderSurfaceFormat.FLOAT },
 				{ type:bg.base.RenderSurfaceType.DEPTH, format:bg.base.RenderSurfaceFormat.RENDERBUFFER }
 			]);
@@ -14608,7 +14735,9 @@ bg.render = {
 				reflectionMap:renderSSRT ? this.maps.reflection:this.maps.lighting,
 				specularMap:this.maps.specular,
 				materialMap:this.maps.material,
-				opaqueDepthMap:this.maps.mixDepthMap
+				opaqueDepthMap:this.maps.mixDepthMap,
+				shininess:this.maps.shininess
+				// TODO: bloom
 			});	// null: all textures are specified as parameters to the effect
 
 			camera.viewport = vp;
@@ -15308,7 +15437,8 @@ bg.render = {
 		get fragmentShaderSource() {
 			if (!this._fragmentShaderSource) {
 				this._fragmentShaderSource = new bg.base.ShaderSource(bg.base.ShaderType.FRAGMENT);
-				
+				this._fragmentShaderSource.appendHeader("#extension GL_EXT_draw_buffers : require");
+
 				this._fragmentShaderSource.addParameter([
 					{ name:"inDiffuse", dataType:"sampler2D", role:"value"},
 					{ name:"inSpecular", dataType:"sampler2D", role:"value"},
@@ -15336,8 +15466,9 @@ bg.render = {
 					float shininess = material.g * 255.0;
 					float lightEmission = material.r;
 					bool unlit = normalTex.a == 0.0;
+					vec4 specularColor = vec4(0.0,0.0,0.0,1.0);
 					if (unlit) {
-						gl_FragColor = vec4(diffuse.rgb * min(inLightEmissionFactor,1.0),1.0);
+						gl_FragData[0] = vec4(diffuse.rgb * min(inLightEmissionFactor,1.0),1.0);
 					}
 					else {
 						vec4 light = getLight(
@@ -15347,10 +15478,13 @@ bg.render = {
 							inLightAttenuation.x,inLightAttenuation.y,inLightAttenuation.z,
 							inSpotCutoff,inSpotExponent,inLightCutoffDistance,
 							position.rgb,normal,
-							diffuse,specular,shadowColor
+							diffuse,specular,shadowColor,
+							specularColor
 						);
 						light.rgb = light.rgb + (lightEmission * diffuse.rgb * inLightEmissionFactor);
-						gl_FragColor = light;
+						gl_FragData[0] = light;
+						gl_FragData[1] = specularColor;
+						gl_FragData[2] = vec4((light.rgb - vec3(1.0,1.0,1.0)) * 2.0,1.0);
 					}
 					`);
 				}
@@ -16970,18 +17104,21 @@ bg.webgl1 = {};
 				returnType:"vec4", name:"getDirectionalLight", params:{
 					ambient:"vec4", diffuse:"vec4", specular:"vec4", shininess:"float",
 					direction:"vec3", vertexPos:"vec3", normal:"vec3", matDiffuse:"vec4", matSpecular:"vec4",
-					shadowColor:"vec4"
+					shadowColor:"vec4",
+					specularOut:"out vec4"
 				}, body: `
 				vec3 color = ambient.rgb * matDiffuse.rgb;
 				vec3 diffuseWeight = max(0.0, dot(normal,direction)) * diffuse.rgb;
 				color += min(diffuseWeight,shadowColor.rgb) * matDiffuse.rgb;
+				specularOut = vec4(0.0,0.0,0.0,1.0);
 				if (shininess>0.0) {
 					vec3 eyeDirection = normalize(-vertexPos);
 					vec3 reflectionDirection = normalize(reflect(-direction,normal));
 					float specularWeight = clamp(pow(max(dot(reflectionDirection, eyeDirection), 0.0), shininess), 0.0, 1.0);
 					//sspecularWeight = beckmannSpecular(direction,eyeDirection,normal,0.01);
 					vec3 specularColor = specularWeight * pow(shadowColor.rgb,vec3(10.0));
-					color += specularColor * specular.rgb * matSpecular.rgb;
+					//color += specularColor * specular.rgb * matSpecular.rgb;
+					specularOut = vec4(specularColor * specular.rgb * matSpecular.rgb,1.0);
 				}
 				return vec4(color,1.0);`
 			},
@@ -16990,7 +17127,8 @@ bg.webgl1 = {};
 				returnType:"vec4", name:"getPointLight", params: {
 					ambient: "vec4", diffuse: "vec4", specular: "vec4", shininess: "float",
 					position: "vec3", constAtt: "float", linearAtt: "float", expAtt: "float",
-					vertexPos: "vec3", normal: "vec3", matDiffuse: "vec4", matSpecular: "vec4"
+					vertexPos: "vec3", normal: "vec3", matDiffuse: "vec4", matSpecular: "vec4",
+					specularOut:"out vec4"
 				}, body: `
 				vec3 pointToLight = position - vertexPos;
 				float distance = length(pointToLight);
@@ -16999,11 +17137,13 @@ bg.webgl1 = {};
 				vec3 color = ambient.rgb * matDiffuse.rgb;
 				vec3 diffuseWeight = max(0.0,dot(normal,lightDir)) * diffuse.rgb * attenuation;
 				color += diffuseWeight * matDiffuse.rgb;
+				specularOut = vec4(0.0,0.0,0.0,1.0);
 				if (shininess>0.0) {
 					vec3 eyeDirection = normalize(-vertexPos);
 					vec3 reflectionDirection = normalize(reflect(-lightDir, normal));
 					float specularWeight = clamp(pow(max(dot(reflectionDirection,eyeDirection),0.0), shininess), 0.0, 1.0);
-					color += specularWeight * specular.rgb * matSpecular.rgb * attenuation;
+					//color += specularWeight * specular.rgb * matSpecular.rgb * attenuation;
+					specularOut = vec4(specularWeight * specular.rgb * matSpecular.rgb * attenuation,1.0);
 				}
 				return vec4(color,1.0);`
 			},
@@ -17015,7 +17155,8 @@ bg.webgl1 = {};
 					constAtt:"float", linearAtt:"float", expAtt:"float",
 					spotCutoff:"float", spotExponent:"float",
 					vertexPos:"vec3", normal:"vec3",
-					matDiffuse:"vec4", matSpecular:"vec4", shadowColor:"vec4"
+					matDiffuse:"vec4", matSpecular:"vec4", shadowColor:"vec4",
+					specularOut:"out vec4"
 				}, body: `
 				vec4 matAmbient = vec4(1.0);
 				vec3 s = normalize(position - vertexPos);
@@ -17028,9 +17169,12 @@ bg.webgl1 = {};
 					vec3 v = normalize(vec3(-vertexPos));
 					vec3 h = normalize(v + s);
 					vec3 diffuseAmount = matDiffuse.rgb * diffuse.rgb * max(dot(s, normal), 0.0);
+					specularOut = vec4(0.0,0.0,0.0,1.0);
 					if (shininess>0.0) {
-						diffuseAmount += matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);
-						diffuseAmount *= pow(shadowColor.rgb,vec3(10.0));
+						specularOut.rgb = matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);
+						specularOut.rgb *= pow(shadowColor.rgb,vec3(10.0));
+						//diffuseAmount += matSpecular.rgb * specular.rgb * pow(max(dot(h,normal), 0.0),shininess);
+						//diffuseAmount *= pow(shadowColor.rgb,vec3(10.0));
 					}
 					diffuseAmount.r = min(diffuseAmount.r, shadowColor.r);
 					diffuseAmount.g = min(diffuseAmount.g, shadowColor.g);
@@ -17050,12 +17194,13 @@ bg.webgl1 = {};
 					constAtt:"float", linearAtt:"float", expAtt:"float",
 					spotCutoff:"float", spotExponent:"float",cutoffDistance:"float",
 					vertexPosition:"vec3", vertexNormal:"vec3",
-					matDiffuse:"vec4", matSpecular:"vec4", shadowColor:"vec4"
+					matDiffuse:"vec4", matSpecular:"vec4", shadowColor:"vec4",
+					specularOut:"out vec4"
 				}, body: `
 					vec4 light = vec4(0.0);
 					if (lightType==${ bg.base.LightType.DIRECTIONAL }) {
 						light = getDirectionalLight(ambient,diffuse,specular,shininess,
-										-lightDirection,vertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor);
+										-lightDirection,vertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor,specularOut);
 					}
 					else if (lightType==${ bg.base.LightType.SPOT }) {
 						float d = distance(vertexPosition,lightPosition);
@@ -17064,7 +17209,7 @@ bg.webgl1 = {};
 											lightPosition,lightDirection,
 											constAtt,linearAtt,expAtt,
 											spotCutoff,spotExponent,
-											vertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor);
+											vertexPosition,vertexNormal,matDiffuse,matSpecular,shadowColor,specularOut);
 						}
 					}
 					else if (lightType==${ bg.base.LightType.POINT }) {
@@ -17073,7 +17218,7 @@ bg.webgl1 = {};
 							light = getPointLight(ambient,diffuse,specular,shininess,
 											lightPosition,
 											constAtt,linearAtt,expAtt,
-											vertexPosition,vertexNormal,matDiffuse,matSpecular);
+											vertexPosition,vertexNormal,matDiffuse,matSpecular,specularOut);
 						}
 					}
 					return light;
