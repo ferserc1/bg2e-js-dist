@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.13 - build: 42ac320";
+bg.version = "1.3.14 - build: 21949a1";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -3661,6 +3661,22 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       get roughnessMaskChannelVector() {
         return channelVector(this.roughnessMaskChannel);
+      },
+      getExternalResources: function() {
+        var resources = arguments[0] !== (void 0) ? arguments[0] : [];
+        function tryadd(texture) {
+          if (texture && texture.fileName && texture.fileName != "" && resources.indexOf(texture.fileName) == -1) {
+            resources.push(texture.fileName);
+          }
+        }
+        tryadd(this.texture);
+        tryadd(this.lightmap);
+        tryadd(this.normalMap);
+        tryadd(this.shininessMask);
+        tryadd(this.lightEmissionMask);
+        tryadd(this.reflectionMask);
+        tryadd(this.roughnessMask);
+        return resources;
       },
       copyMaterialSettings: function(mat, mask) {
         if (mask & bg.base.MaterialFlag.DIFFUSE) {
@@ -9372,6 +9388,13 @@ bg.scene = {};
           return true;
         }
         return false;
+      },
+      getExternalResources: function() {
+        var resources = arguments[0] !== (void 0) ? arguments[0] : [];
+        this.forEach(function(plist, material) {
+          material.getExternalResources(resources);
+        });
+        return resources;
       },
       applyMaterialDefinition: function(materialDefinitions, resourcesUrl) {
         var promises = [];

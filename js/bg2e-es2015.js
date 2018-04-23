@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.13 - build: 42ac320";
+bg.version = "1.3.14 - build: 21949a1";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -3608,6 +3608,25 @@ Object.defineProperty(bg, "isElectronApp", {
 			return channelVector(this.roughnessMaskChannel);
 		}
 		
+		// Returns an array of the external resources used by this material, for example,
+		// the paths to the textures. If the "resources" parameter (array) is passed, the resources
+		// will be added to this array, and the parameter will be modified to include the new
+		// resources. If a resource exists in the "resources" parameter, it will not be added
+		getExternalResources(resources=[]) {
+			function tryadd(texture) {
+				if (texture && texture.fileName && texture.fileName!="" && resources.indexOf(texture.fileName)==-1) {
+					resources.push(texture.fileName);
+				}
+			}
+			tryadd(this.texture);
+			tryadd(this.lightmap);
+			tryadd(this.normalMap);
+			tryadd(this.shininessMask);
+			tryadd(this.lightEmissionMask);
+			tryadd(this.reflectionMask);
+			tryadd(this.roughnessMask);
+			return resources;
+		}
 		
 		copyMaterialSettings(mat,mask) {
 			if ( mask & bg.base.MaterialFlag.DIFFUSE) {
@@ -9325,6 +9344,13 @@ bg.scene = {};
 				return true;
 			}
 			return false;
+		}
+
+		getExternalResources(resources = []) {
+			this.forEach((plist,material) => {
+				material.getExternalResources(resources)
+			});
+			return resources;
 		}
 
 		// Apply a material definition object to the polyLists
