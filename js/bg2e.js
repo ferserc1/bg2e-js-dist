@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.14 - build: 21949a1";
+bg.version = "1.3.15 - build: 059031d";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -9976,6 +9976,9 @@ bg.scene = {};
     }
     this._currentPlist.index.push(this._currentPlist.index.length);
   }
+  function isValid(point) {
+    return point && point.vertex && point.tex && point.normal;
+  }
   function addPolygon(polygonData) {
     var currentVertex = 0;
     var sides = polygonData.length;
@@ -9994,9 +9997,13 @@ bg.scene = {};
       var p0 = polygonData[i0];
       var p1 = polygonData[i1];
       var p2 = polygonData[i2];
-      addPoint.apply(this, [p0]);
-      addPoint.apply(this, [p1]);
-      addPoint.apply(this, [p2]);
+      if (isValid(p0) && isValid(p1) && isValid(p2)) {
+        addPoint.apply(this, [p0]);
+        addPoint.apply(this, [p1]);
+        addPoint.apply(this, [p2]);
+      } else {
+        console.warn("Invalid point data found loading OBJ file");
+      }
       currentVertex += 3;
     }
   }
@@ -10066,18 +10073,31 @@ bg.scene = {};
           var name = $__2.url.replace(/[\\\/]/ig, '-');
           var drawable = new bg.scene.Drawable(name);
           var lines = data.split('\n');
+          var multiLine = "";
           lines.forEach(function(line) {
             line = line.trim();
+            if (multiLine) {
+              line = multiLine + line;
+            }
+            if (line[line.length - 1] == '\\') {
+              line = line.substring(0, line.length - 1);
+              multiLine += line;
+              return;
+            } else {
+              multiLine = "";
+            }
             if (line.length > 1 && line[0] != '#') {
               switch (line[0]) {
                 case 'v':
-                  var res = /v\s+([\d\.\-]+)\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line);
+                  var res = /v\s+([\d\.\-e]+)\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line);
                   if (res) {
                     $__2._vertexArray.push([Number(res[1]), Number(res[2]), Number(res[3])]);
-                  } else if ((res = /vn\s+([\d\.\-]+)\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line))) {
+                  } else if ((res = /vn\s+([\d\.\-e]+)\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line))) {
                     $__2._normalArray.push([Number(res[1]), Number(res[2]), Number(res[3])]);
-                  } else if ((res = /vt\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line))) {
+                  } else if ((res = /vt\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line))) {
                     $__2._texCoordArray.push([Number(res[1]), Number(res[2])]);
+                  } else {
+                    console.warn("Error parsing line " + line);
                   }
                   break;
                 case 'm':

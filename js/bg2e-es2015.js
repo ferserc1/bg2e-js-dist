@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.14 - build: 21949a1";
+bg.version = "1.3.15 - build: 059031d";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -9971,6 +9971,10 @@ bg.scene = {};
         this._currentPlist.index.push(this._currentPlist.index.length);
     }
 
+    function isValid(point) {
+        return point && point.vertex && point.tex && point.normal;
+    }
+
     function addPolygon(polygonData) {
         let currentVertex = 0;
         let sides = polygonData.length;
@@ -9991,10 +9995,14 @@ bg.scene = {};
             let p1 = polygonData[i1];
             let p2 = polygonData[i2];
 
-            addPoint.apply(this,[p0]);
-            addPoint.apply(this,[p1]);
-            addPoint.apply(this,[p2]);
-
+            if (isValid(p0) && isValid(p1) && isValid(p2)) {
+                addPoint.apply(this,[p0]);
+                addPoint.apply(this,[p1]);
+                addPoint.apply(this,[p2]);
+            }
+            else {
+                console.warn("Invalid point data found loading OBJ file");
+            }
             currentVertex+=3;
         }
     }
@@ -10077,29 +10085,47 @@ bg.scene = {};
                 let drawable = new bg.scene.Drawable(name);
                 let lines = data.split('\n');
 
+                let multiLine = "";
                 lines.forEach((line) => {
                     line = line.trim();
+
+                    // This section controls the break line character \
+                    // to concatenate this line with the next one
+                    if (multiLine) {
+                        line = multiLine + line;
+                    }
+                    if (line[line.length-1]=='\\') {
+                        line = line.substring(0,line.length-1);
+                        multiLine += line;
+                        return;
+                    }
+                    else {
+                        multiLine = "";
+                    }
 
                     // First optimization: parse the first character and string lenght
                     if (line.length>1 && line[0]!='#') {
                         // Second optimization: parse by the first character
                         switch (line[0]) {
                         case 'v':
-                            let res = /v\s+([\d\.\-]+)\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line);
+                            let res = /v\s+([\d\.\-e]+)\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line);
                             if (res) {
                                 this._vertexArray.push(
                                     [ Number(res[1]), Number(res[2]), Number(res[3]) ]
                                 );
                             }
-                            else if ( (res = /vn\s+([\d\.\-]+)\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line)) ) {
+                            else if ( (res = /vn\s+([\d\.\-e]+)\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line)) ) {
                                 this._normalArray.push(
                                     [ Number(res[1]), Number(res[2]), Number(res[3]) ]
                                 );
                             }
-                            else if ( (res = /vt\s+([\d\.\-]+)\s+([\d\.\-]+)/.exec(line)) ) {
+                            else if ( (res = /vt\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line)) ) {
                                 this._texCoordArray.push(
                                     [ Number(res[1]), Number(res[2]) ]
                                 );
+                            }
+                            else {
+                                console.warn("Error parsing line " + line);
                             }
                             break;
                         case 'm':
