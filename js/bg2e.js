@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.15 - build: 059031d";
+bg.version = "1.3.16 - build: 722308d";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -8123,7 +8123,7 @@ bg.physics = {};
             dst.translate(offset.x, offset.y, offset.z);
             this.multRotation(dst);
             break;
-          case bg.physics.LinkTransformOrder.TRANSLATE_ROTATE:
+          case bg.physics.LinkTransformOrder.ROTATE_TRANSLATE:
             this.multRotation(dst);
             dst.translate(offset.x, offset.y, offset.z);
             break;
@@ -9126,6 +9126,42 @@ bg.scene = {};
 
 "use strict";
 (function() {
+  var GizmoType = {
+    IN_JOINT: 0,
+    OUT_JOINT: 1
+  };
+  function buildPlist(context, vertex, color) {
+    var plist = new bg.base.PolyList(context);
+    var normal = [];
+    var texCoord0 = [];
+    var index = [];
+    var currentIndex = 0;
+    for (var i = 0; i < vertex.length; i += 3) {
+      normal.push(0);
+      normal.push(0);
+      normal.push(1);
+      texCoord0.push(0);
+      texCoord0.push(0);
+      index.push(currentIndex++);
+    }
+    plist.vertex = vertex;
+    plist.normal = normal;
+    plist.texCoord0 = texCoord0;
+    plist.color = color;
+    plist.index = index;
+    plist.drawMode = bg.base.DrawMode.LINES;
+    plist.build();
+    return plist;
+  }
+  function getGizmo(type) {
+    if (!this._gizmo) {
+      var s = 0.5;
+      var vertex = [s, 0, 0, -s, 0, 0, 0, s, 0, 0, -s, 0, 0, 0, s, 0, 0, -s];
+      var color = [1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1];
+      this._gizmo = buildPlist(this.node.context, vertex, color);
+    }
+    return this._gizmo;
+  }
   var Chain = function($__super) {
     function Chain() {
       $traceurRuntime.superConstructor(Chain).call(this);
@@ -9193,6 +9229,17 @@ bg.scene = {};
         newJoint.joint.assign(this.joint);
         return newJoint;
       },
+      displayGizmo: function(pipeline, matrixState) {
+        var plist = getGizmo.apply(this, [0]);
+        if (plist) {
+          matrixState.modelMatrixStack.push();
+          var mat = new bg.Matrix4(this.joint.transform);
+          mat.invert();
+          matrixState.modelMatrixStack.mult(mat);
+          pipeline.draw(plist);
+          matrixState.modelMatrixStack.pop();
+        }
+      },
       serialize: function(componentData, promises, url) {
         $traceurRuntime.superGet(this, InputChainJoint.prototype, "serialize").call(this, componentData, promises, url);
         componentData.joint = {};
@@ -9215,6 +9262,16 @@ bg.scene = {};
         var newJoint = new bg.scene.OutputChainJoint();
         newJoint.joint.assign(this.joint);
         return newJoint;
+      },
+      displayGizmo: function(pipeline, matrixState) {
+        var plist = getGizmo.apply(this, [1]);
+        if (plist) {
+          matrixState.modelMatrixStack.push();
+          var mat = new bg.Matrix4(this.joint.transform);
+          matrixState.modelMatrixStack.mult(mat);
+          pipeline.draw(plist);
+          matrixState.modelMatrixStack.pop();
+        }
       },
       serialize: function(componentData, promises, url) {
         $traceurRuntime.superGet(this, OutputChainJoint.prototype, "serialize").call(this, componentData, promises, url);
