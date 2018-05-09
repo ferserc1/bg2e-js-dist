@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.16 - build: 722308d";
+bg.version = "1.3.17 - build: a2a3103";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -8707,6 +8707,9 @@ bg.scene = {};
 				else if (jsonData.type=="OpticalProjectionMethod") {
 					result = new OpticalProjectionStrategy();
 				}
+				else if (jsonData.type=="OrthographicProjectionStrategy") {
+					result = new OrthographicProjectionStrategy();
+				}
 
 				if (result) {
 					result.deserialize(jsonData);
@@ -8831,6 +8834,50 @@ bg.scene = {};
 	}
 
 	bg.scene.OpticalProjectionStrategy = OpticalProjectionStrategy;
+
+	class OrthographicProjectionStrategy extends ProjectionStrategy {
+		constructor(target) {
+			super(target);
+			this._viewWidth = 100;
+		}
+
+		clone() {
+			let result = new OrthographicProjectionStrategy();
+			result.near = this.near;
+			result.far = this.far;
+			result.viewWidth = this.viewWidth;
+			return result;
+		}
+
+		get viewWidth() { return this._viewWidth; }
+		set viewWidth(w) { this._viewWidth = w; }
+
+		apply() {
+			if (this.target) {
+				let ratio = this.viewport.aspectRatio;
+				let height = this.viewWidth / ratio;
+				let x = this.viewWidth / 2;
+				let y = height / 2;
+				this.target.ortho(-x, x, -y, y, -this._far, this._far);
+			}
+		}
+
+		deserialize(jsonData) {
+			this.viewWidth = jsonData.viewWidth;
+			this.near = jsonData.near;
+			this.far = jsonData.far;
+		}
+
+		serialize(jsonData) {
+			jsonData.type = "OrthographicProjectionStrategy";
+			jsonData.viewWidth = this.viewWidth;
+			jsonData.near = this.near;
+			jsonData.far = this.far;
+			super.serialize(jsonData);
+		}
+	}
+
+	bg.scene.OrthographicProjectionStrategy = OrthographicProjectionStrategy;
 
 	function buildPlist(context,vertex,color) {
 		let plist = new bg.base.PolyList(context);
@@ -13658,6 +13705,9 @@ bg.manipulation = {};
 			this._showLimitGizmo = true;
 			this._limitGizmoColor = bg.Color.Green();
 
+			// This is used for orthographic projections
+			this._viewWidth = 50;
+
 			this._lastTouch = [];
 		}
 		
@@ -13681,6 +13731,8 @@ bg.manipulation = {};
 		set center(c) { this._center = c; }
 		get whellSpeed() { this._wheelSpeed; }
 		set wheelSpeed(w) { this._wheelSpeed = w; }
+
+		get viewWidth() { return this._viewWidth; }
 		
 		get minCameraFocus() { return this._minFocus; }
 		set minCameraFocus(f) { this._minFocus = f; }
@@ -13783,6 +13835,11 @@ bg.manipulation = {};
 		}
 
 		frame(delta) {
+			let orthoStrategy = this.camera && typeof(this.camera.projectionStrategy)=="object" &&
+								this.camera.projectionStrategy instanceof bg.scene.OrthographicProjectionStrategy ?
+									this.camera.projectionStrategy : null;
+			
+
 			if (this.transform && this.enabled) {
 				let forward = this.transform.matrix.forwardVector;
 				let left = this.transform.matrix.leftVector;
@@ -13832,12 +13889,19 @@ bg.manipulation = {};
 						.identity()
 						.translate(this._center)
 						.rotate(bg.Math.degreesToRadians(this._rotation.y), 0,1,0)
-						.rotate(bg.Math.degreesToRadians(pitch), -1,0,0)
-						.translate(0,0,this._distance);
+						.rotate(bg.Math.degreesToRadians(pitch), -1,0,0);
+
+				if (orthoStrategy) {
+					orthoStrategy.viewWidth = this._viewWidth;
+				}
+				else {
+					this.transform.matrix.translate(0,0,this._distance);
+				}
 			}
 			
 			if (this.camera) {
 				this.camera.focus = this._distance>this._minFocus ? this._distance:this._minFocus;
+				
 			}
 		}
 
@@ -13856,6 +13920,9 @@ bg.manipulation = {};
 				let delta = new bg.Vector2(this._lastPos.y - evt.y,
 										 this._lastPos.x - evt.x);
 				this._lastPos.set(evt.x,evt.y);
+				let orthoStrategy = this.camera && typeof(this.camera.projectionStrategy)=="object" &&
+								this.camera.projectionStrategy instanceof bg.scene.OrthographicProjectionStrategy ?
+								true : false;
 
 				switch (getOrbitAction(this)) {
 					case Action.ROTATE:
@@ -13866,12 +13933,20 @@ bg.manipulation = {};
 						let up = this.transform.matrix.upVector;
 						let left = this.transform.matrix.leftVector;
 						
-						up.scale(delta.x * -0.001 * this._distance);
-						left.scale(delta.y * -0.001 * this._distance);
+						if (orthoStrategy) {
+							up.scale(delta.x * -0.0005 * this._viewWidth);
+							left.scale(delta.y * -0.0005 * this._viewWidth);
+						}
+						else {
+							up.scale(delta.x * -0.001 * this._distance);
+							left.scale(delta.y * -0.001 * this._distance);
+						}
 						this._center.add(up).add(left);
 						break;
 					case Action.ZOOM:
 						this._distance += delta.x * 0.01 * this._distance;
+						this._viewWidth += delta.x * 0.01 * this._viewWidth;
+						if (this._viewWidth<0.5) this._viewWidth = 0.5;
 						break;
 				}				
 			}
@@ -13880,7 +13955,10 @@ bg.manipulation = {};
 		mouseWheel(evt) {
 			if (!this.enabled) return;
 			let mult = this._distance>0.01 ? this._distance:0.01;
+			let wMult = this._viewWidth>1 ? this._viewWidth:1;
 			this._distance += evt.delta * 0.001 * mult * this._wheelSpeed;
+			this._viewWidth += evt.delta * 0.0001 * wMult * this._wheelSpeed;
+			if (this._viewWidth<0.5) this._viewWidth = 0.5;
 		}
 		
 		touchStart(evt) {

@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.16 - build: 722308d";
+bg.version = "1.3.17 - build: a2a3103";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -8853,6 +8853,8 @@ bg.scene = {};
             result = new PerspectiveProjectionStrategy();
           } else if (jsonData.type == "OpticalProjectionMethod") {
             result = new OpticalProjectionStrategy();
+          } else if (jsonData.type == "OrthographicProjectionStrategy") {
+            result = new OrthographicProjectionStrategy();
           }
           if (result) {
             result.deserialize(jsonData);
@@ -8953,6 +8955,49 @@ bg.scene = {};
     }, {}, $__super);
   }(ProjectionStrategy);
   bg.scene.OpticalProjectionStrategy = OpticalProjectionStrategy;
+  var OrthographicProjectionStrategy = function($__super) {
+    function OrthographicProjectionStrategy(target) {
+      $traceurRuntime.superConstructor(OrthographicProjectionStrategy).call(this, target);
+      this._viewWidth = 100;
+    }
+    return ($traceurRuntime.createClass)(OrthographicProjectionStrategy, {
+      clone: function() {
+        var result = new OrthographicProjectionStrategy();
+        result.near = this.near;
+        result.far = this.far;
+        result.viewWidth = this.viewWidth;
+        return result;
+      },
+      get viewWidth() {
+        return this._viewWidth;
+      },
+      set viewWidth(w) {
+        this._viewWidth = w;
+      },
+      apply: function() {
+        if (this.target) {
+          var ratio = this.viewport.aspectRatio;
+          var height = this.viewWidth / ratio;
+          var x = this.viewWidth / 2;
+          var y = height / 2;
+          this.target.ortho(-x, x, -y, y, -this._far, this._far);
+        }
+      },
+      deserialize: function(jsonData) {
+        this.viewWidth = jsonData.viewWidth;
+        this.near = jsonData.near;
+        this.far = jsonData.far;
+      },
+      serialize: function(jsonData) {
+        jsonData.type = "OrthographicProjectionStrategy";
+        jsonData.viewWidth = this.viewWidth;
+        jsonData.near = this.near;
+        jsonData.far = this.far;
+        $traceurRuntime.superGet(this, OrthographicProjectionStrategy.prototype, "serialize").call(this, jsonData);
+      }
+    }, {}, $__super);
+  }(ProjectionStrategy);
+  bg.scene.OrthographicProjectionStrategy = OrthographicProjectionStrategy;
   function buildPlist(context, vertex, color) {
     var plist = new bg.base.PolyList(context);
     var normal = [];
@@ -13158,6 +13203,7 @@ bg.manipulation = {};
       this._keys = {};
       this._showLimitGizmo = true;
       this._limitGizmoColor = bg.Color.Green();
+      this._viewWidth = 50;
       this._lastTouch = [];
     }
     return ($traceurRuntime.createClass)(OrbitCameraController, {
@@ -13205,6 +13251,9 @@ bg.manipulation = {};
       },
       set wheelSpeed(w) {
         this._wheelSpeed = w;
+      },
+      get viewWidth() {
+        return this._viewWidth;
       },
       get minCameraFocus() {
         return this._minFocus;
@@ -13359,6 +13408,7 @@ bg.manipulation = {};
         this._enabled = componentData.enabled !== undefined ? componentData.enabled : this._enabled;
       },
       frame: function(delta) {
+        var orthoStrategy = this.camera && $traceurRuntime.typeof((this.camera.projectionStrategy)) == "object" && this.camera.projectionStrategy instanceof bg.scene.OrthographicProjectionStrategy ? this.camera.projectionStrategy : null;
         if (this.transform && this.enabled) {
           var forward = this.transform.matrix.forwardVector;
           var left = this.transform.matrix.leftVector;
@@ -13403,7 +13453,12 @@ bg.manipulation = {};
             this._center.z = this._minZ;
           else if (this._center.z > this._maxZ)
             this._center.z = this._maxZ;
-          this.transform.matrix.identity().translate(this._center).rotate(bg.Math.degreesToRadians(this._rotation.y), 0, 1, 0).rotate(bg.Math.degreesToRadians(pitch), -1, 0, 0).translate(0, 0, this._distance);
+          this.transform.matrix.identity().translate(this._center).rotate(bg.Math.degreesToRadians(this._rotation.y), 0, 1, 0).rotate(bg.Math.degreesToRadians(pitch), -1, 0, 0);
+          if (orthoStrategy) {
+            orthoStrategy.viewWidth = this._viewWidth;
+          } else {
+            this.transform.matrix.translate(0, 0, this._distance);
+          }
         }
         if (this.camera) {
           this.camera.focus = this._distance > this._minFocus ? this._distance : this._minFocus;
@@ -13422,6 +13477,7 @@ bg.manipulation = {};
         if (this.transform && this._lastPos && this.enabled) {
           var delta = new bg.Vector2(this._lastPos.y - evt.y, this._lastPos.x - evt.x);
           this._lastPos.set(evt.x, evt.y);
+          var orthoStrategy = this.camera && $traceurRuntime.typeof((this.camera.projectionStrategy)) == "object" && this.camera.projectionStrategy instanceof bg.scene.OrthographicProjectionStrategy ? true : false;
           switch (getOrbitAction(this)) {
             case Action.ROTATE:
               delta.x = delta.x * -1;
@@ -13430,12 +13486,20 @@ bg.manipulation = {};
             case Action.PAN:
               var up = this.transform.matrix.upVector;
               var left = this.transform.matrix.leftVector;
-              up.scale(delta.x * -0.001 * this._distance);
-              left.scale(delta.y * -0.001 * this._distance);
+              if (orthoStrategy) {
+                up.scale(delta.x * -0.0005 * this._viewWidth);
+                left.scale(delta.y * -0.0005 * this._viewWidth);
+              } else {
+                up.scale(delta.x * -0.001 * this._distance);
+                left.scale(delta.y * -0.001 * this._distance);
+              }
               this._center.add(up).add(left);
               break;
             case Action.ZOOM:
               this._distance += delta.x * 0.01 * this._distance;
+              this._viewWidth += delta.x * 0.01 * this._viewWidth;
+              if (this._viewWidth < 0.5)
+                this._viewWidth = 0.5;
               break;
           }
         }
@@ -13444,7 +13508,11 @@ bg.manipulation = {};
         if (!this.enabled)
           return;
         var mult = this._distance > 0.01 ? this._distance : 0.01;
+        var wMult = this._viewWidth > 1 ? this._viewWidth : 1;
         this._distance += evt.delta * 0.001 * mult * this._wheelSpeed;
+        this._viewWidth += evt.delta * 0.0001 * wMult * this._wheelSpeed;
+        if (this._viewWidth < 0.5)
+          this._viewWidth = 0.5;
       },
       touchStart: function(evt) {
         if (!this.enabled)
