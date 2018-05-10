@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.17 - build: a2a3103";
+bg.version = "1.3.18 - build: 2ad9d37";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -9498,7 +9498,7 @@ bg.scene = {};
 		indexOf(plist) {
 			let index = -1;
 			this._items.some((item,i) => {
-				if (item.polyList==item) {
+				if (item.polyList==plist) {
 					index = i;
 					return true;
 				}
