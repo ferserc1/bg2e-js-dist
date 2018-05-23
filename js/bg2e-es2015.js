@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.3.18 - build: 2ad9d37";
+bg.version = "1.3.19 - build: c08a345";
 bg.utils = {};
 
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
@@ -13709,6 +13709,14 @@ bg.manipulation = {};
 			this._viewWidth = 50;
 
 			this._lastTouch = [];
+		}
+
+		clone() {
+			let result = new OrbitCameraController();
+			let compData = {};
+			this.serialize(compData,[],"");
+			result.deserialize(null,compData,"");
+			return result;
 		}
 		
 		setRotateButtons(left,middle,right) {

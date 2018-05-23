@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.18 - build: 2ad9d37";
+bg.version = "1.3.19 - build: c08a345";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -13207,6 +13207,13 @@ bg.manipulation = {};
       this._lastTouch = [];
     }
     return ($traceurRuntime.createClass)(OrbitCameraController, {
+      clone: function() {
+        var result = new OrbitCameraController();
+        var compData = {};
+        this.serialize(compData, [], "");
+        result.deserialize(null, compData, "");
+        return result;
+      },
       setRotateButtons: function(left, middle, right) {
         this._rotateButtons = {
           left: left,
