@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.19 - build: c08a345";
+bg.version = "1.3.20 - build: 236475f";
 bg.utils = {};
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
@@ -2404,7 +2404,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this.ambient.assign(other.ambient);
         this.diffuse.assign(other.diffuse);
         this.specular.assign(other.specular);
-        this.attenuation.assign(other.attenuation);
+        this._attenuation.assign(other._attenuation);
         this.spotCutoff = other.spotCutoff;
         this.spotExponent = other.spotExponent;
         this.shadowStrength = other.shadowStrength;
@@ -10679,6 +10679,15 @@ bg.scene = {};
       this._material = null;
     }
     return ($traceurRuntime.createClass)(Skybox, {
+      clone: function(context) {
+        var result = new Skybox();
+        result._images = [this._images[0], this._images[1], this._images[2], this._images[3], this._images[4], this._images[5]];
+        context = context || this.node && this.node.context;
+        if (context) {
+          result.loadSkybox(context);
+        }
+        return result;
+      },
       setImageUrl: function(imgCode, texture) {
         this._images[imgCode] = texture;
       },
@@ -11364,6 +11373,7 @@ bg.scene = {};
       parseData: function(data) {
         var polyLists = [];
         var materials = null;
+        var components = null;
         var offset = 0;
         var header = new Uint8Array(data, 0, 8);
         offset = 8;
@@ -11474,6 +11484,22 @@ bg.scene = {};
               break;
             case 'plst':
             case 'endf':
+              if (block == 'endf') {
+                try {
+                  block = readBlock(data, offset);
+                  offset += 4;
+                  if (block == 'cmps') {
+                    var componentData = readString(data, offset);
+                    offset += componentData.offset;
+                    componentData.data = componentData.data.replace(/,[\s\r\n]*\]/g, ']');
+                    componentData.data = componentData.data.replace(/,[\s\r\n]*\}/g, '}');
+                    components = JSON.parse(componentData.data);
+                  }
+                } catch (err) {
+                  console.error(err.message);
+                }
+                done = true;
+              }
               var plistData = {
                 name: plistName,
                 matName: matName,
@@ -11497,13 +11523,13 @@ bg.scene = {};
             default:
               throw "File format exception. Unexpected poly list member found";
           }
-          done = block == 'endf';
         }
         var parsedData = {
           version: version,
           polyList: polyLists,
           materials: {}
         };
+        this._componentData = components;
         materials.forEach(function(matData) {
           parsedData.materials[matData.name] = matData;
         });
@@ -11536,7 +11562,8 @@ bg.scene = {};
           return drawable;
         });
       },
-      addComponents: function(node) {
+      addComponents: function(node, url) {
+        var $__1 = this;
         if (this._jointData) {
           var i = null;
           var o = null;
@@ -11550,6 +11577,16 @@ bg.scene = {};
             addJoint(node, "InputChainJoint", i);
           if (o)
             addJoint(node, "OutputChainJoint", o);
+        }
+        if (this._componentData) {
+          console.log("Component data found");
+          var baseUrl = bg.base.Writer.StandarizePath(url);
+          baseUrl = baseUrl.split("/");
+          baseUrl.pop();
+          baseUrl = baseUrl.join("/");
+          this._componentData.forEach(function(cmpData) {
+            bg.scene.Component.Factory($__1.context, cmpData, node, baseUrl);
+          });
         }
       }
     }, {});
@@ -11572,7 +11609,7 @@ bg.scene = {};
               parser.loadDrawable(data, path).then(function(drawable) {
                 var node = new bg.scene.Node(context, drawable.name);
                 node.addComponent(drawable);
-                parser.addComponents(node);
+                parser.addComponents(node, url);
                 accept(node);
               });
             } catch (e) {
