@@ -1,7 +1,10 @@
 "use strict";
 var bg = {};
-bg.version = "1.3.20 - build: 236475f";
+bg.version = "1.4.31 - build: 3bd360b";
 bg.utils = {};
+try {
+  module.exports = bg;
+} catch (e) {}
 Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 (function(win) {
   win.requestAnimFrame = (function() {
@@ -340,16 +343,47 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
   var s_preventImageDump = [];
   var s_preventVideoDump = [];
   var ResourceProvider = function() {
-    function ResourceProvider() {}
+    function ResourceProvider() {
+      this._disableCache = false;
+    }
     return ($traceurRuntime.createClass)(ResourceProvider, {
+      get disableCache() {
+        return this._disableCache;
+      },
+      set disableCache(e) {
+        this._disableCache = e;
+      },
       getRequest: function(url, onSuccess, onFail, onProgress) {},
       loadImage: function(url, onSucces, onFail) {},
       loadVideo: function(url, onSuccess, onFail) {}
     }, {});
   }();
+  var g_videoLoaders = {};
+  g_videoLoaders["mp4"] = function(url, onSuccess, onFail) {
+    var video = document.createElement('video');
+    s_preventVideoDump.push(video);
+    video.crossOrigin = "";
+    video.autoplay = true;
+    video.setAttribute("playsinline", null);
+    video.addEventListener('canplay', function(evt) {
+      var videoIndex = s_preventVideoDump.indexOf(evt.target);
+      if (videoIndex != -1) {
+        s_preventVideoDump.splice(videoIndex, 1);
+      }
+      onSuccess(event.target);
+    });
+    video.addEventListener("error", function(evt) {
+      onFail(new Error(("Error loading video: " + url)));
+    });
+    video.addEventListener("abort", function(evt) {
+      onFail(new Error(("Error loading video: " + url)));
+    });
+    video.src = url;
+  };
+  g_videoLoaders["m4v"] = g_videoLoaders["mp4"];
   var HTTPResourceProvider = function($__super) {
     function HTTPResourceProvider() {
-      $traceurRuntime.superConstructor(HTTPResourceProvider).apply(this, arguments);
+      $traceurRuntime.superConstructor(HTTPResourceProvider).call(this);
     }
     return ($traceurRuntime.createClass)(HTTPResourceProvider, {
       getRequest: function(url, onSuccess, onFail, onProgress) {
@@ -396,30 +430,35 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
         img.addEventListener("abort", function(event) {
           onFail(new Error(("Image load aborted: " + url)));
         });
-        img.src = url + '?' + bg.utils.generateUUID();
+        if (this.disableCache) {
+          url += '?' + bg.utils.generateUUID();
+        }
+        img.src = url;
       },
       loadVideo: function(url, onSuccess, onFail) {
-        var video = document.createElement('video');
-        s_preventVideoDump.push(video);
-        video.crossOrigin = "";
-        video.autoplay = true;
-        video.setAttribute("playsinline", null);
-        video.addEventListener('canplay', function(evt) {
-          var videoIndex = s_preventVideoDump.indexOf(evt.target);
-          if (videoIndex != -1) {
-            s_preventVideoDump.splice(videoIndex, 1);
-          }
-          onSuccess(event.target);
-        });
-        video.addEventListener("error", function(evt) {
-          onFail(new Error(("Error loading video: " + url)));
-        });
-        video.addEventListener("abort", function(evt) {
-          onFail(new Error(("Error loading video: " + url)));
-        });
-        video.src = url;
+        var ext = Resource.GetExtension(url);
+        var loader = bg.utils.HTTPResourceProvider.GetVideoLoaderForType(ext);
+        if (loader) {
+          loader.apply(this, [url, onSuccess, onFail]);
+        } else {
+          onFail(new Error(("Could not find video loader for resource: " + url)));
+        }
       }
-    }, {}, $__super);
+    }, {
+      AddVideoLoader: function(type, callback) {
+        g_videoLoaders[type] = callback;
+      },
+      GetVideoLoaderForType: function(type) {
+        return g_videoLoaders[type];
+      },
+      GetCompatibleVideoFormats: function() {
+        return Object.keys(g_videoLoaders);
+      },
+      IsVideoCompatible: function(videoUrl) {
+        var ext = Resource.GetExtension(videoUrl);
+        return bg.utils.HTTPResourceProvider.GetCompatibleVideoFormats().indexOf(ext) != -1;
+      }
+    }, $__super);
   }(ResourceProvider);
   bg.utils.ResourceProvider = ResourceProvider;
   bg.utils.HTTPResourceProvider = HTTPResourceProvider;
@@ -434,7 +473,7 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
         return g_resourceProvider;
       },
       GetExtension: function(url) {
-        var match = /\.([a-z0-9-_]*)$/i.exec(url);
+        var match = /\.([a-z0-9-_]*)(\?.*)?(\#.*)?$/i.exec(url);
         return (match && match[1].toLowerCase()) || "";
       },
       JoinUrl: function(url, path) {
@@ -598,6 +637,56 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
 
 "use strict";
 (function() {
+  bg.base64 = bg.base64 || {};
+  bg.base64.toUint6 = function(nChr) {
+    return nChr > 64 && nChr < 91 ? nChr - 65 : nChr > 96 && nChr < 123 ? nChr - 71 : nChr > 47 && nChr < 58 ? nChr + 4 : nChr === 43 ? 62 : nChr === 47 ? 63 : 0;
+  };
+  bg.base64.toArray = function(sBase64, nBlocksSize) {
+    var sB64Enc = sBase64.replace(/[^A-Za-z0-9\+\/]/g, ""),
+        nInLen = sB64Enc.length,
+        nOutLen = nBlocksSize ? Math.ceil((nInLen * 3 + 1 >> 2) / nBlocksSize) * nBlocksSize : nInLen * 3 + 1 >> 2,
+        taBytes = new Uint8Array(nOutLen);
+    for (var nMod3 = void 0,
+        nMod4 = void 0,
+        nUint24 = 0,
+        nOutIdx = 0,
+        nInIdx = 0; nInIdx < nInLen; nInIdx++) {
+      nMod4 = nInIdx & 3;
+      nUint24 |= b64ToUint6(sB64Enc.charCodeAt(nInIdx)) << 18 - 6 * nMod4;
+      if (nMod4 === 3 || nInLen - nInIdx === 1) {
+        for (nMod3 = 0; nMod3 < 3 && nOutIdx < nOutLen; nMod3++, nOutIdx++) {
+          taBytes[nOutIdx] = nUint24 >>> (16 >>> nMod3 & 24) & 255;
+        }
+        nUint24 = 0;
+      }
+    }
+    return taBytes;
+  };
+  bg.base64.withUint6ToB64 = function(nUint6) {
+    return nUint6 < 26 ? nUint6 + 65 : nUint6 < 52 ? nUint6 + 71 : nUint6 < 62 ? nUint6 - 4 : nUint6 === 62 ? 43 : nUint6 === 63 ? 47 : 65;
+  };
+  bg.base64.encodeArray = function(aBytes) {
+    var nMod3 = 2,
+        sB64Enc = "";
+    for (var nLen = aBytes.length,
+        nUint24 = 0,
+        nIdx = 0; nIdx < nLen; nIdx++) {
+      nMod3 = nIdx % 3;
+      if (nIdx > 0 && (nIdx * 4 / 3) % 76 === 0) {
+        sB64Enc += "\r\n";
+      }
+      nUint24 |= aBytes[nIdx] << (16 >>> nMod3 & 24);
+      if (nMod3 === 2 || aBytes.length - nIdx === 1) {
+        sB64Enc += String.fromCharCode(uint6ToB64(nUint24 >>> 18 & 63), uint6ToB64(nUint24 >>> 12 & 63), uint6ToB64(nUint24 >>> 6 & 63), uint6ToB64(nUint24 & 63));
+        nUint24 = 0;
+      }
+    }
+    return sB64Enc.substr(0, sB64Enc.length - 2 + nMod3) + (nMod3 === 2 ? '' : nMod3 === 1 ? '=' : '==');
+  };
+})();
+
+"use strict";
+(function() {
   var s_Engine = null;
   var Engine = function() {
     function Engine() {}
@@ -625,6 +714,12 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
       },
       get shaderSource() {
         return this._shaderSource;
+      },
+      get cubemapCapture() {
+        return this._cubemapCapture;
+      },
+      get textureMerger() {
+        return this._textureMerger;
       }
     }, {
       Set: function(engine) {
@@ -645,12 +740,15 @@ Reflect.defineProperty = Reflect.defineProperty || Object.defineProperty;
     return ($traceurRuntime.createClass)(LifeCycle, {
       init: function() {},
       frame: function(delta) {},
+      displayGizmo: function(pipeline, matrixState) {},
       willDisplay: function(pipeline, matrixState) {},
       display: function(pipeline, matrixState) {
         var forceDraw = arguments[2] !== (void 0) ? arguments[2] : false;
       },
-      displayGizmo: function(pipeline, matrixState) {},
       didDisplay: function(pipeline, matrixState) {},
+      willUpdate: function(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {},
+      draw: function(renderQueue, modelMatrixStack, viewMatrixStack, projectionMatrixStack) {},
+      didUpdate: function(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {},
       reshape: function(pipeline, matrixState, width, height) {},
       keyDown: function(evt) {},
       keyUp: function(evt) {},
@@ -1016,7 +1114,9 @@ bg.app = {};
         return s_mouseStatus;
       },
       run: function(windowController) {
+        var preventEvents = arguments[1] !== (void 0) ? arguments[1] : [];
         this._windowController = windowController;
+        g_preventEvents = preventEvents;
         this.postRedisplay();
         this.windowController.init();
         initEvents();
@@ -1031,10 +1131,15 @@ bg.app = {};
       }
     }, {});
   }();
-  function animationLoop() {
+  var lastTime = 0;
+  function animationLoop(totalTime) {
+    totalTime = totalTime || 0;
     requestAnimFrame(animationLoop);
-    onUpdate();
+    var elapsed = totalTime - lastTime;
+    lastTime = totalTime;
+    onUpdate(elapsed);
   }
+  var g_preventEvents = [];
   function initEvents() {
     onResize();
     window.addEventListener("resize", function(evt) {
@@ -1042,67 +1147,89 @@ bg.app = {};
     });
     if (s_mainLoop.canvas) {
       var c = s_mainLoop.canvas.domElement;
-      c.addEventListener("mousedown", function(evt) {
-        if (!onMouseDown(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      c.addEventListener("mousemove", function(evt) {
-        if (!onMouseMove(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      c.addEventListener("mouseout", function(evt) {
-        if (!onMouseOut(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      c.addEventListener("mouseover", function(evt) {
-        if (!onMouseOver(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      c.addEventListener("mouseup", function(evt) {
-        if (!onMouseUp(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      c.addEventListener("touchstart", function(evt) {
-        if (!onTouchStart(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      c.addEventListener("touchmove", function(evt) {
-        if (!onTouchMove(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      c.addEventListener("touchend", function(evt) {
-        if (!onTouchEnd(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      var mouseWheelEvt = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
-      c.addEventListener(mouseWheelEvt, function(evt) {
-        if (!onMouseWheel(evt).executeDefault) {
-          evt.preventDefault();
-          return false;
-        }
-      });
-      window.addEventListener("keydown", function(evt) {
-        onKeyDown(evt);
-      });
-      window.addEventListener("keyup", function(evt) {
-        onKeyUp(evt);
-      });
+      if (g_preventEvents.indexOf("mousedown") == -1) {
+        c.addEventListener("mousedown", function(evt) {
+          if (!onMouseDown(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("mousemove") == -1) {
+        c.addEventListener("mousemove", function(evt) {
+          if (!onMouseMove(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("mouseout") == -1) {
+        c.addEventListener("mouseout", function(evt) {
+          if (!onMouseOut(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("mouseover") == -1) {
+        c.addEventListener("mouseover", function(evt) {
+          if (!onMouseOver(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("mouseup") == -1) {
+        c.addEventListener("mouseup", function(evt) {
+          if (!onMouseUp(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("touchstart") == -1) {
+        c.addEventListener("touchstart", function(evt) {
+          if (!onTouchStart(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("touchmove") == -1) {
+        c.addEventListener("touchmove", function(evt) {
+          if (!onTouchMove(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("touchend") == -1) {
+        c.addEventListener("touchend", function(evt) {
+          if (!onTouchEnd(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("mousewheel") == -1) {
+        var mouseWheelEvt = (/Firefox/i.test(navigator.userAgent)) ? "DOMMouseScroll" : "mousewheel";
+        c.addEventListener(mouseWheelEvt, function(evt) {
+          if (!onMouseWheel(evt).executeDefault) {
+            evt.preventDefault();
+            return false;
+          }
+        });
+      }
+      if (g_preventEvents.indexOf("keydown") == -1) {
+        window.addEventListener("keydown", function(evt) {
+          onKeyDown(evt);
+        });
+      }
+      if (g_preventEvents.indexOf("keyup") == -1) {
+        window.addEventListener("keyup", function(evt) {
+          onKeyUp(evt);
+        });
+      }
       c.oncontextmenu = function(e) {
         return false;
       };
@@ -1118,12 +1245,9 @@ bg.app = {};
       s_mainLoop.windowController.reshape(s_mainLoop.canvas.width * multisample, s_mainLoop.canvas.height * multisample);
     }
   }
-  function onUpdate() {
+  function onUpdate(elapsedTime) {
     if (s_mainLoop.redisplay) {
-      if (s_delta == -1)
-        s_delta = Date.now();
-      s_mainLoop.windowController.frame((Date.now() - s_delta) * 2);
-      s_delta = Date.now();
+      s_mainLoop.windowController.frame(elapsedTime);
       if (s_mainLoop.updateMode == bg.app.FrameUpdate.AUTO) {
         s_mainLoop._redisplayFrames = 1;
       } else {
@@ -1324,7 +1448,11 @@ bg.Axis = {
   Z: 3
 };
 Object.defineProperty(bg, "isElectronApp", {get: function() {
-    return typeof module !== 'undefined' && module.exports && true;
+    try {
+      return process && process.versions && process.versions["electron"] !== 'undefined';
+    } catch (e) {
+      return false;
+    }
   }});
 
 "use strict";
@@ -1334,17 +1462,26 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       $traceurRuntime.superConstructor(Effect).call(this, context);
       this._shader = null;
       this._inputVars = [];
+      this._shaders = [];
     }
     return ($traceurRuntime.createClass)(Effect, {
       get inputVars() {
         return this._inputVars;
       },
+      get numberOfShaders() {
+        return this._shaders.length;
+      },
+      setCurrentShader: function(i) {
+        this._shader = this._shaders[i];
+      },
       get shader() {
         return this._shader;
       },
       setupShaderSource: function(sourceArray) {
+        var append = arguments[1] !== (void 0) ? arguments[1] : true;
         var $__3 = this;
-        this._shader = new bg.base.Shader(this.context);
+        var shaderIndex = append ? this._shaders.length : 0;
+        var shader = new bg.base.Shader(this.context);
         this._inputVars = [];
         var inputAttribs = [];
         var inputVars = [];
@@ -1359,19 +1496,29 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
               }
             }
           });
-          $__3._shader.addShaderSource(source.type, source.toString());
+          shader.addShaderSource(source.type, source.toString());
         });
-        this._shader.link();
-        if (!this._shader.status) {
-          bg.log(this._shader.compileError);
-          if (this._shader.compileErrorSource) {
+        shader.link();
+        if (!shader.status) {
+          bg.log(shader.compileError);
+          if (shader.compileErrorSource) {
             bg.log("Shader source:");
-            bg.log(this._shader.compileErrorSource);
+            bg.log(shader.compileErrorSource);
           }
-          bg.log(this._shader.linkError);
+          bg.log(shader.linkError);
         } else {
-          this._shader.initVars(inputAttribs, inputVars);
+          shader.initVars(inputAttribs, inputVars);
         }
+        if (append) {
+          this._shaders.push(shader);
+          if (!this._shader) {
+            this._shader = shader;
+          }
+        } else {
+          this._shaders = [shader];
+          this._shader = shader;
+        }
+        return shaderIndex;
       },
       beginDraw: function() {},
       setupVars: function() {},
@@ -1474,7 +1621,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
             role: "in"
           });
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tgl_FragColor = vec4(1.0,0.0,0.0,1.0);");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tgl_FragColor = vec4(0.0,0.0,0.0,1.0);");
           }
         }
         return this._fragmentShaderSource;
@@ -1567,6 +1714,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
   var Loader = function() {
     function Loader() {}
     return ($traceurRuntime.createClass)(Loader, {}, {
+      StandarizePath: function(inPath) {
+        return inPath.replace(/\\/g, '/');
+      },
       RegisterPlugin: function(p) {
         s_loaderPlugins.push(p);
       },
@@ -1711,43 +1861,43 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       return "";
     }
   }
-  function getMaterialString(fileData) {
-    var mat = [];
-    fileData.node.drawable.forEach(function(plist, material) {
-      mat.push({
+  function serializeMaterial(plist, materialData, fileData) {
+    var mat = null;
+    if (materialData instanceof bg.base.Material) {
+      mat = {
         "name": plist.name,
         "class": "GenericMaterial",
-        "diffuseR": material.diffuse.r,
-        "diffuseG": material.diffuse.g,
-        "diffuseB": material.diffuse.b,
-        "diffuseA": material.diffuse.a,
-        "specularR": material.specular.r,
-        "specularG": material.specular.g,
-        "specularB": material.specular.b,
-        "specularA": material.specular.a,
-        "shininess": material.shininess,
-        "refractionAmount": material.refractionAmount,
-        "reflectionAmount": material.reflectionAmount,
-        "lightEmission": material.lightEmission,
-        "textureOffsetX": material.textureOffset.x,
-        "textureOffsetY": material.textureOffset.y,
-        "textureScaleX": material.textureScale.x,
-        "textureScaleY": material.textureScale.y,
-        "lightmapOffsetX": material.lightmapOffset.x,
-        "lightmapOffsetY": material.lightmapOffset.y,
-        "lightmapScaleX": material.lightmapScale.x,
-        "lightmapScaleY": material.lightmapScale.y,
-        "normalMapOffsetX": material.normalMapOffset.x,
-        "normalMapOffsetY": material.normalMapOffset.y,
-        "normalMapScaleX": material.normalMapScale.x,
-        "normalMapScaleY": material.normalMapScale.y,
-        "castShadows": material.castShadows,
-        "receiveShadows": material.receiveShadows,
-        "alphaCutoff": material.alphaCutoff,
-        "shininessMaskChannel": material.shininessMaskChannel,
-        "invertShininessMask": material.shininessMaskInvert,
-        "lightEmissionMaskChannel": material.lightEmissionMaskChannel,
-        "invertLightEmissionMask": material.lightEmissionMaskInvert,
+        "diffuseR": materialData.diffuse.r,
+        "diffuseG": materialData.diffuse.g,
+        "diffuseB": materialData.diffuse.b,
+        "diffuseA": materialData.diffuse.a,
+        "specularR": materialData.specular.r,
+        "specularG": materialData.specular.g,
+        "specularB": materialData.specular.b,
+        "specularA": materialData.specular.a,
+        "shininess": materialData.shininess,
+        "refractionAmount": materialData.refractionAmount,
+        "reflectionAmount": materialData.reflectionAmount,
+        "lightEmission": materialData.lightEmission,
+        "textureOffsetX": materialData.textureOffset.x,
+        "textureOffsetY": materialData.textureOffset.y,
+        "textureScaleX": materialData.textureScale.x,
+        "textureScaleY": materialData.textureScale.y,
+        "lightmapOffsetX": materialData.lightmapOffset.x,
+        "lightmapOffsetY": materialData.lightmapOffset.y,
+        "lightmapScaleX": materialData.lightmapScale.x,
+        "lightmapScaleY": materialData.lightmapScale.y,
+        "normalMapOffsetX": materialData.normalMapOffset.x,
+        "normalMapOffsetY": materialData.normalMapOffset.y,
+        "normalMapScaleX": materialData.normalMapScale.x,
+        "normalMapScaleY": materialData.normalMapScale.y,
+        "castShadows": materialData.castShadows,
+        "receiveShadows": materialData.receiveShadows,
+        "alphaCutoff": materialData.alphaCutoff,
+        "shininessMaskChannel": materialData.shininessMaskChannel,
+        "invertShininessMask": materialData.shininessMaskInvert,
+        "lightEmissionMaskChannel": materialData.lightEmissionMaskChannel,
+        "invertLightEmissionMask": materialData.lightEmissionMaskInvert,
         "displacementFactor": 0,
         "displacementUV": 0,
         "tessDistanceFarthest": 40.0,
@@ -1758,25 +1908,85 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         "tessFarLevel": 1,
         "tessNearLevel": 1,
         "tessNearestLevel": 1,
-        "reflectionMaskChannel": material.reflectionMaskChannel,
-        "invertReflectionMask": material.reflectionMaskInvert,
-        "roughness": material.roughness,
-        "roughnessMaskChannel": material.roughnessMaskChannel,
-        "invertRoughnessMask": material.roughnessMaskInvert,
-        "cullFace": material.cullFace,
-        "unlit": material.unlit,
-        "texture": writeTexture(material.texture, fileData),
-        "lightmap": writeTexture(material.lightmap, fileData),
-        "normalMap": writeTexture(material.normalMap, fileData),
-        "shininessMask": writeTexture(material.shininessMask, fileData),
-        "lightEmissionMask": writeTexture(material.lightEmissionMask, fileData),
+        "reflectionMaskChannel": materialData.reflectionMaskChannel,
+        "invertReflectionMask": materialData.reflectionMaskInvert,
+        "roughness": materialData.roughness,
+        "roughnessMaskChannel": materialData.roughnessMaskChannel,
+        "invertRoughnessMask": materialData.roughnessMaskInvert,
+        "cullFace": materialData.cullFace,
+        "unlit": materialData.unlit,
+        "texture": writeTexture(materialData.texture, fileData),
+        "lightmap": writeTexture(materialData.lightmap, fileData),
+        "normalMap": writeTexture(materialData.normalMap, fileData),
+        "shininessMask": writeTexture(materialData.shininessMask, fileData),
+        "lightEmissionMask": writeTexture(materialData.lightEmissionMask, fileData),
         "displacementMap": "",
-        "reflectionMask": writeTexture(material.reflectionMask, fileData),
-        "roughnessMask": writeTexture(material.roughnessMask, fileData),
+        "reflectionMask": writeTexture(materialData.reflectionMask, fileData),
+        "roughnessMask": writeTexture(materialData.roughnessMask, fileData),
         "visible": plist.visible,
         "visibleToShadows": plist.visibleToShadows,
         "groupName": plist.groupName
-      });
+      };
+    } else if (materialData instanceof bg.base.PBRMaterial) {
+      var saveMixedValue = function(attributeName) {
+        var data = materialData[attributeName];
+        if (data instanceof bg.base.Texture) {
+          mat[attributeName] = bg.utils.path.fileName(data.fileName);
+          data.fileName;
+          writeTexture(data, fileData);
+        } else if (data instanceof bg.Vector4 || data instanceof bg.Vector3 || data instanceof bg.Vector2) {
+          mat[attributeName] = data.toArray();
+        } else if (typeof(data) == "number") {
+          mat[attributeName] = data;
+        }
+      };
+      mat = {
+        "name": plist.name,
+        "class": "PBRMaterial",
+        "metallicChannel": materialData.metallicChannel,
+        "roughnessChannel": materialData.roughnessChannel,
+        "lightEmissionChannel": materialData.lightEmissionChannel,
+        "heightChannel": materialData.heightChannel,
+        "alphaCutoff": materialData.alphaCutoff,
+        "isTransparent": materialData.isTransparent,
+        "diffuseScale": materialData.diffuseScale.toArray(),
+        "metallicScale": materialData.metallicScale.toArray(),
+        "roughnessScale": materialData.roughnessScale.toArray(),
+        "fresnelScale": materialData.fresnelScale.toArray(),
+        "lightEmissionScale": materialData.lightEmissionScale.toArray(),
+        "heightScale": materialData.heightScale.toArray(),
+        "normalScale": materialData.normalScale.toArray(),
+        "diffuseUV": materialData.diffuseUV,
+        "metallicUV": materialData.metallicUV,
+        "roughnessUV": materialData.roughnessUV,
+        "fresnelUV": materialData.fresnelUV,
+        "ambientOcclussionUV": materialData.ambientOcclussionUV,
+        "lightEmissionUV": materialData.lightEmissionUV,
+        "heightUV": materialData.heightUV,
+        "normalUV": materialData.normalUV,
+        "castShadows": materialData.castShadows,
+        "cullFace": materialData.cullFace,
+        "unlit": materialData.unlit,
+        "visible": plist.visible,
+        "visibleToShadows": plist.visibleToShadows,
+        "groupName": plist.groupName
+      };
+      saveMixedValue("diffuse");
+      saveMixedValue("metallic");
+      saveMixedValue("roughness");
+      saveMixedValue("fresnel");
+      saveMixedValue("lightEmission");
+      saveMixedValue("height");
+      saveMixedValue("normal");
+      saveMixedValue("ambientOcclussion");
+    }
+    return mat;
+  }
+  function getMaterialString(fileData) {
+    var mat = [];
+    fileData.node.drawable.forEach(function(plist, material) {
+      var matItem = serializeMaterial(plist, material, fileData);
+      mat.push(matItem);
     });
     return JSON.stringify(mat);
   }
@@ -1840,7 +2050,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         return this._stream;
       },
       writeUInt: function(number) {
-        var buffer = new Buffer(4);
+        var buffer = Buffer.alloc(4);
         buffer.writeUInt32BE(number, 0);
         this.stream.write(buffer);
       },
@@ -1854,7 +2064,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       writeBuffer: function(name, arrayBuffer) {
         this.writeBlock(name);
         this.writeUInt(arrayBuffer.length);
-        var buffer = new Buffer(4 * arrayBuffer.length);
+        var buffer = Buffer.alloc(4 * arrayBuffer.length);
         if (name == "indx") {
           arrayBuffer.forEach(function(d, i) {
             return buffer.writeUInt32BE(d, i * 4);
@@ -1888,7 +2098,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     }, {});
   }();
   function writeHeader(fileData) {
-    var buffer = new Buffer(4);
+    var buffer = Buffer.alloc(4);
     [0, 1, 2, 0].forEach(function(d, i) {
       return buffer.writeInt8(d, i);
     });
@@ -1918,13 +2128,36 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     fileData.writeBuffer("t1ar", plist.texCoord1);
     fileData.writeBuffer("indx", plist.index);
   }
+  function writeComponents(fileData) {
+    var path = bg.utils.path.removeFileName(fileData.path);
+    fileData.writeBlock("cmps");
+    var components = [];
+    var promises = [];
+    fileData.node._componentsArray.forEach(function(cmp) {
+      if (cmp instanceof bg.scene.Drawable || cmp instanceof bg.manipulation.Gizmo || cmp instanceof bg.manipulation.Selectable) {
+        return;
+      }
+      var compData = {};
+      cmp.serialize(compData, promises, path);
+      components.push(compData);
+    });
+    fileData.writeString(JSON.stringify(components));
+    return Promise.all(promises);
+  }
   function writeNode(fileData) {
     writeHeader(fileData);
     fileData.node.drawable.forEach(function(plist, mat, trx) {
       writePolyList(fileData, plist, mat, trx);
     });
     fileData.writeBlock("endf");
-    fileData.stream.end();
+    return new Promise(function(resolve) {
+      writeComponents(fileData).then(function() {
+        fileData.stream.end();
+        resolve();
+      }).catch(function(err) {
+        reject(err);
+      });
+    });
   }
   var Bg2WriterPlugin = function($__super) {
     function Bg2WriterPlugin() {
@@ -1942,11 +2175,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           }
           var fileData = new FileData(url, data);
           try {
-            writeNode(fileData);
-            fileData.writeTextures().then(function() {
-              return resolve();
-            }).catch(function(err) {
-              return reject(err);
+            writeNode(fileData).then(function() {
+              fileData.writeTextures().then(function() {
+                return resolve();
+              }).catch(function(err) {
+                return reject(err);
+              });
             });
           } catch (err) {
             reject(err);
@@ -1998,6 +2232,78 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
 
 "use strict";
 (function() {
+  bg.base._brdfLUTData = "data:image/png;base64,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";
+})();
+
+"use strict";
+(function() {
+  var CubemapCaptureImpl = function() {
+    function CubemapCaptureImpl() {}
+    return ($traceurRuntime.createClass)(CubemapCaptureImpl, {
+      createCaptureBuffers: function(context, size) {
+        console.log("CubemapCaptureImpl.createCaptureBuffers() not implemented");
+      },
+      beginRender: function(context, captureBuffers) {
+        console.log("CubemapCaptureImpl.beginRender() not implemented");
+      },
+      beginRenderFace: function(context, face, captureBuffers, viewMatrix) {
+        console.log("CubemapCaptureImpl.renderFace() not implemented");
+        return bg.Matrix4.Identity();
+      },
+      endRenderFace: function(context, face, captureBuffers) {
+        console.log("CubemapCaptureImpl.endRenderFace() not implemented");
+      },
+      endRender: function(context, captureBuffers) {
+        console.log("CubemapCaptureImpl.endRender() not implemented");
+      },
+      getTexture: function(context, captureBuffers) {
+        console.log("CubemapCaptureImpl.getTexture() not implemented");
+      },
+      destroy: function(context, captureBuffers) {
+        console.log("CubemapCaptureImpl.destroy() not implemented");
+      }
+    }, {});
+  }();
+  ;
+  bg.base.CubemapCaptureImpl = CubemapCaptureImpl;
+  var CubemapCapture = function($__super) {
+    function CubemapCapture(context) {
+      $traceurRuntime.superConstructor(CubemapCapture).call(this, context);
+      this._captureBuffers = null;
+      this._texture = null;
+    }
+    return ($traceurRuntime.createClass)(CubemapCapture, {
+      create: function(size) {
+        this._captureBuffers = bg.Engine.Get().cubemapCapture.createCaptureBuffers(this.context, size);
+      },
+      destroy: function() {
+        if (this._captureBuffers) {
+          bg.Engine.Get().cubemapCapture.destroy(this.context, this._captureBuffers);
+        }
+      },
+      get texture() {
+        return this._texture;
+      },
+      updateTexture: function(renderCB, viewMatrix) {
+        var cap = bg.Engine.Get().cubemapCapture;
+        cap.beginRender(this.context, this._captureBuffers);
+        for (var i = 0; i < 6; ++i) {
+          var matrix = cap.beginRenderFace(this.context, i, this._captureBuffers, viewMatrix);
+          renderCB(matrix.projection, matrix.view);
+          cap.endRenderFace(this.context, i, this._captureBuffers);
+        }
+        cap.endRender(this.context, this._captureBuffers);
+        if (!this._texture) {
+          this._texture = cap.getTexture(this.context, this._captureBuffers);
+        }
+      }
+    }, {}, $__super);
+  }(bg.app.ContextObject);
+  bg.base.CubemapCapture = CubemapCapture;
+})();
+
+"use strict";
+(function() {
   function lib() {
     return bg.base.ShaderLibrary.Get();
   }
@@ -2020,7 +2326,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         vertex.setMainBody("\n\t\t\t\tgl_Position = vec4(inVertex,1.0);\n\t\t\t\tfsTexCoord = inTex0;");
         fragment.setMainBody("gl_FragColor = texture2D(inTexture,fsTexCoord);");
       }
-      this.setupShaderSource([vertex, fragment]);
+      this.setupShaderSource([vertex, fragment], false);
     }
     return ($traceurRuntime.createClass)(DrawTextureEffect, {setupVars: function() {
         var texture = null;
@@ -2035,6 +2341,256 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       }}, {}, $__super);
   }(bg.base.TextureEffect);
   bg.base.DrawTextureEffect = DrawTextureEffect;
+})();
+
+"use strict";
+(function() {
+  function destroyResource(paramName) {
+    if (this[paramName]) {
+      this[paramName].destroy();
+      this[paramName] = null;
+    }
+  }
+  var Environment = function($__super) {
+    function Environment(context) {
+      $traceurRuntime.superConstructor(Environment).call(this, context);
+      this._irradianceIntensity = 1;
+      this._cubemapRenderer = null;
+      this._irradianceRenderer = null;
+      this._specularRenderer = null;
+      this._cubemapCapture = null;
+      this._irradianceCapture = null;
+      this._specularCaptureL1 = null;
+      this._specularCaptureL2 = null;
+      this._blackTexture = bg.base.TextureCache.BlackTexture(context);
+      this._texture = this._blackTexture;
+      this._showSkybox = true;
+    }
+    return ($traceurRuntime.createClass)(Environment, {
+      set equirectangularTexture(t) {
+        this._texture = t;
+        if (this._cubemapRenderer) {
+          this._cubemapRenderer.texture = t;
+        }
+      },
+      set irradianceIntensity(i) {
+        this._irradianceIntensity = i;
+      },
+      get equirectangularTexture() {
+        return this._texture;
+      },
+      get cubemapTexture() {
+        return this._cubemapCapture ? this._cubemapCapture.texture : this._blackTexture;
+      },
+      get irradianceMapTexture() {
+        return this._irradianceCapture ? this._irradianceCapture.texture : this._blackTexture;
+      },
+      get specularMapTextureL0() {
+        return this._cubemapCapture ? this._cubemapCapture.texture : this._blackTexture;
+      },
+      get specularMapTextureL1() {
+        return this._specularCaptureL1 ? this._specularCaptureL1.texture : this._blackTexture;
+      },
+      get specularMapTextureL2() {
+        return this._specularCaptureL2 ? this._specularCaptureL2.texture : this._blackTexture;
+      },
+      get irradianceIntensity() {
+        return this._irradianceIntensity;
+      },
+      get showSkybox() {
+        return this._showSkybox;
+      },
+      set showSkybox(s) {
+        this._showSkybox = s;
+      },
+      get cubemapSize() {
+        return this._creationParams.cubemapSize;
+      },
+      get irradianceMapSize() {
+        return this._creationParams.irradianceMapSize;
+      },
+      get specularMapSize() {
+        return this._creationParams.specularMapSize;
+      },
+      get specularMapL2Size() {
+        return this._creationParams.specularMapL2Size;
+      },
+      resize: function(params) {
+        if (!params) {
+          params = {};
+        }
+        params.cubemapSize = params.cubemapSize || 512;
+        params.irradianceMapSize = params.irradianceMapSize || 32;
+        params.specularMapSize = params.specularMapSize || 32;
+        params.specularMapL2Size = params.specularMapL2Size || params.specularMapSize || 32;
+        if (bg.utils.userAgent.system.iOS || bg.utils.userAgent.system.Android) {
+          params.irradianceMapSize = 16;
+        }
+        this._creationParams = JSON.parse(JSON.stringify(params));
+        destroyResource.apply(this, ["_cubemapCapture"]);
+        destroyResource.apply(this, ["_irradianceCapture"]);
+        destroyResource.apply(this, ["_specularCaptureL1"]);
+        destroyResource.apply(this, ["_specularCaptureL2"]);
+        this._cubemapCapture = new bg.base.CubemapCapture(this.context);
+        this._cubemapCapture.create(params.cubemapSize);
+        this._irradianceCapture = new bg.base.CubemapCapture(this.context);
+        this._irradianceCapture.create(params.irradianceMapSize);
+        this._specularCaptureL1 = new bg.base.CubemapCapture(this.context);
+        this._specularCaptureL1.create(params.specularMapSize);
+        this._specularCaptureL2 = new bg.base.CubemapCapture(this.context);
+        this._specularCaptureL2.create(params.specularMapL2Size);
+        this._frame = 0;
+      },
+      create: function(params) {
+        if (!params) {
+          params = {};
+        }
+        params.cubemapSize = params.cubemapSize || 512;
+        params.irradianceMapSize = params.irradianceMapSize || 32;
+        params.specularMapSize = params.specularMapSize || 32;
+        params.specularMapL2Size = params.specularMapL2Size || params.specularMapSize || 32;
+        if (bg.utils.userAgent.system.iOS || bg.utils.userAgent.system.Android) {
+          params.irradianceMapSize = 16;
+        }
+        this._creationParams = JSON.parse(JSON.stringify(params));
+        this.destroy();
+        this._cubemapRenderer = new bg.render.EquirectangularCubeRenderer(this.context, 90);
+        this._cubemapRenderer.create();
+        this._cubemapRenderer.texture = this.texture;
+        this._irradianceRenderer = new bg.render.CubeMapRenderer(this.context, 90);
+        this._irradianceRenderer.create(bg.render.CubeMapShader.IRRADIANCE_MAP);
+        this._specularRenderer = new bg.render.CubeMapRenderer(this.context, 90);
+        this._specularRenderer.create(bg.render.CubeMapShader.SPECULAR_MAP);
+        this._cubemapCapture = new bg.base.CubemapCapture(this.context);
+        this._cubemapCapture.create(params.cubemapSize);
+        this._irradianceCapture = new bg.base.CubemapCapture(this.context);
+        this._irradianceCapture.create(params.irradianceMapSize);
+        this._specularCaptureL1 = new bg.base.CubemapCapture(this.context);
+        this._specularCaptureL1.create(params.specularMapSize);
+        this._specularCaptureL2 = new bg.base.CubemapCapture(this.context);
+        this._specularCaptureL2.create(params.specularMapL2Size);
+        this._frame = 0;
+        this._maxTextureUnits = this.context.getParameter(this.context.MAX_TEXTURE_IMAGE_UNITS);
+      },
+      update: function(camera) {
+        var $__2 = this;
+        var view = new bg.Matrix4(camera.viewMatrix);
+        view.setPosition(0, 0, 0);
+        this._cubemapCapture.updateTexture(function(projectionMatrix, viewMatrix, usePipeline) {
+          $__2._cubemapRenderer.viewMatrix = viewMatrix;
+          $__2._cubemapRenderer.projectionMatrix = projectionMatrix;
+          $__2._cubemapRenderer.render(!usePipeline);
+        }, view);
+        this._irradianceRenderer.texture = this._cubemapCapture.texture;
+        this._specularRenderer.texture = this._cubemapCapture.texture;
+        if (this._frame == 0) {
+          this._irradianceCapture.updateTexture(function(projectionMatrix, viewMatrix) {
+            $__2._irradianceRenderer.viewMatrix = viewMatrix;
+            $__2._irradianceRenderer.projectionMatrix = projectionMatrix;
+            $__2._irradianceRenderer.render(true);
+          }, bg.Matrix4.Identity(), view);
+          this._frame = 1;
+        } else if (this._frame == 1) {
+          this._specularCaptureL1.updateTexture(function(projectionMatrix, viewMatrix) {
+            $__2._specularRenderer.viewMatrix = viewMatrix;
+            $__2._specularRenderer.projectionMatrix = projectionMatrix;
+            $__2._specularRenderer.roughness = $__2._maxTextureUnits > 8 ? 0.2 : 0.3;
+            $__2._specularRenderer.render(true);
+          }, bg.Matrix4.Identity(), view);
+          this._frame = this._maxTextureUnits > 8 ? 2 : 0;
+        } else if (this._frame == 2) {
+          this._specularCaptureL2.updateTexture(function(projectionMatrix, viewMatrix) {
+            $__2._specularRenderer.viewMatrix = viewMatrix;
+            $__2._specularRenderer.projectionMatrix = projectionMatrix;
+            $__2._specularRenderer.roughness = 0.8;
+            $__2._specularRenderer.render(true);
+          }, bg.Matrix4.Identity(), view);
+          this._frame = 0;
+        }
+      },
+      renderSkybox: function(camera) {
+        var view = new bg.Matrix4(camera.viewMatrix);
+        view.setPosition(0, 0, 0);
+        var projectionMatrix = camera.projection;
+        var m22 = -projectionMatrix.m22;
+        var m32 = -projectionMatrix.m32;
+        var far = (2.0 * m32) / (2.0 * m22 - 2.0);
+        var offset = 1;
+        var scale = bg.Math.sin(bg.Math.PI_4) * far - offset;
+        scale /= 60;
+        view.scale(scale, scale, scale);
+        this._cubemapRenderer.pipeline.viewport = camera.viewport;
+        this._cubemapRenderer.viewMatrix = view;
+        this._cubemapRenderer.projectionMatrix = camera.projection;
+        this._cubemapRenderer.render(false);
+      },
+      destroy: function() {
+        destroyResource.apply(this, ["_cubemapRenderer"]);
+        destroyResource.apply(this, ["_irradianceRenderer"]);
+        destroyResource.apply(this, ["_specularRenderer"]);
+        destroyResource.apply(this, ["_cubemapCapture"]);
+        destroyResource.apply(this, ["_irradianceCapture"]);
+        destroyResource.apply(this, ["_specularCaptureL1"]);
+        destroyResource.apply(this, ["_specularCaptureL2"]);
+      },
+      clone: function() {
+        console.warn("bg.base.Environment.clone(): not implemented");
+        var clone = new bg.base.Environment(this.context);
+        if (this._creationParams) {
+          clone.create(this._creationParams);
+          clone.equirectangularTexture = this.equirectangularTexture;
+          clone.irradianceIntensity = this.irradianceIntensity;
+          clone.showSkybox = this.showSkybox;
+        }
+        return clone;
+      },
+      serialize: function(data, promises, url) {
+        if (!bg.isElectronApp) {
+          throw new Error("Could not serialize Environment outside of an electron app.");
+        }
+        var path = require('path');
+        data.equirectangularTexture = "";
+        data.irradianceIntensity = this.irradianceIntensity;
+        data.showSkybox = this.showSkybox;
+        if (this.equirectangularTexture instanceof bg.base.Texture) {
+          var fileName = path.basename(this.equirectangularTexture.fileName);
+          data.equirectangularTexture = fileName;
+          var destination = path.join(url.path, fileName);
+          promises.push(bg.base.Writer.CopyFile(this.equirectangularTexture.fileName, destination));
+        }
+        data.cubemapSize = this._creationParams.cubemapSize;
+        data.irradianceMapSize = this._creationParams.irradianceMapSize;
+        data.specularMapSize = this._creationParams.specularMapSize;
+        data.specularMapL2Size = this._creationParams.specularMapL2Size;
+      },
+      deserialize: function(data, url) {
+        var $__2 = this;
+        return new Promise(function(resolve, reject) {
+          var creationParams = {};
+          creationParams.cubemapSize = data.cubemapSize || 1024;
+          creationParams.irradianceMapSize = data.irradianceMapSize || 32;
+          creationParams.specularMapSize = data.specularMapSize || 32;
+          creationParams.specularMapL2Size = data.specularMapL2Size || creationParams.specularMapSize;
+          $__2.irradianceIntensity = data.irradianceIntensity;
+          $__2.showSkybox = data.showSkybox !== undefined ? data.showSkybox : true;
+          $__2.create(creationParams);
+          if (data.equirectangularTexture) {
+            var texturePath = bg.utils.path.join(url, data.equirectangularTexture);
+            bg.base.Loader.Load($__2.context, bg.base.Loader.StandarizePath(texturePath)).then(function(texture) {
+              $__2.equirectangularTexture = texture;
+              resolve();
+            }).catch(function(err) {
+              console.warn("Error loading environment image: " + err.message);
+              resolve();
+            });
+          } else {
+            resolve();
+          }
+        });
+      }
+    }, {}, $__super);
+  }(bg.app.ContextObject);
+  bg.base.Environment = Environment;
 })();
 
 "use strict";
@@ -2153,7 +2709,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       s_fragmentSource.addFunction(lib().functions.lighting.all);
       s_fragmentSource.addFunction(lib().functions.blur.blurCube);
       if (bg.Engine.Get().id == "webgl1") {
-        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\t\t\t\t\tif (inUnlit && diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tgl_FragColor = diffuseColor * lightmapColor;\n\t\t\t\t\t}\n\t\t\t\t\telse if (diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\tvec3 frontFacingNormal = fsNormal;\n\t\t\t\t\t\tif (!gl_FrontFacing) {\n\t\t\t\t\t\t\tfrontFacingNormal *= -1.0;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(frontFacingNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tvec4 specularColor = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tfor (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t\tif (i>=inNumLights) break;\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[i],\n\t\t\t\t\t\t\t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t\t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor,\n\t\t\t\t\t\t\t\tspecularColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t\tlight.rgb += specularColor.rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\t\t\t\t\t\tfloat dist = distance(fsPosition,cameraPos);\n\t\t\t\t\t\tfloat maxRough = 50.0;\n\t\t\t\t\t\tfloat rough = max(inRoughness * 10.0,1.0);\n\t\t\t\t\t\trough = max(rough*dist,rough);\n\t\t\t\t\t\tfloat blur = min(rough,maxRough);\n\t\t\t\t\t\tvec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;\n\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\tvec3 finalColor = light.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += cubemapColor * reflectionAmount * diffuseColor.rgb;\n\t\t\t\t\t\tvec4 result = colorCorrection(vec4(finalColor,1.0),inHue,inSaturation,inLightness,inBrightness,inContrast);\n\t\t\t\t\t\tresult.a = diffuseColor.a;\n\n\t\t\t\t\t\t// TODO: add specularColor\n\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
+        s_fragmentSource.setMainBody(("\n\t\t\t\t\tvec4 diffuseColor = samplerColor(inTexture,fsTex0Coord,inTextureOffset,inTextureScale);\n\t\t\t\t\tvec4 lightmapColor = samplerColor(inLightMap,fsTex1Coord,inLightMapOffset,inLightMapScale);\n\n\t\t\t\t\tif (inUnlit && diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tgl_FragColor = diffuseColor * lightmapColor;\n\t\t\t\t\t}\n\t\t\t\t\telse if (diffuseColor.a>=inAlphaCutoff) {\n\t\t\t\t\t\tvec3 normalMap = samplerNormal(inNormalMap,fsTex0Coord,inNormalMapOffset,inNormalMapScale);\n\t\t\t\t\t\t// This doesn't work on many Mac Intel GPUs\n\t\t\t\t\t\t// vec3 frontFacingNormal = fsNormal;\n\t\t\t\t\t\t// if (!gl_FrontFacing) {\n\t\t\t\t\t\t// \tfrontFacingNormal *= -1.0;\n\t\t\t\t\t\t// }\n\t\t\t\t\t\tnormalMap = combineNormalWithMap(fsNormal,fsTangent,fsBitangent,normalMap);\n\t\t\t\t\t\tvec4 shadowColor = vec4(1.0);\n\t\t\t\t\t\tif (inReceiveShadows) {\n\t\t\t\t\t\t\tshadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength,inShadowBias,inShadowColor);\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec4 specular = specularColor(inSpecularColor,inShininessMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinShininessMaskChannel,inShininessMaskInvert);\n\t\t\t\t\t\tfloat lightEmission = applyTextureMask(inLightEmission,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tinLightEmissionMaskChannel,inLightEmissionMaskInvert);\n\t\t\t\t\t\tdiffuseColor = diffuseColor * inDiffuseColor * lightmapColor;\n\t\t\t\t\t\t\n\t\t\t\t\t\tvec4 light = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\tvec4 specularColor = vec4(0.0,0.0,0.0,1.0);\n\t\t\t\t\t\t// This doesn't work on A11 and A12 chips on Apple devices.\n\t\t\t\t\t\t// for (int i=0; i<" + bg.base.MAX_FORWARD_LIGHTS + "; ++i) {\n\t\t\t\t\t\t// \tif (i>=inNumLights) break;\n\t\t\t\t\t\t// \tlight.rgb += getLight(\n\t\t\t\t\t\t// \t\tinLightType[i],\n\t\t\t\t\t\t// \t\tinLightAmbient[i], inLightDiffuse[i], inLightSpecular[i],inShininess,\n\t\t\t\t\t\t// \t\tinLightPosition[i],inLightDirection[i],\n\t\t\t\t\t\t// \t\tinLightAttenuation[i].x,inLightAttenuation[i].y,inLightAttenuation[i].z,\n\t\t\t\t\t\t// \t\tinSpotCutoff[i],inSpotExponent[i],inLightCutoffDistance[i],\n\t\t\t\t\t\t// \t\tfsPosition,normalMap,\n\t\t\t\t\t\t// \t\tdiffuseColor,specular,shadowColor,\n\t\t\t\t\t\t// \t\tspecularColor\n\t\t\t\t\t\t// \t).rgb;\n\t\t\t\t\t\t// \tlight.rgb += specularColor.rgb;\n\t\t\t\t\t\t// }\n\n\t\t\t\t\t\t// Workaround for A11 and A12 chips\n\t\t\t\t\t\tif (inNumLights>0) {\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[0],\n\t\t\t\t\t\t\t\tinLightAmbient[0], inLightDiffuse[0], inLightSpecular[0],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[0],inLightDirection[0],\n\t\t\t\t\t\t\t\tinLightAttenuation[0].x,inLightAttenuation[0].y,inLightAttenuation[0].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[0],inSpotExponent[0],inLightCutoffDistance[0],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor,\n\t\t\t\t\t\t\t\tspecularColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t\tlight.rgb += specularColor.rgb;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tif (inNumLights>1) {\n\t\t\t\t\t\t\tlight.rgb += getLight(\n\t\t\t\t\t\t\t\tinLightType[1],\n\t\t\t\t\t\t\t\tinLightAmbient[1], inLightDiffuse[1], inLightSpecular[1],inShininess,\n\t\t\t\t\t\t\t\tinLightPosition[1],inLightDirection[1],\n\t\t\t\t\t\t\t\tinLightAttenuation[1].x,inLightAttenuation[1].y,inLightAttenuation[1].z,\n\t\t\t\t\t\t\t\tinSpotCutoff[0],inSpotExponent[1],inLightCutoffDistance[1],\n\t\t\t\t\t\t\t\tfsPosition,normalMap,\n\t\t\t\t\t\t\t\tdiffuseColor,specular,shadowColor,\n\t\t\t\t\t\t\t\tspecularColor\n\t\t\t\t\t\t\t).rgb;\n\t\t\t\t\t\t\tlight.rgb += specularColor.rgb;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec3 cameraPos = vec3(0.0);\n\t\t\t\t\t\tvec3 cameraVector = fsPosition - cameraPos;\n\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normalMap);\n\n\t\t\t\t\t\t// Roughness using gaussian blur has been deactivated because it is very inefficient\n\t\t\t\t\t\t//float dist = distance(fsPosition,cameraPos);\n\t\t\t\t\t\t//float maxRough = 50.0;\n\t\t\t\t\t\t//float rough = max(inRoughness * 10.0,1.0);\n\t\t\t\t\t\t//rough = max(rough*dist,rough);\n\t\t\t\t\t\t//float blur = min(rough,maxRough);\n\t\t\t\t\t\t//vec3 cubemapColor = blurCube(inCubeMap,lookup,int(blur),vec2(10),dist).rgb;\n\n\t\t\t\t\t\tvec3 cubemapColor = textureCube(inCubeMap,lookup).rgb;\n\n\t\t\t\t\t\tfloat reflectionAmount = applyTextureMask(inReflection,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMask,fsTex0Coord,inTextureOffset,inTextureScale,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tinReflectionMaskChannel,inReflectionMaskInvert);\n\n\t\t\t\t\t\tlight.rgb = clamp(light.rgb + (lightEmission * diffuseColor.rgb * 10.0), vec3(0.0), vec3(1.0));\n\t\t\t\t\t\t\n\n\t\t\t\t\t\tgl_FragColor = vec4(light.rgb * (1.0 - reflectionAmount) + cubemapColor * reflectionAmount * diffuseColor.rgb, diffuseColor.a);\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}"));
       }
     }
     return s_fragmentSource;
@@ -2352,7 +2908,11 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           this.shader.setValueInt('inReflectionMaskInvert', this.material.reflectionMaskInvert);
           var roughnessMask = this.material.roughnessMask || whiteTex;
           this.shader.setValueFloat('inRoughness', this.material.roughness);
-          this.shader.setTexture('inRoughnessMask', roughnessMask, bg.base.TextureUnit.TEXTURE_8);
+          if (this.context.getParameter(this.context.MAX_TEXTURE_IMAGE_UNITS) < 9) {
+            this.shader.setTexture('inRoughnessMask', roughnessMask, bg.base.TextureUnit.TEXTURE_7);
+          } else {
+            this.shader.setTexture('inRoughnessMask', roughnessMask, bg.base.TextureUnit.TEXTURE_8);
+          }
           this.shader.setVector4('inRoughnessMaskChannel', this.material.roughnessMaskChannelVector);
           this.shader.setValueInt('inRoughnessMaskInvert', this.material.roughnessMaskInvert);
           this.shader.setValueInt('inSelectMode', false);
@@ -2367,11 +2927,416 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
 
 "use strict";
 (function() {
+  var ComponentTypes = {
+    BYTE: 5120,
+    UNSIGNED_BYTE: 5121,
+    SHORT: 5122,
+    UNSIGNED_SHORT: 5123,
+    UNSIGNED_INT: 5125,
+    FLOAT: 5126,
+    INT: 0,
+    GetLength: function(accessor) {
+      switch (accessor.type) {
+        case "SCALAR":
+          return 1;
+        case "VEC2":
+          return 2;
+        case "VEC3":
+          return 3;
+        case "VEC4":
+          return 4;
+        case "MAT3":
+          return 9;
+        case "MAT4":
+          return 16;
+        default:
+          return 0;
+      }
+    }
+  };
+  function createArray(accessor, buffer, view) {
+    var ArrayType = null;
+    switch (accessor.componentType) {
+      case ComponentTypes.BYTE:
+        ArrayType = Int8Array;
+        break;
+      case ComponentTypes.UNSIGNED_BYTE:
+        ArrayType = Uint8Array;
+        break;
+      case ComponentTypes.SHORT:
+        ArrayType = Int18Array;
+        break;
+      case ComponentTypes.UNSIGNED_SHORT:
+        ArrayType = Uint16Array;
+        break;
+      case ComponentTypes.UNSIGNED_INT:
+        ArrayType = UInt32Array;
+        break;
+      case ComponentTypes.FLOAT:
+        ArrayType = Float32Array;
+        break;
+      default:
+        ArrayType = Int32Array;
+        break;
+    }
+    var length = accessor.count * ComponentTypes.GetLength(accessor);
+    return new ArrayType(buffer, view.byteOffset, length);
+  }
+  function loadBufferViews(jsonData, buffers) {
+    var views = jsonData.bufferViews;
+    var accessors = jsonData.accessors;
+    if (!accessors || !views) {
+      return Promise.reject(new Error("Malformed or incompatible glTF file."));
+    }
+    return new Promise(function(resolve, reject) {
+      var bufferViews = [];
+      if (accessors.every(function(accessor) {
+        var view = accessor.bufferView < views.length ? views[accessor.bufferView] : null;
+        var buffer = view && view.buffer < buffers.length ? buffers[view.buffer] : null;
+        if (view && buffer) {
+          var b = createArray(accessor, buffer, view);
+          bufferViews.push({
+            buffer: b,
+            accessor: accessor,
+            view: view
+          });
+          return true;
+        } else {
+          reject(new Error("Malformed glTF file."));
+          return false;
+        }
+      })) {
+        resolve(bufferViews);
+      }
+    });
+  }
+  function isBase64(data) {
+    return typeof(data) == "string" && /base64/.test(data.substring(0, 100));
+  }
+  function getValidUri(basePath, uri) {
+    if (!isBase64(uri)) {
+      uri = bg.utils.path.join(basePath, uri);
+    }
+    return uri;
+  }
+  function loadTextures(context, jsonData, url) {
+    var basePath = bg.utils.path.removeFileName(url);
+    return new Promise(function(resolve, reject) {
+      if (!jsonData.images) {
+        resolve([]);
+      } else {
+        var promises = [];
+        jsonData.images.forEach(function(image) {
+          promises.push(new Promise(function(innerResolve, innerReject) {
+            if (isBase64(image.uri)) {
+              var tex = bg.base.Texture.FromBase64Image(context, image.uri);
+              tex.promise.then(function(texture) {
+                innerResolve(texture);
+              });
+            } else {
+              var validUri = getValidUri(basePath, image.uri);
+              bg.base.Loader.Load(context, validUri).then(function(texture) {
+                innerResolve(texture);
+              }).catch(function(err) {
+                return innerReject(err);
+              });
+            }
+          }));
+        });
+        Promise.all(promises).then(function(images) {
+          resolve(images);
+        }).catch(function(err) {
+          reject(err);
+        });
+      }
+    });
+  }
+  function loadMaterial(materialData, textures) {
+    return new Promise(function(resolve, reject) {
+      var mat = new bg.base.PBRMaterial();
+      resolve(mat);
+    });
+  }
+  function loadMaterials(context, jsonData, textures) {
+    return new Promise(function(resolve, reject) {
+      if (!jsonData.materials) {
+        resolve([]);
+      } else {
+        var promises = [];
+        jsonData.materials.forEach(function(matData) {
+          promises.push(loadMaterial(matData, textures));
+        });
+        Promise.all(promises).then(function(materials) {
+          resolve(materials);
+        });
+      }
+    });
+  }
+  function loadBuffers(jsonData, url) {
+    var basePath = bg.utils.path.removeFileName(url);
+    return new Promise(function(resolve, reject) {
+      var promises = [];
+      if (jsonData.buffers && jsonData.buffers.forEach) {
+        jsonData.buffers.forEach(function(buffer) {
+          var uri = getValidUri(basePath, buffer.uri);
+          promises.push(new Promise(function(innerResolve, innerReject) {
+            fetch(uri).then(function(res) {
+              if (res.status == 200) {
+                innerResolve(res.arrayBuffer());
+              } else if (res.status >= 300 && res.status < 400) {
+                innerReject(new Error("The resource has changed location: " + uri));
+              } else if (res.status >= 400 && res.status < 500) {
+                innerReject(new Error("The resource does not exist or is inaccessible "));
+              } else {
+                innerReject(new Error("Server error loading resource " + uri));
+              }
+            }).catch(function(err) {
+              innerReject(err);
+            });
+          }));
+        });
+      }
+      Promise.all(promises).then(function(bufferData) {
+        resolve(bufferData);
+      });
+    });
+  }
+  function loadPrimitive(primitive, bufferViews, views) {
+    function buffer(index) {
+      if (index !== undefined && index !== null) {
+        return bufferViews[index];
+      } else {
+        return null;
+      }
+    }
+    primitive.attributes = primitive.attributes || {};
+    var result = {};
+    result.vertex = buffer(primitive.attributes.POSITION);
+    result.normal = buffer(primitive.attributes.NORMAL);
+    result.texCoord0 = buffer(primitive.attributes.TEXCOORD_0);
+    result.texCoord1 = buffer(primitive.attributes.TEXCOORD_1);
+    result.tangent = buffer(primitive.attributes.TANGENT);
+    result.index = buffer(primitive.indices);
+    result.material = primitive.material;
+    return result;
+  }
+  function loadMesh(mesh, bufferViews, views) {
+    var result = {
+      name: mesh.name || "",
+      primitives: []
+    };
+    (mesh.primitives || []).forEach(function(primitive, index) {
+      var p = loadPrimitive(primitive, bufferViews, views);
+      p.name = result.name + "_" + index;
+      result.primitives.push(p);
+    });
+    return result;
+  }
+  function loadMeshes(jsonData, bufferViews, buffers) {
+    return new Promise(function(resolve, reject) {
+      var result = [];
+      jsonData.meshes && jsonData.meshes.forEach(function(mesh) {
+        result.push(loadMesh(mesh, bufferViews, buffers));
+      });
+      resolve(result);
+    });
+  }
+  function loadNode(node, nodeList, meshes) {
+    var $__1,
+        $__2;
+    var result = {};
+    result.name = node.name;
+    if (node.children) {
+      result.children = [];
+      node.children.forEach(function(childNodeIndex) {
+        if (childNodeIndex < nodeList.length) {
+          var child = loadNode(nodeList[childNodeIndex], nodeList, meshes);
+          result.children.push(child);
+        } else {
+          console.warn("Node index out of bounds loading glTF file.");
+        }
+      });
+    }
+    if (node.mesh !== undefined && node.mesh !== null) {
+      if (node.mesh < meshes.length) {
+        result.mesh = meshes[node.mesh];
+      } else {
+        console.warn("Mesh index out of bounds loading glTF file.");
+      }
+    }
+    if (node.matrix) {
+      result.transform = new bg.Matrix4(node.matrix);
+    } else if (node.translation || node.rotation || node.scale) {
+      var matrix = bg.Matrix4.Identity();
+      if (node.translation) {
+        ($__1 = matrix).translate.apply($__1, $traceurRuntime.spread(node.translation));
+      }
+      if (node.rotation) {
+        var rotation = new (Function.prototype.bind.apply(bg.Quaternion, $traceurRuntime.spread([null], node.rotation)))();
+        matrix.mult(rotation.getMatrix4());
+      }
+      if (node.scale) {
+        ($__2 = matrix).scale.apply($__2, $traceurRuntime.spread(node.scale));
+      }
+      result.transform = matrix;
+    }
+    return result;
+  }
+  function loadScenes(jsonData, meshes) {
+    return new Promise(function(resolve, reject) {
+      var scenes = jsonData.scenes;
+      var nodes = jsonData.nodes;
+      if (!nodes || nodes.length == 0) {
+        nodes = [];
+        meshes.forEach(function(m, i) {
+          nodes.push({
+            mesh: i,
+            name: mesh.name
+          });
+        });
+      }
+      if (!scenes || scenes.length == 0) {
+        scenes = [];
+        scenes.push({
+          name: "SceneRoot",
+          nodes: []
+        });
+        nodes.forEach(function(n, i) {
+          return scenes.nodes.push(i);
+        });
+      } else {
+        var mergedScene = {
+          name: "SceneRoot",
+          nodes: []
+        };
+        scenes.forEach(function(s) {
+          s.nodes.forEach(function(n) {
+            if (mergedScene.nodes.indexOf(n) == -1) {
+              mergedScene.nodes.push(n);
+            }
+          });
+        });
+        scenes = [mergedScene];
+      }
+      var scene = scenes[0];
+      var rootNode = {
+        children: scene.nodes,
+        name: scene.name
+      };
+      resolve(loadNode(rootNode, nodes, meshes));
+    });
+  }
+  function parseData(context, data, url) {
+    var parsedDataObject = {};
+    return new Promise(function(resolve, reject) {
+      var jsonData = null;
+      try {
+        jsonData = JSON.parse(data);
+      } catch (e) {
+        reject(e);
+      }
+      loadTextures(context, jsonData, url).then(function(textures) {
+        parsedDataObject.textures = textures;
+        return loadMaterials(context, jsonData, textures);
+      }).then(function(materials) {
+        parsedDataObject.materials = materials;
+        return loadBuffers(jsonData, url);
+      }).then(function(buffers) {
+        parsedDataObject.buffers = buffers;
+        return loadBufferViews(jsonData, buffers);
+      }).then(function(bufferViews) {
+        parsedDataObject.bufferViews = bufferViews;
+        return loadMeshes(jsonData, bufferViews, parsedDataObject.buffers);
+      }).then(function(meshes) {
+        parsedDataObject.meshes = meshes;
+        return loadScenes(jsonData, parsedDataObject.meshes);
+      }).then(function(sceneRoot) {
+        parsedDataObject.sceneRoot = sceneRoot;
+        resolve(parsedDataObject);
+      }).catch(function(err) {
+        reject(err);
+      });
+    });
+  }
+  function getNode(context, nodeData, url, promises) {
+    var result = new bg.scene.Node(context, nodeData.name || "");
+    if (nodeData.children) {
+      nodeData.children.forEach(function(childData) {
+        result.addChild(getNode(context, childData, url, promises));
+      });
+    }
+    if (nodeData.mesh) {
+      var drawable = new bg.scene.Drawable(nodeData.mesh.name || "");
+      nodeData.mesh.primitives.forEach(function(primitiveData) {
+        var plist = new bg.base.PolyList(context);
+        plist.name = name;
+        plist.vertex = primitiveData.vertex.buffer;
+        plist.normal = primitiveData.normal.buffer;
+        plist.texCoord0 = primitiveData.texCoord0.buffer;
+        plist.texCoord1 = primitiveData.texCoord1.buffer;
+        if (primitiveData.tangent) {
+          plist.tangent = primitiveData.tangent.buffer;
+        }
+        plist.index = primitiveData.index.buffer;
+        plist.build();
+        drawable.addPolyList(plist);
+      });
+      result.addComponent(drawable);
+    }
+    if (nodeData.transform) {
+      var transform = new bg.scene.Transform(nodeData.transform);
+      result.addComponent(transform);
+    }
+    return result;
+  }
+  function createScene(context, sceneData, url) {
+    return new Promise(function(resolve, reject) {
+      var promises = [];
+      var sceneRoot = getNode(context, sceneData, url, promises);
+      Promise.all(promises).then(function() {
+        return resolve(sceneRoot);
+      }).catch(function(err) {
+        return reject(err);
+      });
+    });
+  }
+  var GLTFLoaderPlugin = function($__super) {
+    function GLTFLoaderPlugin() {
+      $traceurRuntime.superConstructor(GLTFLoaderPlugin).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(GLTFLoaderPlugin, {
+      acceptType: function(url, data) {
+        var ext = bg.utils.Resource.GetExtension(url);
+        return ext == "gltf";
+      },
+      load: function(context, url, data) {
+        return new Promise(function(resolve, reject) {
+          parseData(context, data, url).then(function(parsedDataObject) {
+            return createScene(context, parsedDataObject.sceneRoot, url);
+          }).then(function(sceneRoot) {
+            resolve(sceneRoot);
+          }).catch(function(err) {
+            reject(err);
+          });
+        });
+      }
+    }, {}, $__super);
+  }(bg.base.LoaderPlugin);
+  ;
+  bg.base.GLTFLoaderPlugin = GLTFLoaderPlugin;
+})();
+
+"use strict";
+(function() {
   bg.base.LightType = {
     DIRECTIONAL: 4,
     SPOT: 1,
     POINT: 5,
     DISABLED: 10
+  };
+  bg.base.SpecularType = {
+    PHONG: 0,
+    BLINN: 1
   };
   var Light = function($__super) {
     function Light(context) {
@@ -2389,6 +3354,8 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       this._cutoffDistance = -1;
       this._castShadows = true;
       this._shadowBias = 0.00002;
+      this._specularType = bg.base.SpecularType.PHONG;
+      this._intensity = 1;
       this._projection = bg.Matrix4.Ortho(-10, 10, -10, 10, 0.5, 300.0);
     }
     return ($traceurRuntime.createClass)(Light, {
@@ -2411,6 +3378,8 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this.cutoffDistance = other.cutoffDistance;
         this.castShadows = other.castShadows;
         this.shadowBias = other.shadowBias;
+        this.specularType = other.specularType;
+        this.intensity = other.intensity;
       },
       get enabled() {
         return this._enabled;
@@ -2447,6 +3416,18 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       set specular(s) {
         this._specular = s;
+      },
+      get specularType() {
+        return this._specularType;
+      },
+      set specularType(s) {
+        this._specularType = s;
+      },
+      get intensity() {
+        return this._intensity;
+      },
+      set intensity(i) {
+        this._intensity = i;
       },
       get attenuationVector() {
         return this._attenuation;
@@ -2530,13 +3511,15 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this._ambient = new bg.Color(sceneData.ambient);
         this._diffuse = new bg.Color(sceneData.diffuse);
         this._specular = new bg.Color(sceneData.specular);
-        this._attenuation = new bg.Vector3(sceneData.constantAtt, sceneData.linearAtt, sceneData.expAtt);
         this._spotCutoff = sceneData.spotCutoff || 20;
         this._spotExponent = sceneData.spotExponent || 30;
         this._shadowStrength = sceneData.shadowStrength;
         this._cutoffDistance = sceneData.cutoffDistance;
         this._projection = new bg.Matrix4(sceneData.projection);
         this._castShadows = sceneData.castShadows;
+        this._specularType = sceneData.specularType == "BLINN" ? bg.base.SpecularType.BLINN : bg.base.SpecularType.PHONG;
+        this._intensity = sceneData.intensity || 1;
+        this._attenuation = new bg.Vector3(sceneData.constantAtt, sceneData.linearAtt, sceneData.expAtt);
       },
       serialize: function(sceneData) {
         var lightTypes = [];
@@ -2548,9 +3531,6 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         sceneData.diffuse = this._diffuse.toArray();
         sceneData.specular = this._specular.toArray();
         sceneData.intensity = 1;
-        sceneData.constantAtt = this._attenuation.x;
-        sceneData.linearAtt = this._attenuation.y;
-        sceneData.expAtt = this._attenuation.z;
         sceneData.spotCutoff = this._spotCutoff || 20;
         sceneData.spotExponent = this._spotExponent || 30;
         sceneData.shadowStrength = this._shadowStrength;
@@ -2558,6 +3538,11 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         sceneData.projection = this._projection.toArray();
         sceneData.castShadows = this._castShadows;
         sceneData.shadowBias = this._shadowBias || 0.0029;
+        sceneData.specularType = this.specularType == bg.base.SpecularType.BLINN ? "BLINN" : "PHONG";
+        sceneData.intensity = this.intensity || 1;
+        sceneData.constantAtt = this._attenuation.x;
+        sceneData.linearAtt = this._attenuation.y;
+        sceneData.expAtt = this._attenuation.z;
       }
     }, {}, $__super);
   }(bg.app.ContextObject);
@@ -2588,14 +3573,17 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       get rawDirection() {
         return this._rawDirection;
       },
-      get attenuation() {
-        return this._attenuation;
-      },
       get spotCutoff() {
         return this._spotCutoff;
       },
+      get cosSpotCutoff() {
+        return this._cosSpotCutoff;
+      },
       get spotExponent() {
         return this._spotExponent;
+      },
+      get cosSpotExponent() {
+        return this._cosSpotExponent;
       },
       get shadowStrength() {
         return this._shadowStrength;
@@ -2603,8 +3591,17 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       get cutoffDistance() {
         return this._cutoffDistance;
       },
+      get specularType() {
+        return this._specularType;
+      },
+      get intensity() {
+        return this._intensity;
+      },
       get numLights() {
         return this._numLights;
+      },
+      get attenuation() {
+        return this._attenuation;
       },
       get lightTransform() {
         return this._lightTransform;
@@ -2624,6 +3621,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       get shadowLightIndex() {
         return this._shadowLightIndex;
       },
+      get shadowLightDirection() {
+        return this._shadowLightDirection;
+      },
       reset: function() {
         this._type = [];
         this._ambient = [];
@@ -2634,14 +3634,19 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         this._rawDirection = [];
         this._attenuation = [];
         this._spotCutoff = [];
+        this._cosSpotCutoff = [];
         this._spotExponent = [];
+        this._cosSpotExponent = [];
         this._shadowStrength = [];
         this._cutoffDistance = [];
         this._numLights = 0;
         this._lightTransform = [];
+        this._specularType = [];
+        this._intensity = [];
         this._shadowLightTransform = null;
         this._shadowLightIndex = -1;
         this._shadowLight = null;
+        this._shadowLightDirection = new bg.Vector3(0, 0, 1);
       },
       push: function(light, lightTransform) {
         var $__3,
@@ -2664,9 +3669,14 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           this._attenuation.push(light.linearAttenuation);
           this._attenuation.push(light.quadraticAttenuation);
           this._spotCutoff.push(light.spotCutoff);
+          this._cosSpotCutoff.push(Math.cos(light.spotCutoff * Math.PI / 180));
           this._spotExponent.push(light.spotExponent);
+          var exp = light.spotCutoff > light.spotExponent ? light.spotExponent : light.spotCutoff * 0.98;
+          this._cosSpotExponent.push(Math.cos(exp * Math.PI / 180));
           this._shadowStrength.push(light.shadowStrength);
           this._cutoffDistance.push(light.cutoffDistance);
+          this._specularType.push(light.specularType);
+          this._intensity.push(light.intensity);
           this._numLights++;
           this._lightTransform.push(lightTransform);
           return true;
@@ -2684,6 +3694,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           var pos = vm.mult(this._lightTransform[i]).position;
           ($__3 = this._direction).push.apply($__3, $traceurRuntime.spread((dir.toArray())));
           ($__4 = this._position).push.apply($__4, $traceurRuntime.spread((pos.toArray())));
+          if (this._shadowLightIndex == i) {
+            this._shadowLightDirection = dir;
+          }
         }
       }
     }, {});
@@ -2726,22 +3739,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     UNLIT: 1 << 29
   };
   function loadTexture(context, image, url) {
-    var texture = null;
-    if (image) {
-      texture = bg.base.TextureCache.Get(context).find(url);
-      if (!texture) {
-        bg.log(("Texture " + url + " not found. Loading texture"));
-        texture = new bg.base.Texture(context);
-        texture.create();
-        texture.bind();
-        texture.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
-        texture.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
-        texture.setImage(image);
-        texture.fileName = url;
-        bg.base.TextureCache.Get(context).register(url, texture);
-      }
-    }
-    return texture;
+    return bg.base.Texture.FromImage(context, image, url);
   }
   var MaterialModifier = function() {
     function MaterialModifier(jsonData) {
@@ -3286,9 +4284,19 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     }, {});
   }();
   bg.base.MaterialModifier = MaterialModifier;
+  bg.base.imageTools = {};
   function isAbsolutePath(path) {
-    return /^(f|ht)tps?:\/\//i.test(path);
+    if (bg.isElectronApp) {
+      return /^\//i.test(path);
+    } else {
+      return /^(f|ht)tps?:\/\//i.test(path);
+    }
   }
+  bg.base.imageTools.isAbsolutePath = isAbsolutePath;
+  function mergePaths(path, component) {
+    return path.slice(-1) != '/' ? path + '/' + component : path + component;
+  }
+  bg.base.imageTools.mergePath = mergePaths;
   function getTexture(context, texturePath, resourcePath) {
     var texture = null;
     if (texturePath) {
@@ -3308,7 +4316,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           bg.utils.Resource.Load(path).then(function(imgData) {
             tex.bind();
             texture.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
-            texture.magFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+            texture.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
             tex.fileName = path;
             tex.setImage(imgData);
           });
@@ -3317,9 +4325,11 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     }
     return texture;
   }
+  bg.base.imageTools.getTexture = getTexture;
   function getPath(texture) {
     return texture ? texture.fileName : "";
   }
+  bg.base.imageTools.getPath = getPath;
   function channelVector(channel) {
     return new bg.Vector4(channel == 0 ? 1 : 0, channel == 1 ? 1 : 0, channel == 2 ? 1 : 0, channel == 3 ? 1 : 0);
   }
@@ -3359,6 +4369,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       }
     });
   }
+  bg.base.imageTools.readTexture = readTexture;
   var Material = function() {
     function Material() {
       this._diffuse = bg.Color.White();
@@ -4251,6 +5262,1438 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
 
 "use strict";
 (function() {
+  bg.base.PBRMaterialFlag = {
+    DIFFUSE: 1 << 0,
+    METALLIC: 1 << 1,
+    ROUGHNESS: 1 << 2,
+    FRESNEL: 1 << 3,
+    AMBIENT_OCCLUSSION: 1 << 4,
+    LIGHT_EMISSION: 1 << 5,
+    NORMAL: 1 << 6,
+    LIGHT_MAP: 1 << 7,
+    HEIGHT: 1 << 8,
+    SHADOWS: 1 << 9,
+    CULL_FACE: 1 << 10,
+    UNLIT: 1 << 11
+  };
+  function getColorOrTexture(data) {
+    var defaultValue = arguments[1] !== (void 0) ? arguments[1] : bg.Color.Black();
+    if (Array.isArray(diffuse) && diffuse.length == 3) {
+      return new bg.Color(data[0], data[1], data[2], 1);
+    } else if (Array.isArray(diffuse) && diffuse.length >= 4) {
+      return new bg.Color(data[0], data[1], data[2], data[3]);
+    } else if (typeof(diffuse) == "string" && diffuse != "") {
+      return diffuse;
+    } else {
+      return defaultValue;
+    }
+  }
+  function getVector(data) {
+    var defaultValue = arguments[1] !== (void 0) ? arguments[1] : bg.Vector2();
+    if (Array.isArray(data) && data.length == 2) {
+      return new bg.Vector2(data);
+    } else if (Array.isArray(data) && data.length == 3) {
+      return new bg.Vector3(data);
+    } else if (Array.isArray(data) && data.length == 4) {
+      return new bg.Vector4(data);
+    } else {
+      return defaultValue;
+    }
+  }
+  function getScalarOrTexture(data) {
+    var defaultValue = arguments[1] !== (void 0) ? arguments[1] : 0;
+    if (data !== undefined && !isNaN(Number(data)) && data !== "") {
+      return Number(data);
+    } else if (data !== undefined && typeof(data) == "string" && data != "") {
+      return data;
+    } else {
+      return defaultValue;
+    }
+  }
+  function getScalar(data) {
+    var defaultValue = arguments[1] !== (void 0) ? arguments[1] : 0;
+    if (data !== undefined && !isNaN(Number(data)) && data !== "") {
+      return Number(data);
+    } else {
+      return defaultValue;
+    }
+  }
+  function getBoolean(value) {
+    var defaultValue = arguments[1] !== (void 0) ? arguments[1] : true;
+    if (typeof(value) == "string" && value !== "") {
+      return /true/i.test(value) || /yes/i.test(value) || /1/.test(value);
+    } else if (value !== undefined) {
+      return value;
+    } else {
+      return defaultValue;
+    }
+  }
+  function getVector(value) {
+    var defaultValue = arguments[1] !== (void 0) ? arguments[1] : [0, 0];
+    if (value instanceof bg.Vector2 || value instanceof bg.Vector3 || value instanceof bg.Vector4) {
+      return value.toArray();
+    } else if (Array.isArray(value)) {
+      return value;
+    } else {
+      return defaultValue;
+    }
+  }
+  function getColorOrTexture(value) {
+    var defaultValue = arguments[1] !== (void 0) ? arguments[1] : [0, 0, 0, 1];
+    if (value instanceof bg.Color) {
+      return value.toArray();
+    } else if (Array.isArray(value)) {
+      return value;
+    } else if (typeof(value) == "string" && value != "") {
+      return value;
+    } else {
+      return defaultValue;
+    }
+  }
+  function getScalarOrTexture(value) {
+    if (value !== undefined && !isNaN(Number(value))) {
+      return Number(value);
+    } else if (typeof(value) == "string" && value != "") {
+      return value;
+    } else {
+      return 0;
+    }
+  }
+  var PBRMaterialModifier = function() {
+    function PBRMaterialModifier(jsonData) {
+      this._modifierFlags = 0;
+      this._diffuse = bg.Color.White();
+      this._isTransparent = false;
+      this._alphaCutoff = 0.5;
+      this._diffuseScale = new bg.Vector2(1);
+      this._metallic = 0;
+      this._metallicChannel = 0;
+      this._metallicScale = new bg.Vector2(1);
+      this._roughness = 1;
+      this._roughnessChannel = 0;
+      this._roughnessScale = new bg.Vector2(1);
+      this._fresnel = bg.Color.White();
+      this._fresnelScale = new bg.Vector2(1);
+      this._ambientOcclussion = 1;
+      this._ambientOcclussionChannel = 0;
+      this._lightEmission = 0;
+      this._lightEmissionChannel = 0;
+      this._lightEmissionScale = new bg.Vector2(1);
+      this._height = 0;
+      this._heightChannel = 0;
+      this._heightIntensity = 1;
+      this._heightScale = new bg.Vector2(1);
+      this._normal = new bg.Color(0.5, 0.5, 1, 1);
+      this._normalScale = new bg.Vector2(1);
+      this._castShadows = true;
+      this._cullFace = true;
+      this._unlit = false;
+      if (jsonData && (jsonData.type != "pbr" && jsonData['class'] != 'PBRMaterial')) {
+        console.warn("non-pbr data used in pbr material modifier.");
+        if (jsonData.texture) {
+          this._diffuse = getColorOrTexture(jsonData.texture, this._diffuse);
+        } else {
+          this._diffuse = new bg.Color(jsonData.diffuseR !== undefined ? jsonData.diffuseR : 1, jsonData.diffuseG !== undefined ? jsonData.diffuseG : 1, jsonData.diffuseB !== undefined ? jsonData.diffuseB : 1, jsonData.diffuseA !== undefined ? jsonData.diffuseA : 1);
+        }
+        this._diffuseScale = new bg.Vector2(jsonData.diffuseScaleX !== undefined ? jsonData.diffuseScaleX : this._diffuseScale.x, jsonData.diffuseScaleY !== undefined ? jsonData.diffuseScaleY : this._diffuseScale.y);
+        this._diffuseOffset = new bg.Vector2(jsonData.diffuseOffsetX !== undefined ? jsonData.diffuseOffsetX : this._diffuseOffset.x, jsonData.diffuseOffsetY !== undefined ? jsonData.diffuseOffsetY : this._diffuseOffset.y);
+        if (jsonData.normalMap) {
+          this._normal = getColorOrTexture(jsonData.normalMap, this._normal);
+        }
+        this._normalScale = new bg.Vector2(jsonData.normalMapScaleX !== undefined ? jsonData.normalMapScaleX : this._normalScale.x, jsonData.normalMapScaleY !== undefined ? jsonData.normalMapScaleY : this._normalScale.y);
+        this._normalOffset = new bg.Vector2(jsonData.normalMapOffsetX !== undefined ? jsonData.normalMapOffsetX : this._normalOffset.x, jsonData.normalMapOffsetY !== undefined ? jsonData.normalMapOffsetY : this._normalOffset.y);
+        if (jsonData.diffuseR || jsonData.diffuseG || jsonData.diffuseB || jsonData.diffuseA || jsonData.texture) {
+          this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE);
+        }
+        if (jsonData.diffuseScaleX || jsonData.diffuseScaleY) {
+          this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE_SCALE);
+        }
+        if (jsonData.diffuseOffsetX || jsonData.diffuseOffsetY) {
+          this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE_OFFSET);
+        }
+        if (jsonData.normalMap) {
+          this.setEnabled(bg.base.PBRMaterialFlag.NORMAL);
+        }
+        if (jsonData.normalMapScaleX || jsonData.normalMapScaleY) {
+          this.setEnabled(bg.base.PBRMaterialFlag.NORMAL_SCALE);
+        }
+        if (jsonData.normalMapOffsetX || jsonData.normalMapOffsetY) {
+          this.setEnabled(bg.base.PBRMaterialFlag.NORMAL_OFFSET);
+        }
+      } else if (jsonData) {
+        var defaultScale = jsonData.diffuseScale || this._diffuseScale;
+        this._diffuse = getColorOrTexture(jsonData.diffuse, this._diffuse);
+        this._isTransparent = getBoolean(jsonData.isTransparent, this._isTransparent);
+        this._alphaCutoff = getScalar(jsonData.alphaCutoff, this._alphaCutoff);
+        this._diffuseScale = new bg.Vector2(getVector(jsonData.diffuseScale, this._diffuseScale));
+        this._metallic = getScalarOrTexture(jsonData.metallic, this._metallic);
+        this._metallicChannel = getScalar(jsonData.metallicChannel, this._metallicChannel);
+        this._metallicScale = new bg.Vector2(getVector(jsonData.metallicScale || defaultScale, this._metallicScale));
+        this._roughness = getScalarOrTexture(jsonData.roughness, this._roughness);
+        this._roughnessChannel = getScalar(jsonData.roughnessChannel, this._roughnessChannel);
+        this._roughnessScale = new bg.Vector2(getVector(jsonData.roughnessScale || defaultScale, this._roughnessScale));
+        this._fresnel = getColorOrTexture(jsonData.fresnel, this._fresnel);
+        this._fresnelScale = new bg.Vector2(getVector(jsonData.fresnelScale || defaultScale, this._fresnelScale));
+        this._ambientOcclussion = getScalarOrTexture(jsonData.ambientOcclussion, this._ambientOcclussion);
+        this._ambientOcclussionChannel = getScalar(jsonData.ambientOcclussionChannel, this._ambientOcclussionChannel);
+        this._lightEmission = getScalarOrTexture(jsonData.lightEmission, this._lightEmission);
+        this._lightEmissionChannel = getScalar(jsonData.lightEmissionChannel, this._lightEmissionChannel);
+        this._lightEmissionScale = new bg.Vector2(getVector(jsonData.lightEmissionScale || defaultScale, this._lightEmissionScale));
+        this._height = getScalarOrTexture(jsonData.height, this._height);
+        this._heightChannel = getScalar(jsonData.heightChannel, this._heightChannel);
+        this._heightIntensity = getScalar(jsonData.heightIntensity, this._heightIntensity);
+        this._heightScale = new bg.Vector2(getVector(jsonData.heightScale || defaultScale, this._heightScale));
+        this._normal = getColorOrTexture(jsonData.normal, this._normal);
+        this._normalScale = new bg.Vector2(getVector(jsonData.normalScale, this._normalScale));
+        this._castShadows = getBoolean(jsonData.castShadows, this._castShadows);
+        this._cullFace = getBoolean(jsonData.cullFace, this._cullFace);
+        this._unlit = getBoolean(jsonData.unlit, this._unlit);
+        if (Array.isArray(this._diffuse)) {
+          this._diffuse = new bg.Color(this._diffuse);
+        }
+        if (Array.isArray(this._fresnel)) {
+          this._fresnel = new bg.Color(this._fresnel);
+        }
+        if (Array.isArray(this.normal) && this.normal.length >= 3) {
+          var n = this.normal;
+          this._normal = new bg.Color(n[0], n[1], n[2], n.length > 3 ? n[3] : 1);
+        }
+        if (jsonData.diffuse || jsonData.isTransparent || jsonData.alphaCutoff || jsonData.diffuseScale) {
+          this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE);
+        }
+        if (jsonData.metallic !== undefined || jsonData.metallicScale !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.METALLIC);
+        }
+        if (jsonData.roughness !== undefined || jsonData.roughnessScale !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.ROUGHNESS);
+        }
+        if (jsonData.fresnel !== undefined || jsonData.fresnelScale !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.FRESNEL);
+        }
+        if (jsonData.ambientOcclussion !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.AMBIENT_OCCLUSSION);
+        }
+        if (jsonData.lightEmission !== undefined || jsonData.lightEmissionScale !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.LIGHT_EMISSION);
+        }
+        if (jsonData.height !== undefined || jsonData.heightIntensity !== undefined || jsonData.heightScale !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.HEIGHT);
+        }
+        if (jsonData.normal || jsonData.normalScale) {
+          this.setEnabled(bg.base.PBRMaterialFlag.NORMAL);
+        }
+        if (jsonData.castShadows !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.SHADOWS);
+        }
+        if (jsonData.cullFace !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.CULL_FACE);
+        }
+        if (jsonData.unlit !== undefined) {
+          this.setEnabled(bg.base.PBRMaterialFlag.UNLIT);
+        }
+      }
+    }
+    return ($traceurRuntime.createClass)(PBRMaterialModifier, {
+      get modifierFlags() {
+        return this._modifierFlags;
+      },
+      set modifierFlags(f) {
+        this._modifierFlags = f;
+      },
+      get modifierMask() {
+        return this._modifierFlags;
+      },
+      set modifierMask(f) {
+        this._modifierFlags = f;
+      },
+      setEnabled: function(flag) {
+        this._modifierFlags = this._modifierFlags | flag;
+      },
+      isEnabled: function(flag) {
+        return (this._modifierFlags & flag) != 0;
+      },
+      get diffuseOffset() {
+        console.warn("diffuseOffset is deprecated in PBR materials.");
+        return new bg.Vector2(0);
+      },
+      set diffuseOffset(v) {
+        console.warn("diffuseOffset is deprecated iin PBR materials.");
+      },
+      get normalOffset() {
+        console.warn("normalOffset is deprecated in PBR materials.");
+        return new bg.Vector2(0);
+      },
+      set normalOffset(v) {
+        console.warn("normalOffset is deprecated in PBR materials.");
+      },
+      get diffuse() {
+        return this._diffuse;
+      },
+      get isTransparent() {
+        return this._isTransparent;
+      },
+      get alphaCutoff() {
+        return this._alphaCutoff;
+      },
+      set diffuse(v) {
+        this._diffuse = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE);
+      },
+      set isTransparent(v) {
+        this._isTransparent = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE);
+      },
+      set alphaCutoff(v) {
+        this._alphaCutoff = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE);
+      },
+      get diffuseScale() {
+        return this._diffuseScale;
+      },
+      set diffuseScale(v) {
+        this._diffuseScale = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.DIFFUSE);
+      },
+      get metallic() {
+        return this._metallic;
+      },
+      set metallic(v) {
+        this._metallic = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.METALLIC);
+      },
+      get metallicChannel() {
+        return this._metallicChannel;
+      },
+      set metallicChannel(v) {
+        this._metallicChannel = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.METALLIC);
+      },
+      get metallicScale() {
+        return this._metallicScale;
+      },
+      set metallicScale(v) {
+        this._metallicScale = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.METALLIC);
+      },
+      get roughness() {
+        return this._roughness;
+      },
+      set roughness(v) {
+        this._roughness = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.ROUGHNESS);
+      },
+      get roughnessChannel() {
+        return this._roughnessChannel;
+      },
+      set roughnessChannel(v) {
+        this._roughnessChannel = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.ROUGHNESS);
+      },
+      get roughnessScale() {
+        return this._roughnessScale;
+      },
+      set roughnessScale(v) {
+        this._roughnessScale = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.ROUGHNESS);
+      },
+      get fresnel() {
+        return this._fresnel;
+      },
+      set fresnel(v) {
+        this._fresnel = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.FRESNEL);
+      },
+      get fresnelScale() {
+        return this._fresnelScale;
+      },
+      set fresnelScale(v) {
+        this._fresnelScale = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.FRESNEL);
+      },
+      get ambientOcclussion() {
+        return this._ambientOcclussion;
+      },
+      set ambientOcclussion(v) {
+        this._ambientOcclussion = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.AMBIENT_OCCLUSSION);
+      },
+      get ambientOcclussionChannel() {
+        return this._ambientOcclussionChannel;
+      },
+      set ambientOcclussionChannel(v) {
+        this._ambientOcclussionChannel = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.AMBIENT_OCCLUSSION);
+      },
+      get lightEmission() {
+        return this._lightEmission;
+      },
+      set lightEmission(v) {
+        this._lightEmission = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.LIGHT_EMISSION);
+      },
+      get lightEmissionChannel() {
+        return this._lightEmissionChannel;
+      },
+      set lightEmissionChannel(v) {
+        this._lightEmissionChannel = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.LIGHT_EMISSION);
+      },
+      get lightEmissionScale() {
+        return this._lightEmissionScale;
+      },
+      set lightEmissionScale(v) {
+        this._lightEmissionScale = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.LIGHT_EMISSION);
+      },
+      get height() {
+        return this._height;
+      },
+      set height(v) {
+        this._height = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.HEIGHT);
+      },
+      get heightChannel() {
+        return this._heightChannel;
+      },
+      set heightChannel(v) {
+        this._heightChannel = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.HEIGHT);
+      },
+      get heightIntensity() {
+        return this._heightIntensity;
+      },
+      set heightIntensity(v) {
+        this._heightIntensity = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.HEIGHT);
+      },
+      get heightScale() {
+        return this._heightScale;
+      },
+      set heightScale(v) {
+        this._heightScale = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.HEIGH);
+      },
+      get normal() {
+        return this._normal;
+      },
+      set normal(v) {
+        this._normal = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.NORMAL);
+      },
+      get normalScale() {
+        return this._normalScale;
+      },
+      set normalScale(v) {
+        this._normalScale = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.NORMAL);
+      },
+      get castShadows() {
+        return this._castShadows;
+      },
+      set castShadows(v) {
+        this._castShadows = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.SHADOWS);
+      },
+      get cullFace() {
+        return this._cullFace;
+      },
+      set cullFace(v) {
+        this._cullFace = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.CULL_FACE);
+      },
+      get unlit() {
+        return this._unlit;
+      },
+      set unlit(v) {
+        this._unlit = v;
+        this.setEnabled(bg.base.PBRMaterialFlag.UNLIT);
+      },
+      clone: function() {
+        var copy = new PBRMaterialModifier();
+        copy.assign(this);
+        return copy;
+      },
+      assign: function(mod) {
+        this._modifierFlags = mod._modifierFlags;
+        this._diffuse = mod._diffuse;
+        this._isTransparent = mod._isTransparent;
+        this._alphaCutoff = mod._alphaCutoff;
+        this._diffuseScale = mod._diffuseScale;
+        this._metallic = mod._metallic;
+        this._metallicChannel = mod._metallicChannel;
+        this._metallicScale = mod._metallicScale;
+        this._roughness = mod._roughness;
+        this._roughnessChannel = mod._roughnessChannel;
+        this._roughnessScale = mod._roughnessScale;
+        this._fresnel = mod._fresnel;
+        this._fresnelScale = mod._fresnelScale;
+        this._ambientOcclussion = mod._ambientOcclussion;
+        this._ambientOcclussionChannel = mod._ambientOcclussionChannel;
+        this._lightEmission = mod._lightEmission;
+        this._lightEmissionChannel = mod._lightEmissionChannel;
+        this._lightEmissionScale = mod._lightEmissionScale;
+        this._height = mod._height;
+        this._heightChannel = mod._heightChannel;
+        this._heightIntensity = mod._heightIntensity;
+        this._heightScale = mod._heightScale;
+        this._normal = mod._normal;
+        this._normalScale = mod._normalScale;
+        this._castShadows = mod._castShadows;
+        this._cullFace = mod._cullFace;
+        this._unlit = mod._unlit;
+      },
+      serialize: function() {
+        var result = {class: "PBRMaterial"};
+        var mask = this._modifierFlags;
+        if (mask & bg.base.PBRMaterialFlag.DIFFUSE) {
+          result.diffuse = getColorOrTexture(this.diffuse);
+          result.isTransparent = getBoolean(this.isTransparent);
+          result.alphaCutoff = getBoolean(this.alphaCutoff);
+          result.diffuseScale = getVector(this.diffuseScale);
+        }
+        if (mask & bg.base.PBRMaterialFlag.METALLIC) {
+          result.metallic = getScalarOrTexture(this.metallic);
+          result.metallicChannel = getScalar(this.metallicChannel);
+          result.metallicScale = getVector(this.metallicScale);
+        }
+        if (mask & bg.base.PBRMaterialFlag.ROUGHNESS) {
+          result.roughness = getScalarOrTexture(this.roughness);
+          result.roughnessChannel = getScalar(this.roughnessChannel);
+          result.roughnessScale = getVector(this.roughnessScale);
+        }
+        if (mask & bg.base.PBRMaterialFlag.FRESNEL) {
+          result.fresnel = getColorOrTexture(this.fresnel);
+          result.fresnelScale = getVector(this.fresnelScale);
+        }
+        if (mask & bg.base.PBRMaterialFlag.AMBIENT_OCCLUSSION) {
+          result.ambientOcclussion = getScalarOrTexture(this.ambientOcclussion);
+          result.ambientOcclussionChannel = getScalar(this.ambientOcclussionChannel);
+        }
+        if (mask & bg.base.PBRMaterialFlag.LIGHT_EMISSION) {
+          result.lightEmission = getScalarOrTexture(this.lightEmission);
+          result.lightEmissionChannel = getScalar(this.lightEmissionChannel);
+          result.lightEmissionScale = getVector(this.lightEmissionScale);
+        }
+        if (mask & bg.base.PBRMaterialFlag.NORMAL) {
+          result.normal = getColorOrTexture(this.normal);
+          result.normalScale = getVector(this.normalScale);
+        }
+        if (mask & bg.base.PBRMaterialFlag.HEIGHT) {
+          result.height = getScalarOrTexture(this.height);
+          result.heightChannel = getScalar(this.heightChannel);
+          result.heightScale = getScalar(this.heightScale);
+          result.heightIntensity = getScalar(this.heightIntensity);
+        }
+        if (mask & bg.base.PBRMaterialFlag.SHADOWS) {
+          result.castShadows = getBoolean(this.castShadows);
+        }
+        if (mask & bg.base.PBRMaterialFlag.CULL_FACE) {
+          result.cullFace = getBoolean(this.cullFace);
+        }
+        if (mask & bg.base.PBRMaterialFlag.UNLIT) {
+          result.unlit = getBoolean(this.unlit);
+        }
+        return result;
+      }
+    }, {ConvertToPBR: function(mod) {
+        var result = new bg.base.PBRMaterialModifier();
+        if (mod.isEnabled(bg.base.MaterialFlag.DIFFUSE) && !mod.isEnabled(bg.base.MaterialFlag.TEXTURE)) {
+          result.diffuse = mod.diffuse;
+        } else if (mod.isEnabled(bg.base.MaterialFlag.TEXTURE) && mod.texture != "") {
+          result.diffuse = mod.texture;
+        }
+        if (mod.isEnabled(bg.base.MaterialFlag.NORMAL_MAP) && mod.normalMap != "") {
+          result.normal = mod.normalMap;
+        }
+        if (mod.isEnabled(bg.base.MaterialFlag.SPECULAR)) {
+          result.fresnel = mod.specular;
+        }
+        if (mod.isEnabled(bg.base.MaterialFlag.TEXTURE_OFFSET)) {
+          result.diffuseOffset = mod.textureOffset;
+        }
+        if (mod.isEnabled(bg.base.MaterialFlag.TEXTURE_SCALE)) {
+          result.diffuseScale = mod.textureScale;
+        }
+        if (mod.isEnabled(bg.base.MaterialFlag.NORMAL_MAP_OFFSET)) {
+          result.normalOffset = mod.normalMapOffset;
+        }
+        if (mod.isEnabled(bg.base.MaterialFlag.NORMAL_MAP_SCALE)) {
+          result.normalScale = mod.normalMapScale;
+        }
+        return result;
+      }});
+  }();
+  bg.base.PBRMaterialModifier = PBRMaterialModifier;
+  function getMap(context, matParam) {
+    var vecValue = null;
+    var num = Number(matParam);
+    if (isNaN(num)) {
+      if (matParam instanceof bg.Vector3) {
+        vecValue = new bg.Vector4(matParam.x, matParam.y, matParam.z, 0);
+      } else if (matParam instanceof bg.Vector2) {
+        vecValue = new bg.Vector4(matParam.x, matParam.y, 0, 0);
+      } else if (matParam instanceof bg.Vector4) {
+        vecValue = matParam;
+      } else if (matParam === undefined) {
+        vecValue = new bg.Vector4(0, 0, 0, 0);
+      }
+    } else {
+      vecValue = new bg.Vector4(num, num, num, num);
+    }
+    if (vecValue) {
+      return bg.base.Texture.ColorTexture(context, vecValue, {
+        width: 1,
+        height: 1
+      });
+    } else {
+      throw new Error("PBRMaterial invalid material parameter specified.");
+    }
+  }
+  function release(mapName) {
+    var map = this._shaderParameters[mapName];
+    if (map && map.map && map.release) {
+      map.map.destroy();
+    }
+  }
+  function combineMaps(gl) {
+    var height = {
+      map: this._shaderParameters.height.map,
+      channel: this._heightChannel
+    };
+    var metallic = {
+      map: this._shaderParameters.metallic.map,
+      channel: this._metallicChannel
+    };
+    var roughness = {
+      map: this._shaderParameters.roughness.map,
+      channel: this._roughnessChannel
+    };
+    var ao = {
+      map: this._shaderParameters.ambientOcclussion.map,
+      channel: this._ambientOcclussionChannel
+    };
+    if (!this._merger) {
+      this._merger = new bg.tools.TextureMerger(gl);
+    }
+    var hmrao = this._merger.mergeMaps(height, metallic, roughness, ao);
+    this._shaderParameters.heightMetallicRoughnessAO.map = hmrao;
+    if (this._texturesToMerge > 0) {
+      this._texturesToMerge--;
+    }
+  }
+  function getMaterialMap(context, paramName, value, basePath) {
+    var $__2 = this;
+    return new Promise(function(resolve, reject) {
+      if (typeof(value) == "string") {
+        if (!bg.base.imageTools.isAbsolutePath(value)) {
+          value = bg.base.imageTools.mergePath(basePath, value);
+        }
+        bg.base.Loader.Load(context, value).then(function(texture) {
+          $__2[paramName] = texture;
+          resolve(texture);
+        }).catch(function(err) {
+          reject(err);
+        });
+      } else if (value instanceof bg.Color || typeof(value) == "number") {
+        $__2[paramName] = value;
+        resolve(value);
+      } else if (Array.isArray(value)) {
+        switch (value.length) {
+          case 2:
+            $__2[paramName] = new bg.Vector2(value);
+            break;
+          case 3:
+            $__2[paramName] = new bg.Vector3(value);
+            break;
+          case 4:
+            $__2[paramName] = new bg.Vector4(value);
+            break;
+        }
+        resolve($__2[paramName]);
+      } else {
+        reject(new Error("Invalid PBR color parameter"));
+      }
+    });
+  }
+  var PBRMaterial = function() {
+    function PBRMaterial() {
+      this._diffuse = bg.Color.White();
+      this._alphaCutoff = 0.5;
+      this._isTransparent = false;
+      this._metallic = 0;
+      this._metallicChannel = 0;
+      this._roughness = 1;
+      this._roughnessChannel = 0;
+      this._fresnel = bg.Color.White();
+      this._lightEmission = 0;
+      this._lightEmissionChannel = 0;
+      this._ambientOcclussion = 1;
+      this._ambientOcclussionChannel = 0;
+      this._normal = new bg.Color(0.5, 0.5, 1, 1);
+      this._normalChannel = 0;
+      this._height = bg.Color.Black();
+      this._heightChannel = 0;
+      this._heightIntensity = 1.0;
+      this._castShadows = true;
+      this._cullFace = true;
+      this._unlit = false;
+      this._texturesToMerge = 0;
+      this._shaderParameters = {
+        diffuse: {
+          map: null,
+          release: false
+        },
+        metallic: {
+          map: null,
+          release: false
+        },
+        roughness: {
+          map: null,
+          release: false
+        },
+        fresnel: {
+          map: null,
+          release: false
+        },
+        lightEmission: {
+          map: null,
+          release: false
+        },
+        ambientOcclussion: {
+          map: null,
+          release: false
+        },
+        normal: {
+          map: null,
+          release: false
+        },
+        height: {
+          map: null,
+          release: false
+        },
+        heightMetallicRoughnessAO: {
+          map: null,
+          release: false
+        },
+        diffuseScale: new bg.Vector2(1, 1),
+        metallicScale: new bg.Vector2(1, 1),
+        roughnessScale: new bg.Vector2(1, 1),
+        fresnelScale: new bg.Vector2(1, 1),
+        lightEmissionScale: new bg.Vector2(1, 1),
+        heightScale: new bg.Vector2(1, 1),
+        normalScale: new bg.Vector2(1, 1),
+        alphaCutoff: 0.5,
+        castShadows: true,
+        diffuseUV: 0,
+        metallicUV: 0,
+        roughnessUV: 0,
+        fresnelUV: 0,
+        lightEmissionUV: 0,
+        ambientOcclussionUV: 1,
+        normalUV: 0,
+        heightUV: 0
+      };
+    }
+    return ($traceurRuntime.createClass)(PBRMaterial, {
+      updateFromLegacyMaterial: function(context, mat) {
+        if (mat.texture && this.diffuse != mat.texture) {
+          this.diffuse = mat.texture;
+        }
+        this.diffuseScale = mat.textureScale;
+        this.normalScale = mat.normalMapScale;
+        if (mat.normalMap != this.normal) {
+          this.normal = mat.normalMap;
+        }
+        if (mat.roughnessMask && mat.roughnessMask != this.roughness) {
+          this.roughness = mat.roughnessMask;
+        }
+        if (!mat.roughnessMask && this.roughness != mat.shininessMask) {
+          this.roughness = mat.shininessMask;
+        }
+        if (mat.reflectionMask != this.metallic) {
+          this.metallic = mat.reflectionMask;
+        }
+      },
+      clone: function() {
+        var copy = new PBRMaterial();
+        copy.assign(this);
+        return copy;
+      },
+      assign: function(other) {
+        this.diffuse = other.diffuse;
+        this.isTransparent = other.isTransparent;
+        this.alphaCutoff = other.alphaCutoff;
+        this.diffuseScale = other.diffuseScale;
+        this.metallic = other.metallic;
+        this.metallicChannel = other.metallicChannel;
+        this.metallicScale = other.metallicScale;
+        this.roughness = other.roughness;
+        this.roughnessChannel = other.roughnessChannel;
+        this.roughnessScale = other.roughnessScale;
+        this.fresnel = other.fresnel;
+        this.fresnelScale = other.fresnelScale;
+        this.lightEmission = other.lightEmission;
+        this.lightEmissionChannel = other.lightEmissionChannel;
+        this.lightEmissionScale = other.lightEmissionScale;
+        this.ambientOcclussion = other.ambientOcclussion;
+        this.ambientOcclussionChannel = other.ambientOcclussionChannel;
+        this.height = other.height;
+        this.heightChannel = other.heightChannel;
+        this.heightScale = other.heightScale;
+        this.heightIntensity = other.heightIntensity;
+        this.normal = other.normal;
+        this.normalScale = other.normalScale;
+        this.castShadows = other.castShadows;
+        this.cullFace = other.cullFace;
+        this.unlit = other.unlit;
+        this.diffuseUV = other.diffuseUV;
+        this.metallicUV = other.metallicUV;
+        this.roughnessUV = other.roughnessUV;
+        this.fresnelUV = other.fresnelUV;
+        this.lightEmissionUV = other.lightEmissionUV;
+        this.ambientOcclussionUV = other.ambientOcclussionUV;
+        this.normalUV = other.normalUV;
+        this.heightUV = other.heightUV;
+      },
+      destroy: function() {
+        release.apply(this, ["diffuse"]);
+        release.apply(this, ["metallic"]);
+        release.apply(this, ["roughness"]);
+        release.apply(this, ["fresnel"]);
+        release.apply(this, ["ambientOcclussion"]);
+        release.apply(this, ["lightEmission"]);
+        release.apply(this, ["normal"]);
+        release.apply(this, ["height"]);
+      },
+      getShaderParameters: function(context) {
+        var $__2 = this;
+        var prepareResource = function(paramName) {
+          if (!$__2._shaderParameters[paramName].map) {
+            $__2._shaderParameters[paramName].release = true;
+            $__2._shaderParameters[paramName].map = getMap.apply($__2, [context, $__2[paramName]]);
+          }
+        };
+        prepareResource("diffuse");
+        prepareResource("metallic");
+        prepareResource("roughness");
+        prepareResource("fresnel");
+        prepareResource("ambientOcclussion");
+        prepareResource("lightEmission");
+        prepareResource("normal");
+        prepareResource("height");
+        if (this._texturesToMerge > 0 || this._shaderParameters.heightMetallicRoughnessAO.map == null) {
+          combineMaps.apply(this, [context]);
+        }
+        return this._shaderParameters;
+      },
+      get diffuse() {
+        return this._diffuse;
+      },
+      get metallic() {
+        return this._metallic;
+      },
+      get metallicChannel() {
+        return this._metallicChannel;
+      },
+      get roughness() {
+        return this._roughness;
+      },
+      get roughnessChannel() {
+        return this._roughnessChannel;
+      },
+      get fresnel() {
+        return this._fresnel;
+      },
+      get ambientOcclussion() {
+        return this._ambientOcclussion;
+      },
+      get ambientOcclussionChannel() {
+        return this._ambientOcclussionChannel;
+      },
+      get lightEmission() {
+        return this._lightEmission;
+      },
+      get lightEmissionChannel() {
+        return this._lightEmissionChannel;
+      },
+      get normal() {
+        return this._normal;
+      },
+      get height() {
+        return this._height;
+      },
+      get heightChannel() {
+        return this._heightChannel;
+      },
+      set diffuse(v) {
+        release.apply(this, ["diffuse"]);
+        this._shaderParameters.diffuse.map = v instanceof bg.base.Texture ? v : null;
+        this._shaderParameters.diffuse.release = this._shaderParameters.diffuse.map == null;
+        this._diffuse = v;
+      },
+      set metallic(v) {
+        if (this._metallic == v) {
+          return;
+        }
+        release.apply(this, ["metallic"]);
+        this._shaderParameters.metallic.map = v instanceof bg.base.Texture ? v : null;
+        this._shaderParameters.metallic.release = this._shaderParameters.metallic.map == null;
+        this._metallic = v;
+        if (this._texturesToMerge == 0 || v instanceof bg.base.Texture) {
+          this._texturesToMerge++;
+        }
+      },
+      set metallicChannel(c) {
+        this._metallicChannel = c;
+      },
+      set roughness(v) {
+        if (this._roughness == v) {
+          return;
+        }
+        release.apply(this, ["roughness"]);
+        this._shaderParameters.roughness.map = v instanceof bg.base.Texture ? v : null;
+        this._shaderParameters.roughness.release = this._shaderParameters.roughness.map == null;
+        this._roughness = v;
+        if (this._texturesToMerge == 0 || v instanceof bg.base.Texture) {
+          this._texturesToMerge++;
+        }
+      },
+      set roughnessChannel(c) {
+        this._roughnessChannel = c;
+      },
+      set fresnel(v) {
+        release.apply(this, ["fresnel"]);
+        this._shaderParameters.fresnel.map = v instanceof bg.base.Texture ? v : null;
+        this._shaderParameters.fresnel.release = this._shaderParameters.fresnel.map == null;
+        this._fresnel = v;
+      },
+      set ambientOcclussion(ao) {
+        if (this._ambientOcclussion == ao) {
+          return;
+        }
+        release.apply(this, ["ambientOcclussion"]);
+        this._shaderParameters.ambientOcclussion.map = ao instanceof bg.base.Texture ? ao : null;
+        this._shaderParameters.ambientOcclussion.release = this._shaderParameters.ambientOcclussion.map == null;
+        this._ambientOcclussion = ao;
+        if (this._texturesToMerge == 0 || ao instanceof bg.base.Texture) {
+          this._texturesToMerge++;
+        }
+      },
+      set ambientOcclussionChannel(c) {
+        this._ambientOcclussionChannel = c;
+      },
+      set height(v) {
+        if (this._height == v) {
+          return;
+        }
+        release.apply(this, ["height"]);
+        this._shaderParameters.height.map = v instanceof bg.base.Texture ? v : null;
+        this._shaderParameters.height.release = this._shaderParameters.height.map == null;
+        this._height = v;
+        if (this._texturesToMerge == 0 || v instanceof bg.base.Texture) {
+          this._texturesToMerge++;
+        }
+      },
+      set heightChannel(c) {
+        this._heightChannel = c;
+      },
+      set lightEmission(v) {
+        release.apply(this, ["lightEmission"]);
+        this._shaderParameters.lightEmission.map = v instanceof bg.base.Texture ? v : null;
+        this._shaderParameters.lightEmission.release = this._shaderParameters.lightEmission.map == null;
+        this._lightEmission = v;
+      },
+      set lightEmissionChannel(c) {
+        this._lightEmissionChannel = c;
+      },
+      set normal(v) {
+        release.apply(this, ["normal"]);
+        this._shaderParameters.normal.map = v instanceof bg.base.Texture ? v : null;
+        this._shaderParameters.normal.release = this._shaderParameters.normal.map == null;
+        this._normal = v;
+      },
+      get diffuseOffset() {
+        console.warn("diffuseOffset: deprecated parameter.");
+        return new bg.Vector2(0);
+      },
+      set diffuseOffset(v) {
+        console.warn("diffuseOffset: deprecated parameter.");
+      },
+      get normalOffset() {
+        console.warn("normalOffset: deprecated parameter.");
+        return new bg.Vector2(0);
+      },
+      set normalOffset(v) {
+        console.warn("normalOffset: deprecated parameter.");
+      },
+      get alphaCutoff() {
+        return this._alphaCutoff;
+      },
+      set alphaCutoff(v) {
+        this._alphaCutoff = v;
+      },
+      get isTransparent() {
+        return this._isTransparent;
+      },
+      set isTransparent(v) {
+        this._isTransparent = v;
+      },
+      get diffuseScale() {
+        return this._shaderParameters.diffuseScale;
+      },
+      set diffuseScale(v) {
+        this._shaderParameters.diffuseScale = v || new bg.Vector2(1, 1);
+      },
+      get metallicScale() {
+        return this._shaderParameters.metallicScale;
+      },
+      set metallicScale(v) {
+        this._shaderParameters.metallicScale = v || new bg.Vector2(1, 1);
+      },
+      get roughnessScale() {
+        return this._shaderParameters.roughnessScale;
+      },
+      set roughnessScale(v) {
+        this._shaderParameters.roughnessScale = v || new bg.Vector2(1, 1);
+      },
+      get fresnelScale() {
+        return this._shaderParameters.fresnelScale;
+      },
+      set fresnelScale(v) {
+        this._shaderParameters.fresnelScale = v || new bg.Vector2(1, 1);
+      },
+      get lightEmissionScale() {
+        return this._shaderParameters.lightEmissionScale;
+      },
+      set lightEmissionScale(v) {
+        this._shaderParameters.lightEmissionScale = v || new bg.Vector2(1, 1);
+      },
+      get heightScale() {
+        return this._shaderParameters.heightScale;
+      },
+      set heightScale(h) {
+        this._shaderParameters.heightScale = h || new bg.Vector2(1, 1);
+      },
+      get heightIntensity() {
+        return this._heightIntensity;
+      },
+      set heightIntensity(h) {
+        this._heightIntensity = h;
+      },
+      get normalScale() {
+        return this._shaderParameters.normalScale;
+      },
+      set normalScale(v) {
+        this._shaderParameters.normalScale = v || new bg.Vector2(1, 1);
+      },
+      get castShadows() {
+        return this._castShadows;
+      },
+      set castShadows(c) {
+        this._castShadows = c;
+      },
+      get cullFace() {
+        return this._cullFace;
+      },
+      set cullFace(c) {
+        this._cullFace = c;
+      },
+      get unlit() {
+        return this._unlit;
+      },
+      set unlit(v) {
+        this._unlit = v;
+      },
+      get diffuseUV() {
+        return this._shaderParameters.diffuseUV;
+      },
+      set diffuseUV(uv) {
+        this._shaderParameters.diffuseUV = uv;
+      },
+      get metallicUV() {
+        return this._shaderParameters.metallicUV;
+      },
+      set metallicUV(uv) {
+        this._shaderParameters.metallicUV = uv;
+      },
+      get roughnessUV() {
+        return this._shaderParameters.roughnessUV;
+      },
+      set roughnessUV(uv) {
+        this._shaderParameters.roughnessUV = uv;
+      },
+      get fresnelUV() {
+        return this._shaderParameters.fresnelUV;
+      },
+      set fresnelUV(uv) {
+        this._shaderParameters.fresnelUV = uv;
+      },
+      get lightEmissionUV() {
+        return this._shaderParameters.lightEmissionUV;
+      },
+      set lightEmissionUV(uv) {
+        this._shaderParameters.lightEmissionUV = uv;
+      },
+      get ambientOcclussionUV() {
+        return this._shaderParameters.ambientOcclussionUV;
+      },
+      set ambientOcclussionUV(uv) {
+        this._shaderParameters.ambientOcclussionUV = uv;
+      },
+      get normalUV() {
+        return this._shaderParameters.normalUV;
+      },
+      set normalUV(uv) {
+        this._shaderParameters.normalUV = uv;
+      },
+      get heightUV() {
+        return this._shaderParameters.heightUV;
+      },
+      set heightUV(uv) {
+        this._shaderParameters.heightUV = uv;
+      },
+      getExternalResources: function() {
+        var resources = arguments[0] !== (void 0) ? arguments[0] : [];
+        function tryadd(texture) {
+          if (texture instanceof bg.base.Texture && texture.fileName && texture.fileName != "" && resources.indexOf(texture.fileName) == -1) {
+            resources.push(texture.fileName);
+          }
+        }
+        tryadd(this.diffuse);
+        tryadd(this.metallic);
+        tryadd(this.roughness);
+        tryadd(this.fresnel);
+        tryadd(this.lightEmission);
+        tryadd(this.ambientOcclussion);
+        tryadd(this.height);
+        tryadd(this.normal);
+        return resources;
+      },
+      copyMaterialSettings: function(mat, mask) {
+        if (mat instanceof PBRMaterial) {
+          if (mask & bg.base.PBRMaterialFlag.DIFFUSE) {
+            mat.diffuse = this.diffuse;
+            mat.alphaCutoff = this.alphaCutoff;
+            mat.isTransparent = this.isTransparent;
+            mat.diffuseScale = this.diffuseScale;
+          }
+          if (mask & bg.base.PBRMaterialFlag.METALLIC) {
+            mat.metallic = this.metallic;
+            mat.metallicChannel = this.metallicChannel;
+            mat.metallicScale = this.metallicScale;
+          }
+          if (mask & bg.base.PBRMaterialFlag.ROUGHNESS) {
+            mat.roughness = this.roughness;
+            mat.roughnessChannel = this.roughnessChannel;
+            mat.roughnessScale = this.roughnessScale;
+          }
+          if (mask & bg.base.PBRMaterialFlag.FRESNEL) {
+            mat.fresnel = this.fresnel;
+            mat.fresnelScale = this.fresnelScale;
+          }
+          if (mask & bg.base.PBRMaterialFlag.AMBIENT_OCCLUSSION) {
+            mat.ambientOcclussion = this.ambientOcclussion;
+            mat.ambientOcclussionChannel = this.ambientOcclussionChannel;
+          }
+          if (mask & bg.base.PBRMaterialFlag.LIGHT_EMISSION) {
+            mat.lightEmission = this.lightEmission;
+            mat.lightEmissionChannel = this.lightEmissionChannel;
+            mat.lightEmissionScale = this.lightEmissionScale;
+          }
+          if (mask & bg.base.PBRMaterialFlag.HEIGHT) {
+            mat.height = this.height;
+            mat.heightChannel = this.heightChannel;
+            mat.heightScale = this.heightScale;
+            mat.heightIntensity = this.heightIntensity;
+          }
+          if (mask & bg.base.PBRMaterialFlag.NORMAL) {
+            mat.normal = this.normal;
+            mat.normalScale = this.normalScale;
+          }
+          if (mask & bg.base.PBRMaterialFlag.LIGHT_MAP) {}
+          if (mask & bg.base.PBRMaterialFlag.SHADOWS) {
+            mat.castShadows = this.castShadows;
+          }
+          if (mask & bg.base.PBRMaterialFlag.CULL_FACE) {
+            mat.cullFace = this.cullFace;
+          }
+          if (mask & bg.base.PBRMaterialFlag.UNLIT) {
+            mat.unlit = this.unlit;
+          }
+        } else {
+          console.warn("Could not copy material: the target is not a PBR material");
+        }
+      },
+      applyModifier: function(context, mod, resourcePath) {
+        if (mod instanceof bg.base.MaterialModifier) {
+          console.warn("MaterialModifier applied to PBRMaterial. Performing automatic converstion to PBRMaterialModifier.");
+          mod = bg.base.PBRMaterialModifier.ConvertToPBR(mod);
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.SHADOWS)) {
+          this.castShadows = mod.castShadows;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.CULL_FACE)) {
+          this.cullFace = mod.cullFace;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.UNLIT)) {
+          this.unlit = mod.unlit;
+        }
+        function getTexture(texturePath) {
+          if (!bg.base.imageTools.isAbsolutePath(texturePath)) {
+            texturePath = bg.base.imageTools.mergePath(resourcePath, texturePath);
+          }
+          var result = bg.base.TextureCache.Get(context).find(texturePath);
+          if (!result) {
+            result = new bg.base.Texture(context);
+            result.create();
+            result.fileName = texturePath;
+            bg.base.TextureCache.Get(context).register(texturePath, result);
+            (function(p, t) {
+              bg.utils.Resource.Load(p).then(function(imgData) {
+                t.bind();
+                t.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+                t.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
+                t.fileName = p;
+                t.setImage(imgData);
+              });
+            })(texturePath, result);
+          }
+          return result;
+        }
+        function textureOrScalar(value) {
+          if (typeof(value) == "string" && value !== "") {
+            return getTexture(value);
+          } else if (!isNaN(value)) {
+            return value;
+          } else {
+            throw new Error("Invalid parameter: expecting texture path or scalar");
+          }
+        }
+        function textureOrColor(value) {
+          if (typeof(value) == "string" && value !== "") {
+            return getTexture(value);
+          } else if (value instanceof bg.Color) {
+            return value;
+          } else if (Array.isArray(value) && value.length == 4) {
+            return new bg.Color(value);
+          } else {
+            throw new Error("Invalid parameter: expecting texture path or color");
+          }
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.DIFFUSE)) {
+          this.diffuse = textureOrColor(mod.diffuse);
+          this.isTransparent = mod.isTransparent;
+          this.alphaCutoff = mod.alphaCutoff;
+          this.diffuseScale = mod.diffuseScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.METALLIC)) {
+          this.metallic = textureOrScalar(mod.metallic);
+          this.metallicChannel = mod.metallicChannel;
+          this.metallicScale = mod.metallicScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.ROUGHNESS)) {
+          this.roughness = textureOrScalar(mod.roughness);
+          this.roughnessChannel = mod.roughnessChannel;
+          this.roughnessScale = mod.roughnessScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.FRESNEL)) {
+          this.fresnel = textureOrColor(mod.fresnel);
+          this.fresnelScale = mod.fresnelScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.AMBIENT_OCCLUSSION)) {
+          this.ambientOcclussion = textureOrScalar(mod.ambientOcclussion);
+          this.ambientOcclussionChannel = mod.ambientOcclussionChannel;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.LIGHT_EMISSION)) {
+          this.lightEmission = textureOrScalar(mod.lightEmission);
+          this.lightEmissionChannel = mod.lightEmissionChannel;
+          this.lightEmissionScale = mod.lightEmissionScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.HEIGHT)) {
+          this.height = textureOrScalar(mod.height);
+          this.heightChannel = mod.heightChannel;
+          this.heightScale = mod.heightScale;
+          this.heightIntensity = mod.heightIntensity;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.NORMAL)) {
+          this.normal = textureOrColor(mod.normal);
+          this.normalScale = mod.normalScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.LIGHT_MAP)) {}
+      },
+      getModifierWithMask: function(modifierMask) {
+        var mod = new PBRMaterialModifier();
+        mod.modifierMask = modifierMask;
+        function colorOrTexturePath(paramName) {
+          var data = this[paramName];
+          if (data instanceof bg.base.Texture) {
+            return data.fileName;
+          } else {
+            return data;
+          }
+        }
+        function scalarOrTexturePath(paramName) {
+          var data = this[paramName];
+          if (data instanceof bg.base.Texture) {
+            return data.fileName;
+          } else {
+            return data;
+          }
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.DIFFUSE)) {
+          mod.diffuse = colorOrTexturePath.apply(this, ["diffuse"]);
+          mod.isTransparent = this.isTransparent;
+          mod.alphaCutoff = this.alphaCutoff;
+          mod.diffuseScale = this.diffuseScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.METALLIC)) {
+          mod.metallic = scalarOrTexturePath.apply(this, ["metallic"]);
+          mod.metallicChannel = this.metallicChannel;
+          mod.metallicScale = this.metallicScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.ROUGHNESS)) {
+          mod.roughness = scalarOrTexturePath.apply(this, ["roughness"]);
+          mod.roughnessChannel = this.roughnessChannel;
+          mod.roughnessScale = this.roughnessScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.FRESNEL)) {
+          mod.fresnel = colorOrTexturePath.apply(this, ["fresnel"]);
+          mod.fresnelScale = this.fresnelScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.AMBIENT_OCCLUSSION)) {
+          mod.ambientOcclussion = scalarOrTexturePath.apply(this, ["ambientOcclussion"]);
+          mod.ambientOcclussionChannel = this.ambientOcclussionChannel;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.LIGHT_EMISSION)) {
+          mod.lightEmission = scalarOrTexturePath.apply(this, ["lightEmission"]);
+          mod.lightEmissionChannel = this.lightEmissionChannel;
+          mod.lightEmissionScale = this.lightEmissionScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.HEIGHT)) {
+          mod.height = scalarOrTexturePath.apply(this, ["height"]);
+          mod.heightChannel = this.heightChannel;
+          mod.heightScale = this.heightScale;
+          mod.heightIntensity = this.heightIntensity;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.NORMAL)) {
+          mod.normal = colorOrTexturePath.apply(this, ["normal"]);
+          mod.normalScale = this.normalScale;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.LIGHT_MAP)) {}
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.SHADOWS)) {
+          mod.castShadows = this.castShadows;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.CULL_FACE)) {
+          mod.cullFace = this.cullFace;
+        }
+        if (mod.isEnabled(bg.base.PBRMaterialFlag.UNLIT)) {
+          mod.unlit = this.unlit;
+        }
+        return mod;
+      }
+    }, {
+      ImportFromLegacyMaterial: function(context, mat) {
+        var result = new bg.base.PBRMaterial();
+        result.diffuse = mat.texture || mat.diffuse;
+        result.diffuseScale = mat.textureScale;
+        result.normalScale = mat.normalMapScale;
+        if (mat.normalMap) {
+          result.normal = mat.normalMap;
+        }
+        if (mat.roughnessMask) {
+          result.roughness = mat.roughnessMask;
+        }
+        if (!result.roughness && mat.shininessMask) {
+          result.roughness = mat.shininessMask;
+        }
+        if (mat.reflectionMask) {
+          result.metallic = mat.reflectionMask;
+        }
+        result.castShadows = mat.castShadows;
+        return result;
+      },
+      FromMaterialDefinition: function(context, def) {
+        var basePath = arguments[2] !== (void 0) ? arguments[2] : "";
+        var mat = new PBRMaterial();
+        mat.diffuseScale = new bg.Vector2(Array.isArray(def.diffuseScale) ? def.diffuseScale : [1, 1]);
+        mat.metallicChannel = getScalar(def.metallicChannel, 0);
+        mat.metallicScale = new bg.Vector2(Array.isArray(def.metallicScale) ? def.metallicScale : [1, 1]);
+        mat.roughnessChannel = getScalar(def.roughnessChannel, 0);
+        mat.roughnessScale = new bg.Vector2(Array.isArray(def.roughnessScale) ? def.roughnessScale : [1, 1]);
+        mat.fresnelScale = new bg.Vector2(Array.isArray(def.fresnelScale) ? def.fresnelScale : [1, 1]);
+        mat.lightEmissionChannel = getScalar(def.lightEmissionChannel, 0);
+        mat.lightEmissionScale = new bg.Vector2(Array.isArray(def.lightEmissionScale) ? def.lightEmissionScale : [1, 1]);
+        mat.ambientOcclussionChannel = getScalar(def.ambientOcclussionChannel, 0);
+        mat.heightChannel = getScalar(def.heightChannel, 0);
+        mat.heightScale = new bg.Vector2(Array.isArray(def.heightScale) ? def.heightScale : [1, 1]);
+        mat.heightIntensity = getScalar(def.heightIntensity, 1);
+        mat.normalScale = new bg.Vector2(Array.isArray(def.normalScale) ? def.normalScale : [1, 1]);
+        mat.isTransparent = def.isTransparent;
+        mat.alphaCutoff = getScalar(def.alphaCutoff, 0.5);
+        mat.castShadows = getBoolean(def.castShadows, true);
+        mat.cullFace = getBoolean(def.cullFace, true);
+        mat.diffuseUV = getScalar(def.diffuseUV, 0);
+        mat.metallicUV = getScalar(def.metallicUV, 0);
+        mat.roughnessUV = getScalar(def.roughnessUV, 0);
+        mat.fresnelUV = getScalar(def.fresnelUV, 0);
+        mat.lightEmissionUV = getScalar(def.lightEmissionUV, 0);
+        mat.ambientOcclussionUV = getScalar(def.ambientOcclussionUV, 1);
+        mat.normalUV = getScalar(def.normalUV, 0);
+        mat.heightUV = getScalar(def.heightUV, 0);
+        mat.unlit = def.unlit !== undefined ? def.unlit : false;
+        var promises = [getMaterialMap.apply(mat, [context, 'diffuse', getColorOrTexture(def.diffuse, bg.Color.White()), basePath]), getMaterialMap.apply(mat, [context, 'metallic', getScalarOrTexture(def.metallic, 0), basePath]), getMaterialMap.apply(mat, [context, 'roughness', getScalarOrTexture(def.roughness, 1), basePath]), getMaterialMap.apply(mat, [context, 'fresnel', getColorOrTexture(def.fresnel, bg.Color.White()), basePath]), getMaterialMap.apply(mat, [context, 'lightEmission', getScalarOrTexture(def.lightEmission, 0), basePath]), getMaterialMap.apply(mat, [context, 'height', getScalarOrTexture(def.height, 0), basePath]), getMaterialMap.apply(mat, [context, 'normal', getColorOrTexture(def.normal, new bg.Color(0.5, 0.5, 1, 1)), basePath]), getMaterialMap.apply(mat, [context, 'ambientOcclussion', getScalarOrTexture(def.ambientOcclussion, 0), basePath])];
+        return new Promise(function(resolve, reject) {
+          Promise.all(promises).then(function(result) {
+            mat.getShaderParameters(context);
+            resolve(mat);
+          }).catch(function(err) {
+            console.warn(err.message);
+            mat.getShaderParameters(context);
+            resolve(mat);
+          });
+        });
+      },
+      Defaults: function(context) {
+        var TexCache = bg.base.TextureCache;
+        var whiteTexture = TexCache.WhiteTexture(context);
+        var blackTexture = TexCache.BlackTexture(context);
+        var normalTexture = TexCache.NormalTexture(context);
+        return {
+          diffuse: {map: whiteTexture},
+          metallic: {
+            map: blackTexture,
+            channel: 0
+          },
+          roughness: {
+            map: whiteTexture,
+            channel: 0
+          },
+          fresnel: {map: whiteTexture},
+          lightEmission: {
+            map: blackTexture,
+            channel: 0
+          },
+          normal: {map: normalTexture},
+          ambientOcclussion: {
+            map: whiteTexture,
+            channel: 0
+          },
+          height: {
+            map: blackTexture,
+            channel: 0
+          }
+        };
+      },
+      GetMaterialWithJson: function(context, data, path) {
+        return PBRMaterial.FromMaterialDefinition(context, data, path);
+      }
+    });
+  }();
+  bg.base.PBRMaterial = PBRMaterial;
+})();
+
+"use strict";
+(function() {
   bg.base.ClearBuffers = {
     COLOR: null,
     DEPTH: null,
@@ -4492,8 +6935,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     plist._tangent = [];
     var result = [];
     var generatedIndexes = {};
+    var invalidUV = false;
     if (plist.index.length % 3 == 0) {
-      for (var i = 0; i < plist.index.length - 2; i += 3) {
+      for (var i = 0; i < plist.index.length; i += 3) {
         var v0i = plist.index[i] * 3;
         var v1i = plist.index[i + 1] * 3;
         var v2i = plist.index[i + 2] * 3;
@@ -4512,9 +6956,17 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         var deltaV1 = t1.y - t0.y;
         var deltaU2 = t2.x - t0.x;
         var deltaV2 = t2.y - t0.y;
-        var f = 1 / (deltaU1 * deltaV2 - deltaU2 * deltaV1);
-        var tangent = new bg.Vector3(f * (deltaV2 * edge1.x - deltaV1 * edge2.x), f * (deltaV2 * edge1.y - deltaV1 * edge2.y), f * (deltaV2 * edge1.z - deltaV1 * edge2.z));
-        tangent.normalize();
+        var den = (deltaU1 * deltaV2 - deltaU2 * deltaV1);
+        var tangent = null;
+        if (den == 0) {
+          var n = new bg.Vector3(plist.normal[v0i], plist.normal[v0i + 1], plist.normal[v0i + 2]);
+          invalidUV = true;
+          tangent = new bg.Vector3(n.y, n.z, n.x);
+        } else {
+          var f = 1 / den;
+          tangent = new bg.Vector3(f * (deltaV2 * edge1.x - deltaV1 * edge2.x), f * (deltaV2 * edge1.y - deltaV1 * edge2.y), f * (deltaV2 * edge1.z - deltaV1 * edge2.z));
+          tangent.normalize();
+        }
         if (generatedIndexes[v0i] === undefined) {
           result.push(tangent.x);
           result.push(tangent.y);
@@ -4538,6 +6990,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       for (var i$__2 = 0; i$__2 < plist.vertex.length; i$__2 += 3) {
         plist._tangent.push(0, 0, 1);
       }
+    }
+    if (invalidUV) {
+      console.warn("Invalid UV texture coords found. Some objects may present artifacts in the lighting, and not display textures properly.");
     }
     return result;
   }
@@ -4638,6 +7093,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       set color(c) {
         this._color = c;
       },
+      set tangent(t) {
+        this._tangent = t;
+      },
       set index(i) {
         this._index = i;
       },
@@ -4724,6 +7182,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         }
       },
       build: function() {
+        var buildTangents = arguments[0] !== (void 0) ? arguments[0] : true;
         if (this.color.length == 0) {
           for (var i = 0; i < this.vertex.length; i += 3) {
             this.color.push(1);
@@ -4737,7 +7196,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           plistImpl.destroy(this.context, this._plist);
           this._tangent = [];
         }
-        this._tangent = createTangents(this);
+        if (buildTangents || !this._tangent || this._tangent.length == 0) {
+          this._tangent = createTangents(this);
+        }
         this._plist = plistImpl.create(this.context);
         return plistImpl.build(this.context, this._plist, this._vertex, this._normal, this._texCoord0, this._texCoord1, this._texCoord2, this._color, this._tangent, this._index);
       },
@@ -4832,6 +7293,55 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     }, {}, $__super);
   }(bg.base.Effect);
   bg.base.RedEffect = RedEffect;
+})();
+
+"use strict";
+(function() {
+  var RenderQueue = function() {
+    function RenderQueue() {
+      this._opaqueQueue = [];
+      this._transparentQueue = [];
+      this._worldCameraPosition = new bg.Vector3(0);
+    }
+    return ($traceurRuntime.createClass)(RenderQueue, {
+      beginFrame: function(worldCameraPosition) {
+        this._opaqueQueue = [];
+        this._transparentQueue = [];
+        this._worldCameraPosition.assign(worldCameraPosition);
+      },
+      renderOpaque: function(plist, mat, trx, viewMatrix) {
+        this._opaqueQueue.push({
+          plist: plist,
+          material: mat,
+          modelMatrix: new bg.Matrix4(trx),
+          viewMatrix: new bg.Matrix4(viewMatrix)
+        });
+      },
+      renderTransparent: function(plist, mat, trx, viewMatrix) {
+        var pos = trx.position;
+        pos.sub(this._worldCameraPosition);
+        this._transparentQueue.push({
+          plist: plist,
+          material: mat,
+          modelMatrix: new bg.Matrix4(trx),
+          viewMatrix: new bg.Matrix4(viewMatrix),
+          cameraDistance: pos.magnitude()
+        });
+      },
+      sortTransparentObjects: function() {
+        this._transparentQueue.sort(function(a, b) {
+          return a.cameraDistance < b.cameraDistance;
+        });
+      },
+      get opaqueQueue() {
+        return this._opaqueQueue;
+      },
+      get transparentQueue() {
+        return this._transparentQueue;
+      }
+    }, {});
+  }();
+  bg.base.RenderQueue = RenderQueue;
 })();
 
 "use strict";
@@ -5074,6 +7584,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       defineAll(this.functions.colorCorrection);
       defineAll(this.functions.lighting);
       defineAll(this.functions.utils);
+      for (var key$__4 in this.inputs.pbr) {
+        defineAll(this.inputs.pbr[key$__4]);
+      }
+      for (var key$__5 in this.functions.pbr) {
+        defineAll(this.functions.pbr[key$__5]);
+      }
     }
     return ($traceurRuntime.createClass)(ShaderLibrary, {}, {Get: function() {
         if (!s_shaderLibrary) {
@@ -5105,6 +7621,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       this._functions = [];
       this._requiredExtensions = [];
       this._header = "";
+      this._preprocessor = "";
     }
     return ($traceurRuntime.createClass)(ShaderSource, {
       get type() {
@@ -5145,10 +7662,14 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       appendHeader: function(src) {
         this._header += src + "\n";
       },
+      appendPreprocessor: function(src) {
+        this._preprocessor += src + "\n";
+      },
       toString: function() {
         var $__3 = this;
         var impl = bg.Engine.Get().shaderSource;
-        var src = impl.header(this.type) + "\n" + this._header + "\n\n";
+        var src = this._preprocessor;
+        src += impl.header(this.type) + "\n" + this._header + "\n\n";
         this.params.forEach(function(p) {
           src += impl.parameter($__3.type, p) + "\n";
         });
@@ -5221,6 +7742,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
     });
     return result;
   }
+  var g_activeShader = null;
   var Shader = function($__super) {
     function Shader(context) {
       $traceurRuntime.superConstructor(Shader).call(this, context);
@@ -5268,9 +7790,11 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       setActive: function() {
         bg.Engine.Get().shader.setActive(this.context, this._shader);
+        g_activeShader = this;
       },
       clearActive: function() {
         Shader.ClearActive(this.context);
+        g_activeShader = null;
       },
       initVars: function(inputBufferVars, valueVars) {
         bg.Engine.Get().shader.initVars(this.context, this._shader, inputBufferVars, valueVars);
@@ -5321,10 +7845,18 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       setTexture: function(name, texture, textureUnit) {
         bg.Engine.Get().shader.setTexture(this.context, this._shader, name, texture, textureUnit);
+      },
+      destroy: function() {
+        console.warn("TODO: Shader.destroy(): not implemented.");
       }
-    }, {ClearActive: function(context) {
+    }, {
+      ClearActive: function(context) {
         bg.Engine.Get().shader.setActive(context, null);
-      }}, $__super);
+      },
+      GetActiveShader: function() {
+        return g_activeShader;
+      }
+    }, $__super);
   }(bg.app.ContextObject);
   bg.base.Shader = Shader;
 })();
@@ -5373,6 +7905,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       this._light = null;
       this._lightTransform = null;
       this.setupShaderSource([vertexShaderSource(), fragmentShaderSource()]);
+      this._offset = new bg.Vector2(0);
     }
     return ($traceurRuntime.createClass)(ShadowMapEffect, {
       get material() {
@@ -5399,12 +7932,20 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           this.shader.setMatrix4("inModelMatrix", matrixState.modelMatrixStack.matrixConst);
           this.shader.setMatrix4("inViewMatrix", this.lightTransform);
           this.shader.setMatrix4("inProjectionMatrix", this.light.projection);
-          this.shader.setValueInt("inCastShadows", this.material.castShadows);
-          var texture = this.material.texture || bg.base.TextureCache.WhiteTexture(this.context);
-          this.shader.setTexture("inTexture", texture, bg.base.TextureUnit.TEXTURE_0);
-          this.shader.setVector2("inTextureOffset", this.material.textureOffset);
-          this.shader.setVector2("inTextureScale", this.material.textureScale);
-          this.shader.setValueFloat("inAlphaCutoff", this.material.alphaCutoff);
+          if (this.material instanceof bg.base.Material) {
+            this.shader.setValueInt("inCastShadows", this.material.castShadows);
+            var texture = this.material.texture || bg.base.TextureCache.WhiteTexture(this.context);
+            this.shader.setTexture("inTexture", texture, bg.base.TextureUnit.TEXTURE_0);
+            this.shader.setVector2("inTextureOffset", this.material.diffuseOffset || this.material.textureOffset);
+            this.shader.setVector2("inTextureScale", this.material.diffuseScale || this.material.textureScale);
+            this.shader.setValueFloat("inAlphaCutoff", this.material.alphaCutoff);
+          } else if (this.material instanceof bg.base.PBRMaterial) {
+            this.shader.setValueInt("inCastShadows", this.material.castShadows);
+            this.shader.setTexture("inTexture", this.material.getShaderParameters(this.context).diffuse.map, bg.base.TextureUnit.TEXTURE_0);
+            this.shader.setVector2("inTextureOffset", this._offset);
+            this.shader.setVector2("inTextureScale", this.material.diffuseScale || this.material.textureScale);
+            this.shader.setValueFloat("inAlphaCutoff", this.material.alphaCutoff);
+          }
         }
       }
     }, {}, $__super);
@@ -5636,6 +8177,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
   var s_normalTexture = "static-normal-color-texture";
   var s_randomTexture = "static-random-color-texture";
   var s_whiteCubemap = "static-white-cubemap-texture";
+  var s_blackCubemap = "static-white-cubemap-texture";
   var TextureCache = function() {
     function TextureCache(context) {
       this._context = context;
@@ -5671,6 +8213,15 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         if (!tex) {
           tex = bg.base.Texture.WhiteCubemap(context);
           cache.register(s_whiteCubemap, tex);
+        }
+        return tex;
+      },
+      BlackCubemap: function(context) {
+        var cache = TextureCache.Get(context);
+        var tex = cache.find(s_blackCubemap);
+        if (!tex) {
+          tex = bg.base.Texture.BlackCubemap(context);
+          cache.register(s_blackCubemap, tex);
         }
         return tex;
       },
@@ -5715,6 +8266,12 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
           s_textureCache[context.uuid] = new TextureCache(context);
         }
         return s_textureCache[context.uuid];
+      },
+      PrecomputedBRDFLookupTexture: function(context) {
+        if (!s_textureCache["_bg_base_brdfLutData_"]) {
+          s_textureCache["_bg_base_brdfLutData_"] = bg.base.Texture.PrecomputedBRDFLookupTexture(context);
+        }
+        return s_textureCache["_bg_base_brdfLutData_"];
       }
     });
   }();
@@ -6196,26 +8753,29 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         var tex = new bg.base.Texture(context);
         tex.img = new Image();
         g_base64TexturePreventRemove.push(tex);
-        setTimeout(function() {
-          tex.create();
-          tex.bind();
-          if (Texture.IsPowerOfTwoImage(tex.img)) {
-            tex.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
-            tex.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
-          } else {
-            tex.minFilter = bg.base.TextureFilter.NEAREST;
-            tex.magFilter = bg.base.TextureFilter.NEAREST;
-            tex.wrapX = bg.base.TextureWrap.CLAMP;
-            tex.wrapY = bg.base.TextureWrap.CLAMP;
-          }
-          tex.setImage(tex.img, false);
-          tex.unbind();
-          var index = g_base64TexturePreventRemove.indexOf(tex);
-          if (index != -1) {
-            g_base64TexturePreventRemove.splice(index, 1);
-          }
-          bg.emitImageLoadEvent();
-        }, 10);
+        tex.promise = new Promise(function(resolve, reject) {
+          setTimeout(function() {
+            tex.create();
+            tex.bind();
+            if (Texture.IsPowerOfTwoImage(tex.img)) {
+              tex.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+              tex.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
+            } else {
+              tex.minFilter = bg.base.TextureFilter.NEAREST;
+              tex.magFilter = bg.base.TextureFilter.NEAREST;
+              tex.wrapX = bg.base.TextureWrap.CLAMP;
+              tex.wrapY = bg.base.TextureWrap.CLAMP;
+            }
+            tex.setImage(tex.img, false);
+            tex.unbind();
+            var index = g_base64TexturePreventRemove.indexOf(tex);
+            if (index != -1) {
+              g_base64TexturePreventRemove.splice(index, 1);
+            }
+            bg.emitImageLoadEvent();
+            resolve(tex);
+          }, 10);
+        });
         tex.img.src = imgData;
         return tex;
       },
@@ -6292,6 +8852,27 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         colorTexture.unbind();
         return colorTexture;
       },
+      PrecomputedBRDFLookupTexture: function(context) {
+        return Texture.FromBase64Image(context, bg.base._brdfLUTData);
+      },
+      FromImage: function(context, image, url) {
+        var texture = null;
+        if (image) {
+          texture = bg.base.TextureCache.Get(context).find(url);
+          if (!texture) {
+            bg.log(("Texture " + url + " not found. Loading texture"));
+            texture = new bg.base.Texture(context);
+            texture.create();
+            texture.bind();
+            texture.minFilter = bg.base.TextureLoaderPlugin.GetMinFilter();
+            texture.magFilter = bg.base.TextureLoaderPlugin.GetMagFilter();
+            texture.setImage(image);
+            texture.fileName = url;
+            bg.base.TextureCache.Get(context).register(url, texture);
+          }
+        }
+        return texture;
+      },
       SetActive: function(context, textureUnit) {
         bg.Engine.Get().texture.setActive(context, textureUnit);
       },
@@ -6327,6 +8908,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       } else {
         return n && (n & (n - 1)) === 0;
       }
+    },
+    closestPow2: function(aSize) {
+      return Math.pow(2, Math.round(Math.log(aSize) / Math.log(2)));
     },
     checkZero: function(v) {
       return v > -this.EPSILON && v < this.EPSILON ? 0 : v;
@@ -6408,6 +8992,32 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
 
 "use strict";
 (function() {
+  function rotationMatrixToEulerAngles(M) {
+    var sy = Math.sqrt(M.m00 * M.m00 + M.m10 * M.m10);
+    var singular = sy < -1e-6;
+    var x = 0;
+    var y = 0;
+    var z = 0;
+    if (!singular) {
+      x = Math.atan2(M.m21, M.m22);
+      y = Math.atan2(-M.m20, sy);
+      z = Math.atan2(M.m10, M.m00);
+    } else {
+      x = Math.atan2(-M.m12, M.m11);
+      y = Math.atan2(-M.m20, sy);
+      z = 0;
+    }
+    if (x < 0) {
+      x += bg.Math.PI * 2;
+    }
+    if (y < 0) {
+      y += bg.Math.PI * 2;
+    }
+    if (z < 0) {
+      z += bg.Math.PI * 2;
+    }
+    return new bg.Vector3(x, y, z);
+  }
   var Matrix3 = function() {
     function Matrix3() {
       var v00 = arguments[0] !== (void 0) ? arguments[0] : 1;
@@ -6553,6 +9163,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       getScale: function() {
         return new bg.Vector3(new bg.Vector3(this._m[0], this._m[3], this._m[6]).module, new bg.Vector3(this._m[1], this._m[4], this._m[7]).module, new bg.Vector3(this._m[2], this._m[5], this._m[8]).module);
+      },
+      get eulerRotation() {
+        return rotationMatrixToEulerAngles(this);
       },
       get length() {
         return this._m.length;
@@ -6901,6 +9514,9 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       get length() {
         return this._m.length;
       },
+      get eulerRotation() {
+        return rotationMatrixToEulerAngles(this);
+      },
       getMatrix3: function() {
         return new bg.Matrix3(this._m[0], this._m[1], this._m[2], this._m[4], this._m[5], this._m[6], this._m[8], this._m[9], this._m[10]);
       },
@@ -7192,25 +9808,29 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
         return p;
       },
       LookAt: function(p_eye, p_center, p_up) {
-        var result = new bg.Matrix4(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-        var forward = new bg.Vector3(p_center);
-        forward.sub(p_eye);
-        var up = new bg.Vector3(p_up);
-        forward.normalize();
-        var side = new bg.Vector3(forward);
-        side.cross(up);
-        up.assign(side);
-        up.cross(forward);
-        result.set00(side.x);
-        result.set10(side.y);
-        result.set20(side.z);
-        result.set01(up.x);
-        result.set11(up.y);
-        result.set21(up.z);
-        result.set02(-forward.x);
-        result.set12(-forward.y);
-        result.set22(-forward.z);
-        result.setRow(3, new vwgl.Vector4(-p_eye.x, -p_eye.y, -p_eye.z, 1.0));
+        var result = bg.Matrix4.Identity();
+        var y = new bg.Vector3(p_up);
+        var z = bg.Vector3.Sub(p_eye, p_center);
+        z.normalize();
+        var x = bg.Vector3.Cross(y, z);
+        x.normalize();
+        y.normalize();
+        result.m00 = x.x;
+        result.m10 = x.y;
+        result.m20 = x.z;
+        result.m30 = -x.dot(p_eye);
+        result.m01 = y.x;
+        result.m11 = y.y;
+        result.m21 = y.z;
+        result.m31 = -y.dot(p_eye);
+        result.m02 = z.x;
+        result.m12 = z.y;
+        result.m22 = z.z;
+        result.m32 = -z.dot(p_eye);
+        result.m03 = 0;
+        result.m13 = 0;
+        result.m23 = 0;
+        result.m33 = 1;
         return result;
       },
       Translation: function(x, y, z) {
@@ -7417,6 +10037,18 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       Sub: function(v1, v2) {
         return new Vector2(v1.x - v2.x, v1.y - v2.y);
+      },
+      Distance: function(a, b) {
+        return (new bg.Vector2(a._v[0] - b._v[0], a._v[1] - b._v[1])).magnitude();
+      },
+      Dot: function(v1, v2) {
+        return v1._v[0] * v2._v[0] + v1._v[1] * v2._v[1];
+      },
+      Cross: function(v1, v2) {
+        var x = v1._v[1] * v2._v[2] - v1._v[2] * v2._v[1];
+        var y = v1._v[2] * v2._v[0] - v1._v[0] * v2._v[2];
+        var z = v1._v[0] * v2._v[1] - v1._v[1] * v2._v[0];
+        return new bg.Vector3(x, y, z);
       }
     }, $__super);
   }(Vector);
@@ -7559,6 +10191,18 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
       },
       Sub: function(v1, v2) {
         return new Vector3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+      },
+      Distance: function(a, b) {
+        return (new bg.Vector3(a._v[0] - b._v[0], a._v[1] - b._v[1], a._v[2] - b._v[2])).magnitude();
+      },
+      Dot: function(v1, v2) {
+        return v1._v[0] * v2._v[0] + v1._v[1] * v2._v[1] + v1._v[2] * v2._v[2];
+      },
+      Cross: function(v1, v2) {
+        var x = v1._v[1] * v2._v[2] - v1._v[2] * v2._v[1];
+        var y = v1._v[2] * v2._v[0] - v1._v[0] * v2._v[2];
+        var z = v1._v[0] * v2._v[1] - v1._v[1] * v2._v[0];
+        return new bg.Vector3(x, y, z);
       }
     }, $__super);
   }(Vector);
@@ -8362,6 +11006,9 @@ bg.scene = {};
       },
       get transform() {
         return this.component("bg.scene.Transform");
+      },
+      get anchorJoint() {
+        return this.component("bg.scene.AnchorJoint");
       }
     }, {Factory: function(context, componentData, node, url) {
         var Constructor = s_componentRegister[componentData.type];
@@ -8383,6 +11030,7 @@ bg.scene = {};
     var funcName = (result && result.length > 1) ? result[1] : "";
     namespace[funcName] = componentClass;
     componentClass.prototype._typeId = identifier || funcName;
+    bg.scene.Node.prototype;
     s_componentRegister[funcName] = componentClass;
   };
 })();
@@ -8403,6 +11051,12 @@ bg.scene = {};
       }
     }, {}, $__super);
   }(bg.LifeCycle);
+  function updateComponentsArray() {
+    this._componentsArray = [];
+    for (var key in this._components) {
+      this._components[key] && this._componentsArray.push(this._components[key]);
+    }
+  }
   var SceneObject = function($__super) {
     function SceneObject(context) {
       var name = arguments[1] !== (void 0) ? arguments[1] : "";
@@ -8411,6 +11065,7 @@ bg.scene = {};
       this._enabled = true;
       this._steady = false;
       this._components = {};
+      this._componentsArray = [];
     }
     return ($traceurRuntime.createClass)(SceneObject, {
       toString: function() {
@@ -8449,6 +11104,7 @@ bg.scene = {};
         c._node = this;
         this._components[c.typeId] = c;
         c.addedToNode(this);
+        updateComponentsArray.apply(this);
       },
       removeComponent: function(findComponent) {
         var typeId = "";
@@ -8460,12 +11116,14 @@ bg.scene = {};
           comp = findComponent;
           typeId = findComponent.typeId;
         }
+        var status = false;
         if (this._components[typeId] == comp && comp != null) {
           delete this._components[typeId];
           comp.removedFromNode(this);
-          return true;
+          status = true;
         }
-        return false;
+        updateComponentsArray.apply(this);
+        return status;
       },
       component: function(typeId) {
         return this._components[typeId];
@@ -8491,95 +11149,17 @@ bg.scene = {};
       get transform() {
         return this.component("bg.scene.Transform");
       },
+      get anchorJoint() {
+        return this.component("bg.scene.AnchorJoint");
+      },
       forEachComponent: function(callback) {
-        var keys = Object.keys(this._components);
-        var $__7 = true;
-        var $__8 = false;
-        var $__9 = undefined;
-        try {
-          for (var $__5 = void 0,
-              $__4 = (keys)[Symbol.iterator](); !($__7 = ($__5 = $__4.next()).done); $__7 = true) {
-            var key = $__5.value;
-            {
-              callback(this._components[key], key, this._components);
-            }
-          }
-        } catch ($__10) {
-          $__8 = true;
-          $__9 = $__10;
-        } finally {
-          try {
-            if (!$__7 && $__4.return != null) {
-              $__4.return();
-            }
-          } finally {
-            if ($__8) {
-              throw $__9;
-            }
-          }
-        }
+        this._componentsArray.forEach(callback);
       },
       someComponent: function(callback) {
-        var keys = Object.keys(this._components);
-        var $__7 = true;
-        var $__8 = false;
-        var $__9 = undefined;
-        try {
-          for (var $__5 = void 0,
-              $__4 = (keys)[Symbol.iterator](); !($__7 = ($__5 = $__4.next()).done); $__7 = true) {
-            var key = $__5.value;
-            {
-              if (callback(this._components[key], key, this._components)) {
-                return true;
-              }
-            }
-          }
-        } catch ($__10) {
-          $__8 = true;
-          $__9 = $__10;
-        } finally {
-          try {
-            if (!$__7 && $__4.return != null) {
-              $__4.return();
-            }
-          } finally {
-            if ($__8) {
-              throw $__9;
-            }
-          }
-        }
-        return false;
+        return this._componentsArray.some(callback);
       },
       everyComponent: function(callback) {
-        var keys = Object.keys(this._components);
-        var $__7 = true;
-        var $__8 = false;
-        var $__9 = undefined;
-        try {
-          for (var $__5 = void 0,
-              $__4 = (keys)[Symbol.iterator](); !($__7 = ($__5 = $__4.next()).done); $__7 = true) {
-            var key = $__5.value;
-            {
-              if (!callback(this._components[key], key, this._components)) {
-                return false;
-              }
-            }
-          }
-        } catch ($__10) {
-          $__8 = true;
-          $__9 = $__10;
-        } finally {
-          try {
-            if (!$__7 && $__4.return != null) {
-              $__4.return();
-            }
-          } finally {
-            if ($__8) {
-              throw $__9;
-            }
-          }
-        }
-        return true;
+        return this._componentsArray.every(callback);
       },
       destroy: function() {
         var $__3 = this;
@@ -8587,14 +11167,15 @@ bg.scene = {};
           comp.removedFromNode($__3);
         });
         this._components = {};
+        this._componentsArray = [];
       },
       init: function() {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.init();
         });
       },
       frame: function(delta) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           if (!comp._initialized_) {
             comp.init();
             comp._initialized_ = true;
@@ -8602,85 +11183,100 @@ bg.scene = {};
           comp.frame(delta);
         });
       },
+      displayGizmo: function(pipeline, matrixState) {
+        this._componentsArray.forEach(function(comp) {
+          if (comp.draw3DGizmo)
+            comp.displayGizmo(pipeline, matrixState);
+        });
+      },
       willDisplay: function(pipeline, matrixState) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.willDisplay(pipeline, matrixState);
         });
       },
       display: function(pipeline, matrixState) {
         var forceDraw = arguments[2] !== (void 0) ? arguments[2] : false;
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.display(pipeline, matrixState, forceDraw);
         });
       },
-      displayGizmo: function(pipeline, matrixState) {
-        this.forEachComponent(function(comp) {
-          if (comp.draw3DGizmo)
-            comp.displayGizmo(pipeline, matrixState);
-        });
-      },
       didDisplay: function(pipeline, matrixState) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.didDisplay(pipeline, matrixState);
         });
       },
+      willUpdate: function(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        this._componentsArray.forEach(function(comp) {
+          comp.willUpdate(modelMatrixStack, viewMatrixStack, projectionMatrixStack);
+        });
+      },
+      draw: function(renderQueue, modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        this._componentsArray.forEach(function(comp) {
+          comp.draw(renderQueue, modelMatrixStack, viewMatrixStack, projectionMatrixStack);
+        });
+      },
+      didUpdate: function(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        this._componentsArray.forEach(function(comp) {
+          comp.didUpdate(modelMatrixStack, viewMatrixStack, projectionMatrixStack);
+        });
+      },
       reshape: function(pipeline, matrixState, width, height) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.reshape(width, height);
         });
       },
       keyDown: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.keyDown(evt);
         });
       },
       keyUp: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.keyUp(evt);
         });
       },
       mouseUp: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.mouseUp(evt);
         });
       },
       mouseDown: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.mouseDown(evt);
         });
       },
       mouseMove: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.mouseMove(evt);
         });
       },
       mouseOut: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.mouseOut(evt);
         });
       },
       mouseDrag: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.mouseDrag(evt);
         });
       },
       mouseWheel: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.mouseWheel(evt);
         });
       },
       touchStart: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.touchStart(evt);
         });
       },
       touchMove: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.touchMove(evt);
         });
       },
       touchEnd: function(evt) {
-        this.forEachComponent(function(comp) {
+        this._componentsArray.forEach(function(comp) {
           comp.touchEnd(evt);
         });
       }
@@ -8751,7 +11347,7 @@ bg.scene = {};
       },
       get sceneRoot() {
         if (this._parent) {
-          return this._parent.sceneRoot();
+          return this._parent.sceneRoot;
         }
         return this;
       },
@@ -8806,6 +11402,161 @@ bg.scene = {};
     }, {});
   }();
   bg.scene.NodeVisitor = NodeVisitor;
+})();
+
+"use strict";
+(function() {
+  function buildPlist(context, vertex, color) {
+    var plist = new bg.base.PolyList(context);
+    var normal = [];
+    var texCoord0 = [];
+    var index = [];
+    var currentIndex = 0;
+    for (var i = 0; i < vertex.length; i += 3) {
+      normal.push(0);
+      normal.push(0);
+      normal.push(1);
+      texCoord0.push(0);
+      texCoord0.push(0);
+      index.push(currentIndex++);
+    }
+    plist.vertex = vertex;
+    plist.normal = normal;
+    plist.texCoord0 = texCoord0;
+    plist.color = color;
+    plist.index = index;
+    plist.drawMode = bg.base.DrawMode.LINES;
+    plist.build();
+    return plist;
+  }
+  function getAnchorGizmo(context) {
+    if (!this._gizmo) {
+      var s = 0.5;
+      var vertex = [s, 0, 0, -s, 0, 0, 0, s, 0, 0, -s, 0, 0, 0, s, 0, 0, -s];
+      var color = [1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1];
+      this._gizmo = buildPlist(context, vertex, color);
+    }
+    return this._gizmo;
+  }
+  var AnchorPoint = function() {
+    function AnchorPoint(o, r) {
+      if (o instanceof bg.Vector3) {
+        this._offset = new bg.Vector3(o);
+      } else {
+        this._offset = new bg.Vector3(0, 0, 0);
+      }
+      if (typeof(r) == "number") {
+        this._radius = r;
+      } else {
+        this._radius = 0.15;
+      }
+    }
+    return ($traceurRuntime.createClass)(AnchorPoint, {
+      clone: function() {
+        return new AnchorPoint(this._offset, this._radius);
+      },
+      get offset() {
+        return this._offset;
+      },
+      set offset(o) {
+        this._offset = o;
+      },
+      get radius() {
+        return this._radius;
+      },
+      set radius(r) {
+        this._radius = r;
+      },
+      displayGizmo: function(ctx, pipeline, matrixState) {
+        var plist = getAnchorGizmo.apply(this, [ctx]);
+        if (plist) {
+          matrixState.modelMatrixStack.push();
+          var mat = bg.Matrix4.Translation(this.offset.x, this.offset.y, this.offset.z);
+          matrixState.modelMatrixStack.mult(mat);
+          pipeline.draw(plist);
+          matrixState.modelMatrixStack.pop();
+        }
+      },
+      serialize: function() {
+        return {
+          offset: this._offset.toArray(),
+          radius: this._radius
+        };
+      },
+      deserialize: function(jsonData) {
+        if (jsonData.offset) {
+          this._offset = new bg.Vector3(jsonData.offset);
+        }
+        if (typeof(jsonData.radius) == "number") {
+          this._radius = jsonData.radius;
+        } else if (typeof(jsonData.radius) == "string") {
+          this._radius = Number(jsonData.radius);
+        }
+      }
+    }, {});
+  }();
+  bg.scene.AnchorPoint = AnchorPoint;
+  var AnchorJoint = function($__super) {
+    function AnchorJoint() {
+      $traceurRuntime.superConstructor(AnchorJoint).call(this);
+      this._anchors = [];
+    }
+    return ($traceurRuntime.createClass)(AnchorJoint, {
+      clone: function() {
+        var result = new AnchorJoint();
+        this.anchors.forEach(function(a) {
+          result.anchors.push(a.clone());
+        });
+        return result;
+      },
+      get anchors() {
+        return this._anchors;
+      },
+      addPoint: function(x, y, z) {
+        var radius = arguments[3] !== (void 0) ? arguments[3] : 0.15;
+        var anchorPoint = new bg.scene.AnchorPoint(new bg.Vector3(x, y, z), radius);
+        this.anchors.push(anchorPoint);
+        return anchorPoint;
+      },
+      getWorldPositionAnchors: function() {
+        var $__2 = this;
+        var result = [];
+        var worldMatrix = bg.scene.Transform.WorldMatrix(this);
+        this.anchors.forEach(function(a) {
+          var trxPos = worldMatrix.multVector(new bg.Vector3(a.offset.x, a.offset.y, a.offset.z));
+          result.push({
+            position: [trxPos.x, trxPos.y, trxPos.z],
+            radius: a.radius,
+            component: $__2
+          });
+        });
+        return result;
+      },
+      displayGizmo: function(pipeline, matrixState) {
+        var $__2 = this;
+        this.anchors.forEach(function(a) {
+          return a.displayGizmo($__2.node.context, pipeline, matrixState);
+        });
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, AnchorJoint.prototype, "serialize").call(this, componentData, promises, url);
+        componentData.anchors = [];
+        this.anchors.forEach(function(a) {
+          componentData.anchors.push(a.serialize());
+        });
+      },
+      deserialize: function(context, jsonData, url) {
+        var $__2 = this;
+        this._anchors = [];
+        jsonData.anchors.forEach(function(a) {
+          var anchor = new AnchorPoint();
+          anchor.deserialize(a);
+          $__2._anchors.push(anchor);
+        });
+      }
+    }, {}, $__super);
+  }(bg.scene.Component);
+  bg.scene.registerComponent(bg.scene, AnchorJoint, "bg.scene.AnchorJoint");
 })();
 
 "use strict";
@@ -9050,6 +11801,8 @@ bg.scene = {};
       this._viewport = new bg.Viewport(0, 0, 512, 512);
       this._visitor = new bg.scene.TransformVisitor();
       this._rebuildTransform = true;
+      this._position = new bg.Vector3(0);
+      this._rebuildPosition = true;
       this._clearBuffers = bg.base.ClearBuffers.COLOR_DEPTH;
       this._focus = 5;
       this._projectionStrategy = null;
@@ -9125,6 +11878,14 @@ bg.scene = {};
         }
         return this._viewMatrix;
       },
+      get worldPosition() {
+        if (this._rebuildPosition) {
+          this._position = this.modelMatrix.multVector(new bg.Vector3(0)).xyz;
+          this._rebuildPosition = false;
+          this._rebuildTransform = true;
+        }
+        return this._position;
+      },
       recalculateGizmo: function() {
         if (this._gizmo) {
           this._gizmo.destroy();
@@ -9132,6 +11893,7 @@ bg.scene = {};
         }
       },
       frame: function(delta) {
+        this._rebuildPosition = true;
         this._rebuildTransform = true;
       },
       displayGizmo: function(pipeline, matrixState) {
@@ -9207,6 +11969,27 @@ bg.scene = {};
     }
     return this._gizmo;
   }
+  function updateJointTransforms() {
+    if (this.node) {
+      var matrix = bg.Matrix4.Identity();
+      this.node.children.forEach(function(child, index) {
+        var trx = child.component("bg.scene.Transform");
+        var inJoint = child.component("bg.scene.InputChainJoint");
+        var outJoint = child.component("bg.scene.OutputChainJoint");
+        if (index > 0 && inJoint) {
+          inJoint.joint.applyTransform(matrix);
+        } else {
+          matrix.identity();
+        }
+        if (trx) {
+          trx.matrix.assign(matrix);
+        }
+        if (outJoint) {
+          outJoint.joint.applyTransform(matrix);
+        }
+      });
+    }
+  }
   var Chain = function($__super) {
     function Chain() {
       $traceurRuntime.superConstructor(Chain).call(this);
@@ -9215,26 +11998,11 @@ bg.scene = {};
       clone: function() {
         return new bg.scene.Chain();
       },
-      willDisplay: function(pipeline, matrixState) {
-        if (this.node) {
-          var matrix = bg.Matrix4.Identity();
-          this.node.children.forEach(function(child) {
-            var trx = child.component("bg.scene.Transform");
-            var inJoint = child.component("bg.scene.InputChainJoint");
-            var outJoint = child.component("bg.scene.OutputChainJoint");
-            if (inJoint) {
-              inJoint.joint.applyTransform(matrix);
-            } else {
-              matrix.identity();
-            }
-            if (trx) {
-              trx.matrix.assign(matrix);
-            }
-            if (outJoint) {
-              outJoint.joint.applyTransform(matrix);
-            }
-          });
-        }
+      willDisplay: function(pipeline, matrixState, projectionMatrixStack) {
+        updateJointTransforms.apply(this);
+      },
+      willUpdate: function(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        updateJointTransforms.apply(this);
       }
     }, {}, $__super);
   }(bg.scene.Component);
@@ -9339,6 +12107,9 @@ bg.scene = {};
     NEGATIVE_Z: 5
   };
   var g_currentCubemap = null;
+  var g_irradianceCubemap = null;
+  var g_specularCubemap = [];
+  var g_irradianceIntensity = 1.0;
   function copyCubemapImage(componentData, cubemapImage, dstPath) {
     var path = require("path");
     var src = bg.base.Writer.StandarizePath(this.getImageUrl(cubemapImage));
@@ -9381,6 +12152,9 @@ bg.scene = {};
       },
       get texture() {
         return this._texture;
+      },
+      set texture(t) {
+        this._texture = t;
       },
       loadCubemap: function(context) {
         var $__1 = this;
@@ -9429,18 +12203,140 @@ bg.scene = {};
         promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.POSITIVE_Z, url.path]));
         promises.push(copyCubemapImage.apply(this, [componentData, bg.scene.CubemapImage.NEGATIVE_Z, url.path]));
       }
-    }, {Current: function(context) {
+    }, {
+      Current: function(context) {
         if (!g_currentCubemap) {
           g_currentCubemap = bg.base.TextureCache.WhiteCubemap(context);
         }
         return g_currentCubemap;
-      }}, $__super);
+      },
+      IrradianceMapIntensity: function() {
+        return g_irradianceIntensity;
+      },
+      IrradianceMap: function(context) {
+        if (!g_irradianceCubemap) {
+          g_irradianceCubemap = bg.base.TextureCache.BlackCubemap(context);
+        }
+        return g_irradianceCubemap;
+      },
+      SpecularMap: function(context) {
+        var level = arguments[1] !== (void 0) ? arguments[1] : 0;
+        if (!g_specularCubemap[level]) {
+          g_specularCubemap[level] = bg.base.TextureCache.BlackCubemap(context);
+        }
+        return g_specularCubemap[level];
+      },
+      SetCurrent: function(cubemapTexture) {
+        g_currentCubemap = cubemapTexture;
+      },
+      SetIrradianceMapIntensity: function(i) {
+        g_irradianceIntensity = i;
+      },
+      SetIrradiance: function(irradianceTexture) {
+        g_irradianceCubemap = irradianceTexture;
+      },
+      SetSpecular: function(specTexture) {
+        var level = arguments[1] !== (void 0) ? arguments[1] : 0;
+        g_specularCubemap[level] = specTexture;
+      }
+    }, $__super);
   }(bg.scene.Component);
   bg.scene.registerComponent(bg.scene, Cubemap, "bg.scene.Cubemap");
 })();
 
 "use strict";
 (function() {
+  function createGizmo() {
+    var v = [];
+    var n = [];
+    var t = [];
+    var c = [];
+    var indexes = [];
+    var valid = false;
+    var vectorScale = 0.4;
+    var currentIndex = 0;
+    try {
+      this.forEach(function(plist) {
+        if (plist.normal.length && plist.tangent.length && plist.index.length % 3 == 0) {
+          valid = true;
+          for (var i = 0; i < plist.index.length; ++i) {
+            var i0 = plist.index[i];
+            var vert = new bg.Vector3(plist.vertex[i0 * 3], plist.vertex[i0 * 3 + 1], plist.vertex[i0 * 3 + 2]);
+            var norm = new bg.Vector3(plist.normal[i0 * 3], plist.normal[i0 * 3 + 1], plist.normal[i0 * 3 + 2]);
+            var tang = new bg.Vector3(plist.tangent[i0 * 3], plist.tangent[i0 * 3 + 1], plist.tangent[i0 * 3 + 2]);
+            var bitg = new bg.Vector3(norm);
+            bitg.cross(tang);
+            norm.scale(vectorScale);
+            tang.scale(vectorScale);
+            bitg.scale(vectorScale);
+            norm.add(vert);
+            tang.add(vert);
+            bitg.add(vert);
+            v.push(vert.x, vert.y, vert.z);
+            n.push(0, 1, 0);
+            t.push(0, 0);
+            c.push(0, 1, 0, 1);
+            v.push(norm.x, norm.y, norm.z);
+            n.push(0, 1, 0);
+            t.push(0, 1);
+            c.push(0, 1, 0, 1);
+            v.push(vert.x, vert.y, vert.z);
+            n.push(0, 1, 0);
+            t.push(0, 0);
+            c.push(1, 0, 0, 1);
+            v.push(tang.x, tang.y, tang.z);
+            n.push(0, 1, 0);
+            t.push(0, 1);
+            c.push(1, 0, 0, 1);
+            v.push(vert.x, vert.y, vert.z);
+            n.push(0, 1, 0);
+            t.push(0, 0);
+            c.push(0, 0, 1, 1);
+            v.push(bitg.x, bitg.y, bitg.z);
+            n.push(0, 1, 0);
+            t.push(0, 1);
+            c.push(0, 0, 1, 1);
+            indexes.push(currentIndex++);
+            indexes.push(currentIndex++);
+            indexes.push(currentIndex++);
+            indexes.push(currentIndex++);
+            indexes.push(currentIndex++);
+            indexes.push(currentIndex++);
+          }
+        }
+      });
+    } catch (err) {
+      console.warn("Error generating drawable gizmo: " + err.message);
+    }
+    var result = null;
+    if (valid) {
+      result = new bg.base.PolyList(this.node.context);
+      result.vertex = v;
+      result.normal = n;
+      result.texCoord0 = t;
+      result.index = indexes;
+      result.color = c;
+      result.drawMode = bg.base.DrawMode.LINES;
+      result.build();
+    }
+    return result;
+  }
+  function escapePathCharacters(name) {
+    if (!name) {
+      return bg.utils.generateUUID();
+    } else {
+      var sanitize = function(input, replacement) {
+        var sanitized = input.replace(illegalRe, replacement).replace(controlRe, replacement).replace(reservedRe, replacement).replace(windowsReservedRe, replacement).replace(windowsTrailingRe, replacement);
+        return sanitized;
+      };
+      var illegalRe = /[\/\?<>\\:\*\|":\[\]\(\)\{\}]/g;
+      var controlRe = /[\x00-\x1f\x80-\x9f]/g;
+      var reservedRe = /^\.+$/;
+      var windowsReservedRe = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+      var windowsTrailingRe = /[\. ]+$/;
+      return sanitize(name, '-');
+    }
+  }
   var Drawable = function($__super) {
     function Drawable() {
       var name = arguments[0] !== (void 0) ? arguments[0] : "";
@@ -9455,6 +12351,9 @@ bg.scene = {};
       set name(n) {
         this._name = n;
       },
+      get length() {
+        return this._items.length;
+      },
       clone: function(newName) {
         var newInstance = new bg.scene.Drawable();
         newInstance.name = newName || ("copy of " + this.name);
@@ -9464,8 +12363,11 @@ bg.scene = {};
         return newInstance;
       },
       destroy: function() {
-        this.forEach(function(plist) {
+        this.forEach(function(plist, mat) {
           plist.destroy();
+          if (mat && mat.destroy) {
+            mat.destroy();
+          }
         });
         this._name = "";
         this._items = [];
@@ -9481,6 +12383,7 @@ bg.scene = {};
       addPolyList: function(plist, mat) {
         var trx = arguments[2] !== (void 0) ? arguments[2] : null;
         if (plist && this.indexOf(plist) == -1) {
+          this._updated = false;
           mat = mat || new bg.base.Material();
           this._items.push({
             polyList: plist,
@@ -9522,6 +12425,7 @@ bg.scene = {};
         if (index >= 0) {
           this._items.splice(index, 1);
         }
+        this._updated = false;
       },
       indexOf: function(plist) {
         var index = -1;
@@ -9538,10 +12442,14 @@ bg.scene = {};
           this._items[index].polyList = plist;
           return true;
         }
+        this._updated = false;
         return false;
       },
       replaceMaterial: function(index, mat) {
         if (index >= 0 && index < this._items.length) {
+          if (this._items[index].material.destroy) {
+            this._items[index].material.destroy();
+          }
           this._items[index].material = mat;
           return true;
         }
@@ -9687,6 +12595,37 @@ bg.scene = {};
           });
         }
       },
+      draw: function(renderQueue, modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        if (!this.node.enabled) {
+          return;
+        }
+        this.forEach(function(plist, mat, trx) {
+          if (!plist.visible) {
+            return;
+          }
+          if (trx) {
+            modelMatrixStack.push();
+            modelMatrixStack.mult(trx);
+          }
+          if (mat.isTransparent) {
+            renderQueue.renderTransparent(plist, mat, modelMatrixStack.matrix, viewMatrixStack.matrix);
+          } else {
+            renderQueue.renderOpaque(plist, mat, modelMatrixStack.matrix, viewMatrixStack.matrix);
+          }
+          if (trx) {
+            modelMatrixStack.pop(trx);
+          }
+        });
+      },
+      displayGizmo: function(pipeline, matrixState) {
+        if (!this._updated) {
+          this._updated = true;
+          this._gizmoPlist = createGizmo.apply(this);
+        }
+        if (this._gizmoPlist) {
+          pipeline.draw(this._gizmoPlist);
+        }
+      },
       setGroupVisible: function(groupName) {
         var visibility = arguments[1] !== (void 0) ? arguments[1] : true;
         this.forEach(function(plist) {
@@ -9734,9 +12673,7 @@ bg.scene = {};
           return;
         }
         $traceurRuntime.superGet(this, Drawable.prototype, "serialize").call(this, componentData, promises, url);
-        if (!this.name) {
-          this.name = bg.utils.generateUUID();
-        }
+        this.name = escapePathCharacters(this.name);
         componentData.name = this.name;
         var path = require('path');
         var dst = path.join(url.path, componentData.name + ".vwglb");
@@ -9764,6 +12701,87 @@ bg.scene = {};
       }}, $__super);
   }(bg.scene.Component);
   bg.scene.registerComponent(bg.scene, Drawable, "bg.scene.Drawable");
+})();
+
+"use strict";
+(function() {
+  var g_environment = null;
+  var Environment = function($__super) {
+    function Environment() {
+      var env = arguments[0] !== (void 0) ? arguments[0] : null;
+      $traceurRuntime.superConstructor(Environment).call(this);
+      this._environment = env;
+    }
+    return ($traceurRuntime.createClass)(Environment, {
+      initCubemap: function(texture, cubemapSettings) {
+        if (this._environment) {
+          this._environment.destroy();
+        }
+        this._environment = new bg.base.Environment(texture.context);
+        this._environment.create(cubemapSettings);
+        this._environment.equirectangularTexture = texture;
+      },
+      init: function() {
+        if (g_environment == null) {
+          g_environment = this;
+        }
+      },
+      removedFromNode: function() {
+        if (g_environment == this) {
+          g_environment = null;
+        }
+      },
+      get environment() {
+        return this._environment;
+      },
+      set environment(e) {
+        if (this._environment) {
+          this._environment.destroy();
+        }
+        this._environment = e;
+      },
+      get equirectangularTexture() {
+        return this._environment && this._environment.equirectangularTexture;
+      },
+      set equirectangularTexture(t) {
+        if (this._environment) {
+          this._environment.equirectangularTexture = t;
+        } else {
+          this.initCubemap(t);
+        }
+      },
+      clone: function() {
+        var other = new Environment();
+        other._environment = this._environment && this._environment.clone();
+        return other;
+      },
+      deserialize: function(context, sceneData, url) {
+        var $__1 = this;
+        return new Promise(function(resolve, reject) {
+          if ($__1._environment) {
+            $__1._environment.destroy();
+          }
+          $__1._environment = new bg.base.Environment(context);
+          $__1._environment.deserialize(sceneData, url).then(function() {
+            resolve();
+          }).catch(function(err) {
+            reject(err);
+          });
+        });
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, Environment.prototype, "serialize").call(this, componentData, promises, url);
+        if (!bg.isElectronApp)
+          return;
+        if (this._environment) {
+          this._environment.serialize(componentData, promises, url);
+        }
+      }
+    }, {Get: function() {
+        return g_environment;
+      }}, $__super);
+  }(bg.scene.Component);
+  bg.scene.registerComponent(bg.scene, Environment, "bg.scene.Environment");
 })();
 
 "use strict";
@@ -10169,7 +13187,87 @@ bg.scene = {};
       this._mtlLib = "";
       this._addPlist = true;
     }
-    return ($traceurRuntime.createClass)(OBJParser, {loadDrawable: function(data) {
+    return ($traceurRuntime.createClass)(OBJParser, {
+      loadDrawableSync: function(data) {
+        var name = arguments[1] !== (void 0) ? arguments[1] : "Object";
+        var $__2 = this;
+        var drawable = new bg.scene.Drawable(name);
+        var lines = data.split('\n');
+        var multiLine = "";
+        lines.forEach(function(line) {
+          line = line.trim();
+          if (multiLine) {
+            line = multiLine + line;
+          }
+          if (line[line.length - 1] == '\\') {
+            line = line.substring(0, line.length - 1);
+            multiLine += line;
+            return;
+          } else {
+            multiLine = "";
+          }
+          if (line.length > 1 && line[0] != '#') {
+            switch (line[0]) {
+              case 'v':
+                var res = /v\s+([\d\.\-e]+)\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line);
+                if (res) {
+                  $__2._vertexArray.push([Number(res[1]), Number(res[2]), Number(res[3])]);
+                } else if ((res = /vn\s+([\d\.\-e]+)\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line))) {
+                  $__2._normalArray.push([Number(res[1]), Number(res[2]), Number(res[3])]);
+                } else if ((res = /vt\s+([\d\.\-e]+)\s+([\d\.\-e]+)/.exec(line))) {
+                  $__2._texCoordArray.push([Number(res[1]), Number(res[2])]);
+                } else {
+                  console.warn("Error parsing line " + line);
+                }
+                break;
+              case 'm':
+                checkAddPlist.apply($__2);
+                parseM.apply($__2, [line]);
+                break;
+              case 'g':
+                checkAddPlist.apply($__2);
+                parseG.apply($__2, [line]);
+                break;
+              case 'u':
+                checkAddPlist.apply($__2);
+                parseU.apply($__2, [line]);
+                break;
+              case 's':
+                parseS.apply($__2, [line]);
+                break;
+              case 'f':
+                parseF.apply($__2, [line]);
+                break;
+              case 'o':
+                checkAddPlist.apply($__2);
+                parseO.apply($__2, [line]);
+                break;
+            }
+          }
+        });
+        if (this._currentPlist && this._addPlist) {
+          this._currentPlist.build();
+          this._plistArray.push(this._currentPlist);
+        }
+        function buildDrawable(plistArray, materials) {
+          var $__3 = this;
+          plistArray.forEach(function(plist) {
+            var mat = new bg.base.Material();
+            var matData = materials[plist._matName];
+            if (matData) {
+              var url = $__3.url.substring(0, $__3.url.lastIndexOf('/') + 1);
+              bg.base.Material.GetMaterialWithJson($__3.context, matData, url).then(function(material) {
+                drawable.addPolyList(plist, material);
+              });
+            } else {
+              drawable.addPolyList(plist, mat);
+            }
+          });
+        }
+        buildDrawable.apply(this, [this._plistArray, {}]);
+        return drawable;
+      },
+      loadDrawable: function(data) {
         var $__2 = this;
         return new Promise(function(resolve, reject) {
           var name = $__2.url.replace(/[\\\/]/ig, '-');
@@ -10263,8 +13361,10 @@ bg.scene = {};
             resolve(drawable);
           }
         });
-      }}, {});
+      }
+    }, {});
   }();
+  bg.scene.OBJParser = OBJParser;
   var OBJLoaderPlugin = function($__super) {
     function OBJLoaderPlugin() {
       $traceurRuntime.superConstructor(OBJLoaderPlugin).apply(this, arguments);
@@ -10272,6 +13372,21 @@ bg.scene = {};
     return ($traceurRuntime.createClass)(OBJLoaderPlugin, {
       acceptType: function(url, data) {
         return bg.utils.Resource.GetExtension(url) == "obj";
+      },
+      loadDataSync: function(context, data) {
+        var name = arguments[2] !== (void 0) ? arguments[2] : "Obj model";
+        try {
+          var parser = new OBJParser(context, data);
+          var resultNode = null;
+          var drw = parser.loadDrawableSync(data, name);
+          if (drw) {
+            resultNode = new bg.scene.Node(context, name);
+            resultNode.addComponent(drw);
+          }
+          return resultNode;
+        } catch (e) {
+          console.error(e);
+        }
       },
       load: function(context, url, data) {
         return new Promise(function(resolve, reject) {
@@ -10333,6 +13448,16 @@ bg.scene = {};
 
 "use strict";
 (function() {
+  bg.scene = bg.scene || {};
+  bg.scene.primitiveData = {};
+  bg.scene.primitiveData.cube = "\no Cube_Cube.001\nv -0.500000 -0.500000 0.500000\nv -0.500000 0.500000 0.500000\nv -0.500000 -0.500000 -0.500000\nv -0.500000 0.500000 -0.500000\nv 0.500000 -0.500000 0.500000\nv 0.500000 0.500000 0.500000\nv 0.500000 -0.500000 -0.500000\nv 0.500000 0.500000 -0.500000\nvt 0.997494 0.002609\nvt 0.997494 0.997494\nvt 0.002609 0.997494\nvt 0.002609 0.002609\nvt 0.002609 0.997494\nvt 0.002609 0.002609\nvt 0.997494 0.002609\nvt 0.997494 0.997494\nvt 0.002609 0.997494\nvt 0.002609 0.002609\nvt 0.997494 0.002609\nvt 0.997494 0.997494\nvt 0.002609 0.997494\nvt 0.002609 0.002609\nvt 0.997494 0.002609\nvt 0.002609 0.997494\nvt 0.997494 0.997494\nvt 0.997494 0.002609\nvn -1.0000 0.0000 0.0000\nvn 0.0000 0.0000 -1.0000\nvn 1.0000 0.0000 0.0000\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -1.0000 0.0000\nvn 0.0000 1.0000 0.0000\ns off\nf 1/1/1 2/2/1 4/3/1 3/4/1\nf 3/5/2 4/6/2 8/7/2 7/8/2\nf 7/8/3 8/9/3 6/10/3 5/11/3\nf 5/12/4 6/13/4 2/14/4 1/1/4\nf 3/4/5 7/15/5 5/12/5 1/16/5\nf 8/17/6 4/3/6 2/14/6 6/18/6\n    ";
+  bg.scene.primitiveData.sphere = "\no Sphere\nv 0.000000 -0.071157 -0.494911\nv 0.000000 -0.494911 -0.071158\nv 0.010127 0.494911 -0.070433\nv 0.020047 0.479746 -0.139432\nv 0.029560 0.454816 -0.205593\nv 0.038471 0.420627 -0.267569\nv 0.046598 0.377875 -0.324098\nv 0.053777 0.327430 -0.374029\nv 0.059861 0.270320 -0.416345\nv 0.064727 0.207707 -0.450187\nv 0.068275 0.140866 -0.474863\nv 0.070433 0.071157 -0.489873\nv 0.071157 0.000000 -0.494911\nv 0.070433 -0.071157 -0.489873\nv 0.068275 -0.140866 -0.474863\nv 0.064727 -0.207707 -0.450187\nv 0.059861 -0.270320 -0.416345\nv 0.053777 -0.327430 -0.374029\nv 0.046598 -0.377875 -0.324098\nv 0.038471 -0.420627 -0.267569\nv 0.029560 -0.454816 -0.205594\nv 0.020047 -0.479746 -0.139433\nv 0.010127 -0.494911 -0.070433\nv 0.020047 0.494911 -0.068275\nv 0.039687 0.479746 -0.135160\nv 0.058518 0.454816 -0.199294\nv 0.076158 0.420627 -0.259371\nv 0.092248 0.377875 -0.314167\nv 0.106460 0.327430 -0.362568\nv 0.118504 0.270320 -0.403588\nv 0.128136 0.207707 -0.436393\nv 0.135160 0.140866 -0.460313\nv 0.139432 0.071157 -0.474863\nv 0.140866 0.000000 -0.479746\nv 0.139432 -0.071157 -0.474863\nv 0.135160 -0.140866 -0.460313\nv 0.128136 -0.207707 -0.436393\nv 0.118504 -0.270320 -0.403589\nv 0.106460 -0.327430 -0.362568\nv 0.092248 -0.377875 -0.314167\nv 0.076158 -0.420627 -0.259371\nv 0.058518 -0.454816 -0.199294\nv 0.039687 -0.479746 -0.135160\nv 0.020047 -0.494911 -0.068275\nv 0.029560 0.494911 -0.064727\nv 0.058518 0.479746 -0.128137\nv 0.086285 0.454816 -0.188937\nv 0.112295 0.420627 -0.245892\nv 0.136019 0.377875 -0.297841\nv 0.156975 0.327430 -0.343727\nv 0.174735 0.270320 -0.382616\nv 0.188937 0.207707 -0.413715\nv 0.199294 0.140866 -0.436393\nv 0.205593 0.071157 -0.450187\nv 0.207707 0.000000 -0.454816\nv 0.205593 -0.071157 -0.450187\nv 0.199294 -0.140866 -0.436393\nv 0.188937 -0.207707 -0.413715\nv 0.174735 -0.270320 -0.382616\nv 0.156975 -0.327430 -0.343727\nv 0.136019 -0.377875 -0.297841\nv 0.112295 -0.420627 -0.245892\nv 0.086285 -0.454816 -0.188938\nv 0.058518 -0.479746 -0.128137\nv 0.029560 -0.494911 -0.064727\nv 0.038470 0.494911 -0.059861\nv 0.076158 0.479746 -0.118504\nv 0.112295 0.454816 -0.174735\nv 0.146146 0.420627 -0.227408\nv 0.177022 0.377875 -0.275452\nv 0.204294 0.327430 -0.317889\nv 0.227408 0.270320 -0.353854\nv 0.245892 0.207707 -0.382616\nv 0.259370 0.140866 -0.403588\nv 0.267569 0.071157 -0.416345\nv 0.270320 0.000000 -0.420627\nv 0.267569 -0.071157 -0.416345\nv 0.259370 -0.140866 -0.403588\nv 0.245892 -0.207707 -0.382616\nv 0.227408 -0.270320 -0.353854\nv 0.204294 -0.327430 -0.317889\nv 0.177022 -0.377875 -0.275452\nv 0.146146 -0.420627 -0.227408\nv 0.112295 -0.454816 -0.174735\nv 0.076158 -0.479746 -0.118505\nv 0.038471 -0.494911 -0.059862\nv 0.046598 0.494911 -0.053777\nv 0.092248 0.479746 -0.106460\nv 0.136019 0.454816 -0.156975\nv 0.177022 0.420627 -0.204295\nv 0.214421 0.377875 -0.247455\nv 0.247455 0.327430 -0.285579\nv 0.275452 0.270320 -0.317889\nv 0.297841 0.207707 -0.343727\nv 0.314167 0.140866 -0.362568\nv 0.324097 0.071157 -0.374029\nv 0.327430 0.000000 -0.377875\nv 0.324097 -0.071157 -0.374029\nv 0.314167 -0.140866 -0.362568\nv 0.297841 -0.207707 -0.343727\nv 0.275452 -0.270320 -0.317889\nv 0.247455 -0.327430 -0.285579\nv 0.214421 -0.377875 -0.247456\nv 0.177022 -0.420627 -0.204295\nv 0.136019 -0.454816 -0.156975\nv 0.092248 -0.479746 -0.106460\nv 0.046598 -0.494911 -0.053777\nv 0.053777 0.494911 -0.046598\nv 0.106459 0.479746 -0.092248\nv 0.156975 0.454816 -0.136020\nv 0.204294 0.420627 -0.177022\nv 0.247455 0.377875 -0.214421\nv 0.285578 0.327430 -0.247455\nv 0.317888 0.270320 -0.275452\nv 0.343727 0.207707 -0.297841\nv 0.362568 0.140866 -0.314167\nv 0.374028 0.071157 -0.324098\nv 0.377875 0.000000 -0.327430\nv 0.374028 -0.071157 -0.324098\nv 0.362568 -0.140866 -0.314167\nv 0.343727 -0.207707 -0.297841\nv 0.317888 -0.270320 -0.275452\nv 0.285579 -0.327430 -0.247456\nv 0.247455 -0.377875 -0.214421\nv 0.204294 -0.420627 -0.177022\nv 0.156975 -0.454816 -0.136020\nv 0.106460 -0.479746 -0.092248\nv 0.053777 -0.494911 -0.046598\nv 0.059861 0.494911 -0.038471\nv 0.118504 0.479746 -0.076158\nv 0.174734 0.454816 -0.112295\nv 0.227408 0.420627 -0.146146\nv 0.275452 0.377875 -0.177022\nv 0.317888 0.327430 -0.204295\nv 0.353853 0.270320 -0.227408\nv 0.382615 0.207707 -0.245892\nv 0.403588 0.140866 -0.259371\nv 0.416345 0.071157 -0.267569\nv 0.420626 0.000000 -0.270321\nv 0.416345 -0.071157 -0.267569\nv 0.403588 -0.140866 -0.259371\nv 0.382615 -0.207707 -0.245892\nv 0.353854 -0.270320 -0.227408\nv 0.317888 -0.327430 -0.204295\nv 0.275452 -0.377875 -0.177022\nv 0.227408 -0.420627 -0.146147\nv 0.174735 -0.454816 -0.112295\nv 0.118504 -0.479746 -0.076158\nv 0.059861 -0.494911 -0.038471\nv 0.064727 0.494911 -0.029560\nv 0.128136 0.479746 -0.058518\nv 0.188937 0.454816 -0.086285\nv 0.245892 0.420627 -0.112295\nv 0.297841 0.377875 -0.136020\nv 0.343727 0.327430 -0.156975\nv 0.382615 0.270320 -0.174735\nv 0.413715 0.207707 -0.188938\nv 0.436393 0.140866 -0.199294\nv 0.450186 0.071157 -0.205593\nv 0.454816 0.000000 -0.207708\nv 0.450186 -0.071157 -0.205593\nv 0.436393 -0.140866 -0.199294\nv 0.413715 -0.207707 -0.188938\nv 0.382615 -0.270320 -0.174735\nv 0.343727 -0.327430 -0.156975\nv 0.297841 -0.377875 -0.136020\nv 0.245892 -0.420627 -0.112295\nv 0.188937 -0.454816 -0.086285\nv 0.128136 -0.479746 -0.058518\nv 0.064727 -0.494911 -0.029560\nv 0.068275 0.494911 -0.020048\nv 0.135160 0.479746 -0.039687\nv 0.199294 0.454816 -0.058518\nv 0.259370 0.420627 -0.076158\nv 0.314167 0.377875 -0.092248\nv 0.362568 0.327430 -0.106460\nv 0.403588 0.270320 -0.118504\nv 0.436392 0.207707 -0.128137\nv 0.460313 0.140866 -0.135160\nv 0.474863 0.071157 -0.139433\nv 0.479746 0.000000 -0.140866\nv 0.474863 -0.071157 -0.139433\nv 0.460313 -0.140866 -0.135160\nv 0.436392 -0.207707 -0.128137\nv 0.403588 -0.270320 -0.118504\nv 0.362568 -0.327430 -0.106460\nv 0.314167 -0.377875 -0.092248\nv 0.259370 -0.420627 -0.076158\nv 0.199294 -0.454816 -0.058518\nv 0.135160 -0.479746 -0.039687\nv 0.068275 -0.494911 -0.020048\nv -0.000000 0.500000 -0.000000\nv 0.070433 0.494911 -0.010127\nv 0.139432 0.479746 -0.020048\nv 0.205593 0.454816 -0.029560\nv 0.267569 0.420627 -0.038471\nv 0.324097 0.377875 -0.046598\nv 0.374028 0.327430 -0.053777\nv 0.416345 0.270320 -0.059862\nv 0.450186 0.207707 -0.064727\nv 0.474863 0.140866 -0.068275\nv 0.489873 0.071157 -0.070433\nv 0.494910 0.000000 -0.071158\nv 0.489873 -0.071157 -0.070433\nv 0.474863 -0.140866 -0.068275\nv 0.450186 -0.207707 -0.064727\nv 0.416345 -0.270320 -0.059862\nv 0.374028 -0.327430 -0.053777\nv 0.324097 -0.377875 -0.046598\nv 0.267569 -0.420627 -0.038471\nv 0.205593 -0.454816 -0.029560\nv 0.139432 -0.479746 -0.020048\nv 0.070433 -0.494911 -0.010127\nv 0.071157 0.494911 -0.000000\nv 0.140866 0.479746 -0.000000\nv 0.207707 0.454816 -0.000000\nv 0.270320 0.420627 -0.000000\nv 0.327430 0.377875 -0.000000\nv 0.377875 0.327430 -0.000000\nv 0.420626 0.270320 -0.000000\nv 0.454816 0.207707 -0.000000\nv 0.479746 0.140866 -0.000000\nv 0.494910 0.071157 -0.000000\nv 0.500000 0.000000 -0.000000\nv 0.494910 -0.071157 -0.000000\nv 0.479746 -0.140866 -0.000000\nv 0.454816 -0.207707 -0.000000\nv 0.420627 -0.270320 -0.000000\nv 0.377875 -0.327430 -0.000000\nv 0.327430 -0.377875 -0.000000\nv 0.270320 -0.420627 -0.000000\nv 0.207707 -0.454816 -0.000000\nv 0.140866 -0.479746 -0.000000\nv 0.071157 -0.494911 -0.000000\nv 0.070433 0.494911 0.010126\nv 0.139432 0.479746 0.020047\nv 0.205593 0.454816 0.029560\nv 0.267569 0.420627 0.038470\nv 0.324097 0.377875 0.046598\nv 0.374028 0.327430 0.053777\nv 0.416345 0.270320 0.059861\nv 0.450186 0.207707 0.064727\nv 0.474863 0.140866 0.068275\nv 0.489873 0.071157 0.070433\nv 0.494910 0.000000 0.071157\nv 0.489873 -0.071157 0.070433\nv 0.474863 -0.140866 0.068275\nv 0.450186 -0.207707 0.064727\nv 0.416345 -0.270320 0.059861\nv 0.374028 -0.327430 0.053777\nv 0.324097 -0.377875 0.046598\nv 0.267569 -0.420627 0.038470\nv 0.205593 -0.454816 0.029560\nv 0.139432 -0.479746 0.020047\nv 0.070433 -0.494911 0.010126\nv 0.068275 0.494911 0.020047\nv 0.135160 0.479746 0.039686\nv 0.199294 0.454816 0.058518\nv 0.259370 0.420627 0.076158\nv 0.314167 0.377875 0.092247\nv 0.362568 0.327430 0.106459\nv 0.403588 0.270320 0.118504\nv 0.436392 0.207707 0.128136\nv 0.460313 0.140866 0.135160\nv 0.474863 0.071157 0.139432\nv 0.479746 0.000000 0.140866\nv 0.474863 -0.071157 0.139432\nv 0.460313 -0.140866 0.135160\nv 0.436392 -0.207707 0.128136\nv 0.403588 -0.270320 0.118504\nv 0.362568 -0.327430 0.106459\nv 0.314167 -0.377875 0.092247\nv 0.259370 -0.420627 0.076158\nv 0.199294 -0.454816 0.058518\nv 0.135160 -0.479746 0.039686\nv 0.068275 -0.494911 0.020047\nv 0.064727 0.494911 0.029559\nv 0.128136 0.479746 0.058518\nv 0.188937 0.454816 0.086284\nv 0.245892 0.420627 0.112295\nv 0.297841 0.377875 0.136019\nv 0.343727 0.327430 0.156974\nv 0.382615 0.270320 0.174734\nv 0.413715 0.207707 0.188937\nv 0.436392 0.140866 0.199294\nv 0.450186 0.071157 0.205593\nv 0.454816 0.000000 0.207707\nv 0.450186 -0.071157 0.205593\nv 0.436393 -0.140866 0.199294\nv 0.413715 -0.207707 0.188937\nv 0.382615 -0.270320 0.174734\nv 0.343727 -0.327430 0.156975\nv 0.297841 -0.377875 0.136019\nv 0.245892 -0.420627 0.112295\nv 0.188937 -0.454816 0.086284\nv 0.128136 -0.479746 0.058518\nv 0.064727 -0.494911 0.029560\nv 0.059861 0.494911 0.038470\nv 0.118504 0.479746 0.076158\nv 0.174734 0.454816 0.112295\nv 0.227408 0.420627 0.146146\nv 0.275452 0.377875 0.177022\nv 0.317888 0.327430 0.204294\nv 0.353854 0.270320 0.227408\nv 0.382615 0.207707 0.245892\nv 0.403588 0.140866 0.259370\nv 0.416345 0.071157 0.267569\nv 0.420627 0.000000 0.270320\nv 0.416345 -0.071157 0.267569\nv 0.403588 -0.140866 0.259370\nv 0.382615 -0.207707 0.245892\nv 0.353854 -0.270320 0.227408\nv 0.317888 -0.327430 0.204294\nv 0.275452 -0.377875 0.177022\nv 0.227408 -0.420627 0.146146\nv 0.174735 -0.454816 0.112295\nv 0.118504 -0.479746 0.076158\nv 0.059861 -0.494911 0.038470\nv 0.053777 0.494911 0.046598\nv 0.106459 0.479746 0.092247\nv 0.156975 0.454816 0.136019\nv 0.204294 0.420627 0.177022\nv 0.247455 0.377875 0.214421\nv 0.285579 0.327430 0.247455\nv 0.317888 0.270320 0.275451\nv 0.343727 0.207707 0.297841\nv 0.362568 0.140866 0.314167\nv 0.374028 0.071157 0.324097\nv 0.377875 0.000000 0.327430\nv 0.374028 -0.071157 0.324097\nv 0.362568 -0.140866 0.314167\nv 0.343727 -0.207707 0.297841\nv 0.317888 -0.270320 0.275452\nv 0.285579 -0.327430 0.247455\nv 0.247455 -0.377875 0.214421\nv 0.204294 -0.420627 0.177022\nv 0.156975 -0.454816 0.136019\nv 0.106460 -0.479746 0.092247\nv 0.053777 -0.494911 0.046598\nv 0.046598 0.494911 0.053777\nv 0.092248 0.479746 0.106459\nv 0.136019 0.454816 0.156974\nv 0.177022 0.420627 0.204294\nv 0.214421 0.377875 0.247455\nv 0.247455 0.327430 0.285578\nv 0.275452 0.270320 0.317888\nv 0.297841 0.207707 0.343726\nv 0.314167 0.140866 0.362568\nv 0.324097 0.071157 0.374028\nv 0.327430 0.000000 0.377874\nv 0.324097 -0.071157 0.374028\nv 0.314167 -0.140866 0.362568\nv 0.297841 -0.207707 0.343726\nv 0.275452 -0.270320 0.317888\nv 0.247455 -0.327430 0.285578\nv 0.214421 -0.377875 0.247455\nv 0.177022 -0.420627 0.204294\nv 0.136019 -0.454816 0.156974\nv 0.092248 -0.479746 0.106459\nv 0.046598 -0.494911 0.053777\nv 0.038470 0.494911 0.059861\nv 0.076158 0.479746 0.118504\nv 0.112295 0.454816 0.174734\nv 0.146146 0.420627 0.227408\nv 0.177022 0.377875 0.275452\nv 0.204294 0.327430 0.317888\nv 0.227408 0.270320 0.353853\nv 0.245892 0.207707 0.382615\nv 0.259370 0.140866 0.403588\nv 0.267569 0.071157 0.416345\nv 0.270320 0.000000 0.420626\nv 0.267569 -0.071157 0.416345\nv 0.259370 -0.140866 0.403588\nv 0.245892 -0.207707 0.382615\nv 0.227408 -0.270320 0.353853\nv 0.204294 -0.327430 0.317888\nv 0.177022 -0.377875 0.275452\nv 0.146146 -0.420627 0.227408\nv 0.112295 -0.454816 0.174734\nv 0.076158 -0.479746 0.118504\nv 0.038471 -0.494911 0.059861\nv 0.029560 0.494911 0.064726\nv 0.058518 0.479746 0.128136\nv 0.086285 0.454816 0.188937\nv 0.112295 0.420627 0.245892\nv 0.136019 0.377875 0.297841\nv 0.156975 0.327430 0.343726\nv 0.174735 0.270320 0.382615\nv 0.188937 0.207707 0.413715\nv 0.199294 0.140866 0.436392\nv 0.205593 0.071157 0.450186\nv 0.207707 0.000000 0.454815\nv 0.205593 -0.071157 0.450186\nv 0.199294 -0.140866 0.436392\nv 0.188937 -0.207707 0.413715\nv 0.174735 -0.270320 0.382615\nv 0.156975 -0.327430 0.343727\nv 0.136019 -0.377875 0.297841\nv 0.112295 -0.420627 0.245892\nv 0.086285 -0.454816 0.188937\nv 0.058518 -0.479746 0.128136\nv 0.029560 -0.494911 0.064727\nv 0.020047 0.494911 0.068274\nv 0.039687 0.479746 0.135160\nv 0.058518 0.454816 0.199293\nv 0.076158 0.420627 0.259370\nv 0.092248 0.377875 0.314167\nv 0.106460 0.327430 0.362568\nv 0.118504 0.270320 0.403588\nv 0.128136 0.207707 0.436392\nv 0.135160 0.140866 0.460313\nv 0.139432 0.071157 0.474863\nv 0.140866 0.000000 0.479746\nv 0.139432 -0.071157 0.474863\nv 0.135160 -0.140866 0.460313\nv 0.128136 -0.207707 0.436392\nv 0.118504 -0.270320 0.403588\nv 0.106460 -0.327430 0.362568\nv 0.092248 -0.377875 0.314167\nv 0.076158 -0.420627 0.259370\nv 0.058518 -0.454816 0.199293\nv 0.039687 -0.479746 0.135160\nv 0.020047 -0.494911 0.068275\nv 0.010127 0.494911 0.070432\nv 0.020047 0.479746 0.139432\nv 0.029560 0.454816 0.205593\nv 0.038471 0.420627 0.267568\nv 0.046598 0.377875 0.324097\nv 0.053777 0.327430 0.374028\nv 0.059861 0.270320 0.416345\nv 0.064727 0.207707 0.450186\nv 0.068275 0.140866 0.474863\nv 0.070433 0.071157 0.489873\nv 0.071157 0.000000 0.494910\nv 0.070433 -0.071157 0.489873\nv 0.068275 -0.140866 0.474863\nv 0.064727 -0.207707 0.450186\nv 0.059861 -0.270320 0.416345\nv 0.053777 -0.327430 0.374028\nv 0.046598 -0.377875 0.324097\nv 0.038471 -0.420627 0.267569\nv 0.029560 -0.454816 0.205593\nv 0.020047 -0.479746 0.139432\nv 0.010127 -0.494911 0.070433\nv -0.000000 0.494911 0.071157\nv -0.000000 0.479746 0.140866\nv -0.000000 0.454816 0.207707\nv -0.000000 0.420627 0.270320\nv 0.000000 0.377875 0.327430\nv 0.000000 0.327430 0.377874\nv -0.000000 0.270320 0.420626\nv -0.000000 0.207707 0.454815\nv 0.000000 0.140866 0.479746\nv 0.000000 0.071157 0.494910\nv 0.000000 0.000000 0.499999\nv 0.000000 -0.071157 0.494910\nv -0.000000 -0.140866 0.479746\nv 0.000000 -0.207707 0.454815\nv -0.000000 -0.270320 0.420626\nv -0.000000 -0.327430 0.377874\nv -0.000000 -0.377875 0.327430\nv -0.000000 -0.420627 0.270320\nv -0.000000 -0.454816 0.207707\nv -0.000000 -0.479746 0.140866\nv 0.000000 -0.494911 0.071157\nv -0.010127 0.494911 0.070433\nv -0.020047 0.479746 0.139432\nv -0.029560 0.454816 0.205593\nv -0.038471 0.420627 0.267568\nv -0.046598 0.377875 0.324097\nv -0.053777 0.327430 0.374028\nv -0.059861 0.270320 0.416345\nv -0.064727 0.207707 0.450186\nv -0.068275 0.140866 0.474863\nv -0.070433 0.071157 0.489873\nv -0.071157 0.000000 0.494910\nv -0.070433 -0.071157 0.489873\nv -0.068275 -0.140866 0.474863\nv -0.064727 -0.207707 0.450186\nv -0.059861 -0.270320 0.416345\nv -0.053777 -0.327430 0.374028\nv -0.046598 -0.377875 0.324097\nv -0.038471 -0.420627 0.267569\nv -0.029560 -0.454816 0.205593\nv -0.020047 -0.479746 0.139432\nv -0.010127 -0.494911 0.070433\nv -0.020047 0.494911 0.068274\nv -0.039687 0.479746 0.135160\nv -0.058518 0.454816 0.199293\nv -0.076158 0.420627 0.259370\nv -0.092248 0.377875 0.314167\nv -0.106460 0.327430 0.362568\nv -0.118504 0.270320 0.403588\nv -0.128136 0.207707 0.436392\nv -0.135160 0.140866 0.460313\nv -0.139432 0.071157 0.474863\nv -0.140866 0.000000 0.479746\nv -0.139432 -0.071157 0.474863\nv -0.135160 -0.140866 0.460313\nv -0.128136 -0.207707 0.436392\nv -0.118504 -0.270320 0.403588\nv -0.106460 -0.327430 0.362568\nv -0.092248 -0.377875 0.314167\nv -0.076158 -0.420627 0.259370\nv -0.058518 -0.454816 0.199293\nv -0.039687 -0.479746 0.135160\nv -0.020047 -0.494911 0.068275\nv -0.029560 0.494911 0.064726\nv -0.058518 0.479746 0.128136\nv -0.086285 0.454816 0.188937\nv -0.112295 0.420627 0.245892\nv -0.136019 0.377875 0.297841\nv -0.156975 0.327430 0.343726\nv -0.174735 0.270320 0.382615\nv -0.188937 0.207707 0.413715\nv -0.199294 0.140866 0.436392\nv -0.205593 0.071157 0.450186\nv -0.207707 0.000000 0.454815\nv -0.205593 -0.071157 0.450186\nv -0.199294 -0.140866 0.436392\nv -0.188937 -0.207707 0.413715\nv -0.174735 -0.270320 0.382615\nv -0.156975 -0.327430 0.343727\nv -0.136019 -0.377875 0.297841\nv -0.112295 -0.420627 0.245892\nv -0.086285 -0.454816 0.188937\nv -0.058518 -0.479746 0.128136\nv -0.029560 -0.494911 0.064727\nv 0.000000 -0.500000 -0.000000\nv -0.038470 0.494911 0.059861\nv -0.076158 0.479746 0.118504\nv -0.112295 0.454816 0.174734\nv -0.146146 0.420627 0.227408\nv -0.177022 0.377875 0.275452\nv -0.204294 0.327430 0.317888\nv -0.227408 0.270320 0.353853\nv -0.245892 0.207707 0.382615\nv -0.259370 0.140866 0.403588\nv -0.267569 0.071157 0.416345\nv -0.270320 0.000000 0.420626\nv -0.267569 -0.071157 0.416345\nv -0.259370 -0.140866 0.403588\nv -0.245892 -0.207707 0.382615\nv -0.227408 -0.270320 0.353853\nv -0.204295 -0.327430 0.317888\nv -0.177022 -0.377875 0.275452\nv -0.146146 -0.420627 0.227408\nv -0.112295 -0.454816 0.174734\nv -0.076158 -0.479746 0.118504\nv -0.038471 -0.494911 0.059861\nv -0.046598 0.494911 0.053777\nv -0.092248 0.479746 0.106459\nv -0.136019 0.454816 0.156974\nv -0.177022 0.420627 0.204294\nv -0.214421 0.377875 0.247455\nv -0.247455 0.327430 0.285578\nv -0.275452 0.270320 0.317888\nv -0.297841 0.207707 0.343726\nv -0.314167 0.140866 0.362568\nv -0.324097 0.071157 0.374028\nv -0.327430 0.000000 0.377874\nv -0.324097 -0.071157 0.374028\nv -0.314167 -0.140866 0.362568\nv -0.297841 -0.207707 0.343726\nv -0.275452 -0.270320 0.317888\nv -0.247455 -0.327430 0.285578\nv -0.214421 -0.377875 0.247455\nv -0.177022 -0.420627 0.204294\nv -0.136019 -0.454816 0.156974\nv -0.092248 -0.479746 0.106459\nv -0.046598 -0.494911 0.053777\nv -0.053777 0.494911 0.046598\nv -0.106459 0.479746 0.092247\nv -0.156975 0.454816 0.136019\nv -0.204294 0.420627 0.177022\nv -0.247455 0.377875 0.214421\nv -0.285578 0.327430 0.247455\nv -0.317888 0.270320 0.275451\nv -0.343727 0.207707 0.297841\nv -0.362568 0.140866 0.314167\nv -0.374028 0.071157 0.324097\nv -0.377875 0.000000 0.327430\nv -0.374028 -0.071157 0.324097\nv -0.362568 -0.140866 0.314167\nv -0.343727 -0.207707 0.297841\nv -0.317888 -0.270320 0.275452\nv -0.285579 -0.327430 0.247455\nv -0.247455 -0.377875 0.214421\nv -0.204295 -0.420627 0.177022\nv -0.156975 -0.454816 0.136019\nv -0.106460 -0.479746 0.092247\nv -0.053777 -0.494911 0.046598\nv -0.059861 0.494911 0.038470\nv -0.118504 0.479746 0.076158\nv -0.174734 0.454816 0.112295\nv -0.227408 0.420627 0.146146\nv -0.275452 0.377875 0.177022\nv -0.317888 0.327430 0.204294\nv -0.353853 0.270320 0.227408\nv -0.382615 0.207707 0.245892\nv -0.403588 0.140866 0.259370\nv -0.416345 0.071157 0.267568\nv -0.420626 0.000000 0.270320\nv -0.416345 -0.071157 0.267568\nv -0.403588 -0.140866 0.259370\nv -0.382615 -0.207707 0.245892\nv -0.353854 -0.270320 0.227408\nv -0.317888 -0.327430 0.204294\nv -0.275452 -0.377875 0.177022\nv -0.227408 -0.420627 0.146146\nv -0.174735 -0.454816 0.112295\nv -0.118504 -0.479746 0.076158\nv -0.059861 -0.494911 0.038470\nv -0.064727 0.494911 0.029559\nv -0.128136 0.479746 0.058518\nv -0.188937 0.454816 0.086284\nv -0.245892 0.420627 0.112295\nv -0.297841 0.377875 0.136019\nv -0.343727 0.327430 0.156975\nv -0.382615 0.270320 0.174734\nv -0.413715 0.207707 0.188937\nv -0.436392 0.140866 0.199294\nv -0.450186 0.071157 0.205593\nv -0.454816 0.000000 0.207707\nv -0.450186 -0.071157 0.205593\nv -0.436393 -0.140866 0.199293\nv -0.413715 -0.207707 0.188937\nv -0.382615 -0.270320 0.174734\nv -0.343727 -0.327430 0.156975\nv -0.297841 -0.377875 0.136019\nv -0.245892 -0.420627 0.112295\nv -0.188937 -0.454816 0.086284\nv -0.128136 -0.479746 0.058518\nv -0.064727 -0.494911 0.029560\nv -0.068275 0.494911 0.020047\nv -0.135160 0.479746 0.039686\nv -0.199294 0.454816 0.058518\nv -0.259370 0.420627 0.076158\nv -0.314167 0.377875 0.092248\nv -0.362568 0.327430 0.106459\nv -0.403588 0.270320 0.118504\nv -0.436392 0.207707 0.128136\nv -0.460313 0.140866 0.135160\nv -0.474863 0.071157 0.139432\nv -0.479746 0.000000 0.140866\nv -0.474863 -0.071157 0.139432\nv -0.460313 -0.140866 0.135160\nv -0.436392 -0.207707 0.128136\nv -0.403588 -0.270320 0.118504\nv -0.362568 -0.327430 0.106459\nv -0.314167 -0.377875 0.092247\nv -0.259371 -0.420627 0.076158\nv -0.199294 -0.454816 0.058518\nv -0.135160 -0.479746 0.039686\nv -0.068275 -0.494911 0.020047\nv -0.070433 0.494911 0.010126\nv -0.139432 0.479746 0.020047\nv -0.205593 0.454816 0.029559\nv -0.267569 0.420627 0.038470\nv -0.324097 0.377875 0.046598\nv -0.374028 0.327430 0.053777\nv -0.416345 0.270320 0.059861\nv -0.450186 0.207707 0.064727\nv -0.474863 0.140866 0.068275\nv -0.489873 0.071157 0.070433\nv -0.494910 0.000000 0.071157\nv -0.489873 -0.071157 0.070433\nv -0.474863 -0.140866 0.068275\nv -0.450186 -0.207707 0.064727\nv -0.416345 -0.270320 0.059861\nv -0.374028 -0.327430 0.053777\nv -0.324097 -0.377875 0.046598\nv -0.267569 -0.420627 0.038470\nv -0.205593 -0.454816 0.029560\nv -0.139432 -0.479746 0.020047\nv -0.070433 -0.494911 0.010126\nv -0.071157 0.494911 -0.000000\nv -0.140866 0.479746 -0.000000\nv -0.207707 0.454816 -0.000000\nv -0.270320 0.420627 -0.000000\nv -0.327430 0.377875 -0.000000\nv -0.377874 0.327430 -0.000000\nv -0.420626 0.270320 -0.000000\nv -0.454816 0.207707 -0.000000\nv -0.479746 0.140866 -0.000000\nv -0.494910 0.071157 -0.000000\nv -0.500000 0.000000 -0.000000\nv -0.494910 -0.071157 -0.000000\nv -0.479746 -0.140866 -0.000000\nv -0.454816 -0.207707 -0.000000\nv -0.420627 -0.270320 -0.000000\nv -0.377875 -0.327430 -0.000000\nv -0.327430 -0.377875 -0.000000\nv -0.270320 -0.420627 -0.000000\nv -0.207707 -0.454816 -0.000000\nv -0.140866 -0.479746 -0.000000\nv -0.071157 -0.494911 -0.000000\nv -0.070433 0.494911 -0.010127\nv -0.139432 0.479746 -0.020048\nv -0.205593 0.454816 -0.029560\nv -0.267569 0.420627 -0.038471\nv -0.324097 0.377875 -0.046598\nv -0.374028 0.327430 -0.053777\nv -0.416345 0.270320 -0.059862\nv -0.450186 0.207707 -0.064727\nv -0.474863 0.140866 -0.068275\nv -0.489873 0.071157 -0.070433\nv -0.494910 0.000000 -0.071158\nv -0.489873 -0.071157 -0.070433\nv -0.474863 -0.140866 -0.068275\nv -0.450186 -0.207707 -0.064727\nv -0.416345 -0.270320 -0.059862\nv -0.374028 -0.327430 -0.053777\nv -0.324097 -0.377875 -0.046598\nv -0.267569 -0.420627 -0.038471\nv -0.205593 -0.454816 -0.029560\nv -0.139432 -0.479746 -0.020048\nv -0.070433 -0.494911 -0.010127\nv -0.068275 0.494911 -0.020048\nv -0.135160 0.479746 -0.039687\nv -0.199294 0.454816 -0.058518\nv -0.259370 0.420627 -0.076158\nv -0.314167 0.377875 -0.092248\nv -0.362568 0.327430 -0.106460\nv -0.403588 0.270320 -0.118504\nv -0.436392 0.207707 -0.128137\nv -0.460313 0.140866 -0.135160\nv -0.474863 0.071157 -0.139433\nv -0.479746 0.000000 -0.140866\nv -0.474863 -0.071157 -0.139433\nv -0.460313 -0.140866 -0.135160\nv -0.436392 -0.207707 -0.128137\nv -0.403588 -0.270320 -0.118504\nv -0.362568 -0.327430 -0.106460\nv -0.314167 -0.377875 -0.092248\nv -0.259371 -0.420627 -0.076158\nv -0.199294 -0.454816 -0.058518\nv -0.135160 -0.479746 -0.039687\nv -0.068275 -0.494911 -0.020048\nv -0.064727 0.494911 -0.029560\nv -0.128136 0.479746 -0.058518\nv -0.188937 0.454816 -0.086285\nv -0.245892 0.420627 -0.112295\nv -0.297841 0.377875 -0.136020\nv -0.343727 0.327430 -0.156975\nv -0.382615 0.270320 -0.174735\nv -0.413715 0.207707 -0.188938\nv -0.436392 0.140866 -0.199294\nv -0.450186 0.071157 -0.205593\nv -0.454816 0.000000 -0.207708\nv -0.450186 -0.071157 -0.205593\nv -0.436392 -0.140866 -0.199294\nv -0.413715 -0.207707 -0.188937\nv -0.382615 -0.270320 -0.174735\nv -0.343727 -0.327430 -0.156975\nv -0.297841 -0.377875 -0.136020\nv -0.245892 -0.420627 -0.112295\nv -0.188937 -0.454816 -0.086285\nv -0.128136 -0.479746 -0.058518\nv -0.064727 -0.494911 -0.029560\nv -0.059861 0.494911 -0.038471\nv -0.118504 0.479746 -0.076158\nv -0.174734 0.454816 -0.112295\nv -0.227408 0.420627 -0.146146\nv -0.275452 0.377875 -0.177022\nv -0.317888 0.327430 -0.204295\nv -0.353853 0.270320 -0.227408\nv -0.382615 0.207707 -0.245892\nv -0.403588 0.140866 -0.259371\nv -0.416345 0.071157 -0.267569\nv -0.420626 0.000000 -0.270320\nv -0.416345 -0.071157 -0.267569\nv -0.403588 -0.140866 -0.259371\nv -0.382615 -0.207707 -0.245892\nv -0.353854 -0.270320 -0.227408\nv -0.317888 -0.327430 -0.204295\nv -0.275452 -0.377875 -0.177022\nv -0.227408 -0.420627 -0.146147\nv -0.174735 -0.454816 -0.112295\nv -0.118504 -0.479746 -0.076158\nv -0.059861 -0.494911 -0.038471\nv -0.053777 0.494911 -0.046598\nv -0.106459 0.479746 -0.092248\nv -0.156975 0.454816 -0.136020\nv -0.204294 0.420627 -0.177022\nv -0.247455 0.377875 -0.214421\nv -0.285578 0.327430 -0.247455\nv -0.317888 0.270320 -0.275452\nv -0.343727 0.207707 -0.297841\nv -0.362568 0.140866 -0.314167\nv -0.374028 0.071157 -0.324098\nv -0.377874 0.000000 -0.327430\nv -0.374028 -0.071157 -0.324098\nv -0.362568 -0.140866 -0.314167\nv -0.343727 -0.207707 -0.297841\nv -0.317888 -0.270320 -0.275452\nv -0.285579 -0.327430 -0.247456\nv -0.247455 -0.377875 -0.214421\nv -0.204295 -0.420627 -0.177022\nv -0.156975 -0.454816 -0.136020\nv -0.106460 -0.479746 -0.092248\nv -0.053777 -0.494911 -0.046598\nv -0.046598 0.494911 -0.053777\nv -0.092248 0.479746 -0.106460\nv -0.136019 0.454816 -0.156975\nv -0.177022 0.420627 -0.204295\nv -0.214421 0.377875 -0.247455\nv -0.247455 0.327430 -0.285579\nv -0.275452 0.270320 -0.317888\nv -0.297841 0.207707 -0.343727\nv -0.314167 0.140866 -0.362568\nv -0.324097 0.071157 -0.374029\nv -0.327430 0.000000 -0.377875\nv -0.324097 -0.071157 -0.374029\nv -0.314167 -0.140866 -0.362568\nv -0.297841 -0.207707 -0.343727\nv -0.275452 -0.270320 -0.317889\nv -0.247455 -0.327430 -0.285579\nv -0.214421 -0.377875 -0.247456\nv -0.177022 -0.420627 -0.204295\nv -0.136019 -0.454816 -0.156975\nv -0.092248 -0.479746 -0.106460\nv -0.046598 -0.494911 -0.053777\nv -0.038470 0.494911 -0.059861\nv -0.076158 0.479746 -0.118504\nv -0.112295 0.454816 -0.174735\nv -0.146146 0.420627 -0.227408\nv -0.177022 0.377875 -0.275452\nv -0.204294 0.327430 -0.317888\nv -0.227408 0.270320 -0.353854\nv -0.245892 0.207707 -0.382615\nv -0.259370 0.140866 -0.403588\nv -0.267569 0.071157 -0.416345\nv -0.270320 0.000000 -0.420627\nv -0.267569 -0.071157 -0.416345\nv -0.259370 -0.140866 -0.403588\nv -0.245892 -0.207707 -0.382615\nv -0.227408 -0.270320 -0.353854\nv -0.204294 -0.327430 -0.317889\nv -0.177022 -0.377875 -0.275452\nv -0.146146 -0.420627 -0.227408\nv -0.112295 -0.454816 -0.174735\nv -0.076158 -0.479746 -0.118505\nv -0.038471 -0.494911 -0.059862\nv -0.029560 0.494911 -0.064727\nv -0.058518 0.479746 -0.128137\nv -0.086285 0.454816 -0.188937\nv -0.112295 0.420627 -0.245892\nv -0.136019 0.377875 -0.297841\nv -0.156975 0.327430 -0.343727\nv -0.174734 0.270320 -0.382615\nv -0.188937 0.207707 -0.413715\nv -0.199294 0.140866 -0.436393\nv -0.205593 0.071157 -0.450187\nv -0.207707 0.000000 -0.454816\nv -0.205593 -0.071157 -0.450187\nv -0.199294 -0.140866 -0.436393\nv -0.188937 -0.207707 -0.413715\nv -0.174735 -0.270320 -0.382616\nv -0.156975 -0.327430 -0.343727\nv -0.136019 -0.377875 -0.297841\nv -0.112295 -0.420627 -0.245892\nv -0.086285 -0.454816 -0.188938\nv -0.058518 -0.479746 -0.128137\nv -0.029560 -0.494911 -0.064727\nv -0.020047 0.494911 -0.068275\nv -0.039687 0.479746 -0.135160\nv -0.058518 0.454816 -0.199294\nv -0.076158 0.420627 -0.259371\nv -0.092248 0.377875 -0.314167\nv -0.106460 0.327430 -0.362568\nv -0.118504 0.270320 -0.403588\nv -0.128136 0.207707 -0.436392\nv -0.135160 0.140866 -0.460313\nv -0.139432 0.071157 -0.474863\nv -0.140866 0.000000 -0.479746\nv -0.139432 -0.071157 -0.474863\nv -0.135160 -0.140866 -0.460313\nv -0.128136 -0.207707 -0.436392\nv -0.118504 -0.270320 -0.403588\nv -0.106460 -0.327430 -0.362568\nv -0.092248 -0.377875 -0.314167\nv -0.076158 -0.420627 -0.259371\nv -0.058518 -0.454816 -0.199294\nv -0.039687 -0.479746 -0.135160\nv -0.020047 -0.494911 -0.068275\nv -0.010127 0.494911 -0.070433\nv -0.020047 0.479746 -0.139432\nv -0.029560 0.454816 -0.205593\nv -0.038471 0.420627 -0.267569\nv -0.046598 0.377875 -0.324098\nv -0.053777 0.327430 -0.374029\nv -0.059861 0.270320 -0.416345\nv -0.064727 0.207707 -0.450186\nv -0.068275 0.140866 -0.474863\nv -0.070433 0.071157 -0.489873\nv -0.071157 0.000000 -0.494910\nv -0.070433 -0.071157 -0.489873\nv -0.068275 -0.140866 -0.474863\nv -0.064727 -0.207707 -0.450186\nv -0.059861 -0.270320 -0.416345\nv -0.053777 -0.327430 -0.374029\nv -0.046598 -0.377875 -0.324098\nv -0.038471 -0.420627 -0.267569\nv -0.029560 -0.454816 -0.205594\nv -0.020047 -0.479746 -0.139433\nv -0.010127 -0.494911 -0.070433\nv -0.000000 0.494911 -0.071157\nv -0.000000 0.479746 -0.140866\nv -0.000000 0.454816 -0.207707\nv -0.000000 0.420627 -0.270320\nv -0.000000 0.377875 -0.327430\nv -0.000000 0.327430 -0.377875\nv -0.000000 0.270320 -0.420626\nv 0.000000 0.207707 -0.454816\nv -0.000000 0.140866 -0.479746\nv 0.000000 0.071157 -0.494911\nv -0.000000 0.000000 -0.500000\nv 0.000000 -0.140866 -0.479746\nv -0.000000 -0.207707 -0.454816\nv -0.000000 -0.270320 -0.420627\nv 0.000000 -0.327430 -0.377875\nv 0.000000 -0.377875 -0.327430\nv -0.000000 -0.420627 -0.270321\nv -0.000000 -0.454816 -0.207708\nv -0.000000 -0.479746 -0.140867\nvt 0.750000 0.954546\nvt 0.738637 1.000000\nvt 0.727273 0.954545\nvt 0.750000 0.272727\nvt 0.750000 0.318182\nvt 0.727273 0.318182\nvt 0.727273 0.272727\nvt 0.750000 0.590909\nvt 0.750000 0.636364\nvt 0.727273 0.636364\nvt 0.727273 0.590909\nvt 0.750000 0.909091\nvt 0.727273 0.909091\nvt 0.750000 0.227273\nvt 0.727273 0.227273\nvt 0.750000 0.545455\nvt 0.727273 0.545455\nvt 0.750000 0.863636\nvt 0.727273 0.863636\nvt 0.750000 0.181818\nvt 0.727273 0.181818\nvt 0.750000 0.500000\nvt 0.727273 0.500000\nvt 0.750000 0.818182\nvt 0.727273 0.818182\nvt 0.750000 0.136364\nvt 0.727273 0.136364\nvt 0.750000 0.454545\nvt 0.727273 0.454545\nvt 0.750000 0.772727\nvt 0.727273 0.772727\nvt 0.750000 0.090909\nvt 0.727273 0.090909\nvt 0.750000 0.409091\nvt 0.727273 0.409091\nvt 0.750000 0.727273\nvt 0.727273 0.727273\nvt 0.750000 0.045455\nvt 0.727273 0.045455\nvt 0.750000 0.363636\nvt 0.727273 0.363636\nvt 0.750000 0.681818\nvt 0.727273 0.681818\nvt 0.738636 0.000000\nvt 0.704545 0.318182\nvt 0.704545 0.272727\nvt 0.704545 0.636364\nvt 0.704545 0.590909\nvt 0.704546 0.954546\nvt 0.704546 0.909091\nvt 0.704545 0.227273\nvt 0.704545 0.545455\nvt 0.704545 0.863636\nvt 0.704545 0.181818\nvt 0.704545 0.500000\nvt 0.704545 0.818182\nvt 0.704545 0.136364\nvt 0.704545 0.454545\nvt 0.704545 0.772727\nvt 0.704546 0.090909\nvt 0.704545 0.409091\nvt 0.704545 0.727273\nvt 0.704546 0.045455\nvt 0.704545 0.363636\nvt 0.704545 0.681818\nvt 0.715909 0.000000\nvt 0.715910 1.000000\nvt 0.681818 0.681818\nvt 0.681818 0.636364\nvt 0.693182 1.000000\nvt 0.681818 0.954546\nvt 0.681818 0.318182\nvt 0.681818 0.272727\nvt 0.681818 0.590909\nvt 0.681818 0.909091\nvt 0.681818 0.227273\nvt 0.681818 0.545455\nvt 0.681818 0.863636\nvt 0.681818 0.181818\nvt 0.681818 0.500000\nvt 0.681818 0.818182\nvt 0.681818 0.136364\nvt 0.681818 0.454545\nvt 0.681818 0.772727\nvt 0.681818 0.090909\nvt 0.681818 0.409091\nvt 0.681818 0.727273\nvt 0.681818 0.045455\nvt 0.681818 0.363636\nvt 0.693182 0.000000\nvt 0.659091 0.363636\nvt 0.659091 0.318182\nvt 0.659091 0.681818\nvt 0.659091 0.636364\nvt 0.670455 1.000000\nvt 0.659091 0.954546\nvt 0.659091 0.272727\nvt 0.659091 0.590909\nvt 0.659091 0.909091\nvt 0.659091 0.227273\nvt 0.659091 0.545455\nvt 0.659091 0.863636\nvt 0.659091 0.181818\nvt 0.659091 0.500000\nvt 0.659091 0.818182\nvt 0.659091 0.136364\nvt 0.659091 0.454545\nvt 0.659091 0.772727\nvt 0.659091 0.090909\nvt 0.659091 0.409091\nvt 0.659091 0.727273\nvt 0.659091 0.045455\nvt 0.670455 0.000000\nvt 0.636364 0.727273\nvt 0.636364 0.681818\nvt 0.647728 0.000000\nvt 0.636364 0.045455\nvt 0.636364 0.363636\nvt 0.636364 0.318182\nvt 0.636364 0.636364\nvt 0.647728 1.000000\nvt 0.636364 0.954546\nvt 0.636364 0.272727\nvt 0.636364 0.590909\nvt 0.636364 0.909091\nvt 0.636364 0.227273\nvt 0.636364 0.545455\nvt 0.636364 0.863636\nvt 0.636364 0.181818\nvt 0.636364 0.500000\nvt 0.636364 0.818182\nvt 0.636364 0.136364\nvt 0.636364 0.454545\nvt 0.636364 0.772727\nvt 0.636364 0.090909\nvt 0.636364 0.409091\nvt 0.613637 0.090909\nvt 0.613637 0.045455\nvt 0.613636 0.409091\nvt 0.613636 0.363636\nvt 0.613636 0.727273\nvt 0.613636 0.681818\nvt 0.625001 0.000000\nvt 0.613636 0.318182\nvt 0.613636 0.636364\nvt 0.625001 1.000000\nvt 0.613637 0.954546\nvt 0.613636 0.272727\nvt 0.613636 0.590909\nvt 0.613637 0.909091\nvt 0.613636 0.227273\nvt 0.613636 0.545455\nvt 0.613637 0.863636\nvt 0.613636 0.181818\nvt 0.613636 0.500000\nvt 0.613636 0.818182\nvt 0.613637 0.136364\nvt 0.613636 0.454545\nvt 0.613636 0.772727\nvt 0.590909 0.454545\nvt 0.590909 0.409091\nvt 0.590909 0.772727\nvt 0.590909 0.727273\nvt 0.590909 0.090909\nvt 0.590910 0.045455\nvt 0.590909 0.363636\nvt 0.590909 0.681818\nvt 0.602274 0.000000\nvt 0.590909 0.318182\nvt 0.590909 0.636364\nvt 0.602274 1.000000\nvt 0.590910 0.954546\nvt 0.590909 0.272727\nvt 0.590909 0.590909\nvt 0.590909 0.909091\nvt 0.590909 0.227273\nvt 0.590909 0.545455\nvt 0.590909 0.863636\nvt 0.590909 0.181818\nvt 0.590909 0.500000\nvt 0.590909 0.818182\nvt 0.590909 0.136364\nvt 0.568182 0.818182\nvt 0.568182 0.772727\nvt 0.568182 0.136364\nvt 0.568182 0.090909\nvt 0.568182 0.454545\nvt 0.568182 0.409091\nvt 0.568182 0.727273\nvt 0.568182 0.045455\nvt 0.568182 0.363636\nvt 0.568182 0.681818\nvt 0.579546 0.000000\nvt 0.568182 0.318182\nvt 0.568182 0.636364\nvt 0.579547 1.000000\nvt 0.568182 0.954546\nvt 0.568182 0.272727\nvt 0.568182 0.590909\nvt 0.568182 0.909091\nvt 0.568182 0.227273\nvt 0.568182 0.545455\nvt 0.568182 0.863636\nvt 0.568182 0.181818\nvt 0.568182 0.500000\nvt 0.545455 0.500000\nvt 0.545455 0.454545\nvt 0.545455 0.818182\nvt 0.545455 0.772727\nvt 0.545455 0.136364\nvt 0.545455 0.090909\nvt 0.545455 0.409091\nvt 0.545455 0.727273\nvt 0.545455 0.045455\nvt 0.545455 0.363636\nvt 0.545455 0.681818\nvt 0.556819 0.000000\nvt 0.545455 0.318182\nvt 0.545455 0.636364\nvt 0.556819 1.000000\nvt 0.545455 0.954546\nvt 0.545455 0.272727\nvt 0.545455 0.590909\nvt 0.545455 0.909091\nvt 0.545455 0.227273\nvt 0.545455 0.545455\nvt 0.545455 0.863636\nvt 0.545455 0.181818\nvt 0.522727 0.863637\nvt 0.522727 0.818182\nvt 0.522727 0.181818\nvt 0.522727 0.136364\nvt 0.522727 0.500000\nvt 0.522727 0.454545\nvt 0.522727 0.772727\nvt 0.522728 0.090909\nvt 0.522727 0.409091\nvt 0.522727 0.727273\nvt 0.522728 0.045454\nvt 0.522727 0.363636\nvt 0.522727 0.681818\nvt 0.534092 0.000000\nvt 0.522727 0.318182\nvt 0.522727 0.636364\nvt 0.534092 1.000000\nvt 0.522728 0.954546\nvt 0.522727 0.272727\nvt 0.522727 0.590909\nvt 0.522728 0.909091\nvt 0.522727 0.227273\nvt 0.522727 0.545455\nvt 0.500000 0.227273\nvt 0.500000 0.181818\nvt 0.500000 0.545455\nvt 0.500000 0.500000\nvt 0.500000 0.863637\nvt 0.500000 0.818182\nvt 0.500000 0.136364\nvt 0.500000 0.454545\nvt 0.500000 0.772727\nvt 0.500000 0.090909\nvt 0.500000 0.409091\nvt 0.500000 0.727273\nvt 0.500001 0.045454\nvt 0.500000 0.363636\nvt 0.500000 0.681818\nvt 0.511365 0.000000\nvt 0.500000 0.318182\nvt 0.500000 0.636364\nvt 0.511365 1.000000\nvt 0.500001 0.954546\nvt 0.500000 0.272727\nvt 0.500000 0.590909\nvt 0.500000 0.909091\nvt 0.477273 0.590909\nvt 0.477273 0.545455\nvt 0.477273 0.909091\nvt 0.477273 0.863637\nvt 0.477273 0.227273\nvt 0.477273 0.181818\nvt 0.477273 0.500000\nvt 0.477273 0.818182\nvt 0.477273 0.136364\nvt 0.477273 0.454545\nvt 0.477273 0.772727\nvt 0.477273 0.090909\nvt 0.477273 0.409091\nvt 0.477273 0.727273\nvt 0.477273 0.045454\nvt 0.477273 0.363636\nvt 0.477273 0.681818\nvt 0.488637 0.000000\nvt 0.477273 0.318182\nvt 0.477273 0.636364\nvt 0.488637 1.000000\nvt 0.477273 0.954546\nvt 0.477273 0.272727\nvt 0.454546 0.954546\nvt 0.454546 0.909091\nvt 0.454546 0.272727\nvt 0.454546 0.227273\nvt 0.454546 0.590909\nvt 0.454546 0.545455\nvt 0.454546 0.863637\nvt 0.454546 0.181818\nvt 0.454546 0.500000\nvt 0.454546 0.818182\nvt 0.454546 0.136364\nvt 0.454546 0.454545\nvt 0.454546 0.772727\nvt 0.454546 0.090909\nvt 0.454546 0.409091\nvt 0.454546 0.727273\nvt 0.454546 0.045454\nvt 0.454546 0.363636\nvt 0.454546 0.681818\nvt 0.465910 0.000000\nvt 0.454546 0.318182\nvt 0.454546 0.636364\nvt 0.465910 1.000000\nvt 0.431818 0.636364\nvt 0.431818 0.590909\nvt 0.431819 0.954546\nvt 0.431818 0.909091\nvt 0.431818 0.272727\nvt 0.431818 0.227273\nvt 0.431818 0.545455\nvt 0.431818 0.863637\nvt 0.431818 0.181818\nvt 0.431818 0.500000\nvt 0.431818 0.818182\nvt 0.431818 0.136364\nvt 0.431818 0.454545\nvt 0.431818 0.772727\nvt 0.431818 0.090909\nvt 0.431818 0.409091\nvt 0.431818 0.727273\nvt 0.431819 0.045454\nvt 0.431818 0.363636\nvt 0.431818 0.681818\nvt 0.443183 0.000000\nvt 0.431818 0.318182\nvt 0.443183 1.000000\nvt 0.420455 1.000000\nvt 0.409092 0.954546\nvt 0.409091 0.318182\nvt 0.409091 0.272727\nvt 0.409091 0.636364\nvt 0.409091 0.590909\nvt 0.409091 0.909091\nvt 0.409091 0.227273\nvt 0.409091 0.545455\nvt 0.409091 0.863637\nvt 0.409091 0.181818\nvt 0.409091 0.500000\nvt 0.409091 0.818182\nvt 0.409091 0.136364\nvt 0.409091 0.454545\nvt 0.409091 0.772727\nvt 0.409091 0.090909\nvt 0.409091 0.409091\nvt 0.409091 0.727273\nvt 0.409092 0.045454\nvt 0.409091 0.363636\nvt 0.409091 0.681818\nvt 0.420455 0.000000\nvt 0.386364 0.363636\nvt 0.386364 0.318182\nvt 0.386364 0.681818\nvt 0.386364 0.636364\nvt 0.397728 1.000000\nvt 0.386364 0.954546\nvt 0.386364 0.272727\nvt 0.386364 0.590909\nvt 0.386364 0.909091\nvt 0.386364 0.227273\nvt 0.386364 0.545455\nvt 0.386364 0.863637\nvt 0.386364 0.181818\nvt 0.386364 0.500000\nvt 0.386364 0.818182\nvt 0.386364 0.136364\nvt 0.386364 0.454545\nvt 0.386364 0.772727\nvt 0.386364 0.090909\nvt 0.386364 0.409091\nvt 0.386364 0.727273\nvt 0.386364 0.045454\nvt 0.397728 0.000000\nvt 0.363636 0.727273\nvt 0.363636 0.681818\nvt 0.375001 0.000000\nvt 0.363637 0.045454\nvt 0.363636 0.363636\nvt 0.363636 0.318182\nvt 0.363636 0.636364\nvt 0.375000 1.000000\nvt 0.363637 0.954546\nvt 0.363636 0.272727\nvt 0.363636 0.590909\nvt 0.363637 0.909091\nvt 0.363636 0.227273\nvt 0.363636 0.545455\nvt 0.363637 0.863637\nvt 0.363636 0.181818\nvt 0.363636 0.500000\nvt 0.363636 0.818182\nvt 0.363637 0.136364\nvt 0.363636 0.454545\nvt 0.363636 0.772727\nvt 0.363637 0.090909\nvt 0.363636 0.409091\nvt 0.340909 0.409091\nvt 0.340909 0.363636\nvt 0.340909 0.727273\nvt 0.340909 0.681818\nvt 0.352273 0.000000\nvt 0.340909 0.045454\nvt 0.340909 0.318182\nvt 0.340909 0.636364\nvt 0.352273 1.000000\nvt 0.340909 0.954546\nvt 0.340909 0.272727\nvt 0.340909 0.590909\nvt 0.340909 0.909091\nvt 0.340909 0.227273\nvt 0.340909 0.545455\nvt 0.340909 0.863637\nvt 0.340909 0.181818\nvt 0.340909 0.500000\nvt 0.340909 0.818182\nvt 0.340909 0.136363\nvt 0.340909 0.454545\nvt 0.340909 0.772727\nvt 0.340909 0.090909\nvt 0.318182 0.772727\nvt 0.318182 0.727273\nvt 0.318182 0.090909\nvt 0.318182 0.045454\nvt 0.318182 0.409091\nvt 0.318182 0.363636\nvt 0.318182 0.681818\nvt 0.329546 0.000000\nvt 0.318182 0.318182\nvt 0.318182 0.636364\nvt 0.329546 1.000000\nvt 0.318182 0.954546\nvt 0.318182 0.272727\nvt 0.318182 0.590909\nvt 0.318182 0.909091\nvt 0.318182 0.227273\nvt 0.318182 0.545455\nvt 0.318182 0.863637\nvt 0.318182 0.181818\nvt 0.318182 0.500000\nvt 0.318182 0.818182\nvt 0.318182 0.136363\nvt 0.318182 0.454545\nvt 0.295455 0.136363\nvt 0.295455 0.090909\nvt 0.295455 0.454545\nvt 0.295455 0.409091\nvt 0.295455 0.772727\nvt 0.295455 0.727273\nvt 0.295455 0.045454\nvt 0.295455 0.363636\nvt 0.295455 0.681818\nvt 0.306819 0.000000\nvt 0.295455 0.318182\nvt 0.295455 0.636364\nvt 0.306818 1.000000\nvt 0.295455 0.954546\nvt 0.295455 0.272727\nvt 0.295455 0.590909\nvt 0.295455 0.909091\nvt 0.295455 0.227273\nvt 0.295455 0.545455\nvt 0.295455 0.863637\nvt 0.295455 0.181818\nvt 0.295455 0.500000\nvt 0.295455 0.818182\nvt 0.272727 0.500000\nvt 0.272727 0.454545\nvt 0.272727 0.818182\nvt 0.272727 0.772727\nvt 0.272727 0.136363\nvt 0.272727 0.090909\nvt 0.272727 0.409091\nvt 0.272727 0.727273\nvt 0.272727 0.045454\nvt 0.272727 0.363636\nvt 0.272727 0.681818\nvt 0.284091 0.000000\nvt 0.272727 0.318182\nvt 0.272727 0.636364\nvt 0.284091 1.000000\nvt 0.272727 0.954546\nvt 0.272727 0.272727\nvt 0.272727 0.590909\nvt 0.272727 0.909091\nvt 0.272727 0.227273\nvt 0.272727 0.545455\nvt 0.272727 0.863637\nvt 0.272727 0.181818\nvt 0.250000 0.863637\nvt 0.250000 0.818182\nvt 0.250000 0.181818\nvt 0.250000 0.136363\nvt 0.250000 0.500000\nvt 0.250000 0.454545\nvt 0.250000 0.772727\nvt 0.250000 0.090909\nvt 0.250000 0.409091\nvt 0.250000 0.727273\nvt 0.250000 0.045454\nvt 0.250000 0.363636\nvt 0.250000 0.681818\nvt 0.261364 0.000000\nvt 0.250000 0.318182\nvt 0.250000 0.636364\nvt 0.261363 1.000000\nvt 0.250000 0.954546\nvt 0.250000 0.272727\nvt 0.250000 0.590909\nvt 0.250000 0.909091\nvt 0.250000 0.227273\nvt 0.250000 0.545455\nvt 0.227273 0.545455\nvt 0.227273 0.500000\nvt 0.227273 0.863637\nvt 0.227273 0.818182\nvt 0.227273 0.181818\nvt 0.227273 0.136363\nvt 0.227273 0.454545\nvt 0.227273 0.772727\nvt 0.227273 0.090909\nvt 0.227273 0.409091\nvt 0.227273 0.727273\nvt 0.227273 0.045454\nvt 0.227273 0.363636\nvt 0.227273 0.681818\nvt 0.238636 0.000000\nvt 0.227273 0.318182\nvt 0.227273 0.636364\nvt 0.238636 1.000000\nvt 0.227273 0.954546\nvt 0.227273 0.272727\nvt 0.227273 0.590909\nvt 0.227273 0.909091\nvt 0.227273 0.227273\nvt 0.204545 0.909091\nvt 0.204545 0.863637\nvt 0.204545 0.227273\nvt 0.204545 0.181818\nvt 0.204545 0.545455\nvt 0.204545 0.500000\nvt 0.204545 0.818182\nvt 0.204545 0.136363\nvt 0.204545 0.454545\nvt 0.204545 0.772727\nvt 0.204545 0.090909\nvt 0.204545 0.409091\nvt 0.204545 0.727273\nvt 0.204545 0.045454\nvt 0.204545 0.363636\nvt 0.204545 0.681818\nvt 0.215909 0.000000\nvt 0.204545 0.318182\nvt 0.204545 0.636364\nvt 0.215909 1.000000\nvt 0.204545 0.954546\nvt 0.204545 0.272727\nvt 0.204545 0.590909\nvt 0.181818 0.272727\nvt 0.181818 0.227273\nvt 0.181818 0.590909\nvt 0.181818 0.545455\nvt 0.181818 0.909091\nvt 0.181818 0.863637\nvt 0.181818 0.181818\nvt 0.181818 0.500000\nvt 0.181818 0.818182\nvt 0.181818 0.136363\nvt 0.181818 0.454545\nvt 0.181818 0.772727\nvt 0.181818 0.090909\nvt 0.181818 0.409091\nvt 0.181818 0.727273\nvt 0.181818 0.045454\nvt 0.181818 0.363636\nvt 0.181818 0.681818\nvt 0.193181 0.000000\nvt 0.181818 0.318182\nvt 0.181818 0.636364\nvt 0.193181 1.000000\nvt 0.181818 0.954546\nvt 0.159091 0.636364\nvt 0.159091 0.590909\nvt 0.159091 0.954546\nvt 0.159091 0.909091\nvt 0.159091 0.272727\nvt 0.159091 0.227273\nvt 0.159091 0.545455\nvt 0.159091 0.863637\nvt 0.159091 0.181818\nvt 0.159091 0.500000\nvt 0.159091 0.818182\nvt 0.159091 0.136363\nvt 0.159091 0.454545\nvt 0.159091 0.772727\nvt 0.159091 0.090909\nvt 0.159091 0.409091\nvt 0.159091 0.727273\nvt 0.159091 0.045454\nvt 0.159091 0.363636\nvt 0.159091 0.681818\nvt 0.170454 0.000000\nvt 0.159091 0.318182\nvt 0.170454 1.000000\nvt 0.147726 1.000000\nvt 0.136363 0.954546\nvt 0.136364 0.318182\nvt 0.136364 0.272727\nvt 0.136364 0.636364\nvt 0.136364 0.590909\nvt 0.136363 0.909091\nvt 0.136364 0.227273\nvt 0.136364 0.545455\nvt 0.136364 0.863637\nvt 0.136364 0.181818\nvt 0.136364 0.500000\nvt 0.136364 0.818182\nvt 0.136363 0.136364\nvt 0.136364 0.454545\nvt 0.136364 0.772727\nvt 0.136363 0.090909\nvt 0.136364 0.409091\nvt 0.136364 0.727273\nvt 0.136363 0.045454\nvt 0.136364 0.363636\nvt 0.136364 0.681818\nvt 0.147727 0.000000\nvt 0.113636 0.681818\nvt 0.113636 0.636364\nvt 0.124999 1.000000\nvt 0.113636 0.954546\nvt 0.113636 0.318182\nvt 0.113636 0.272727\nvt 0.113636 0.590909\nvt 0.113636 0.909091\nvt 0.113636 0.227273\nvt 0.113636 0.545455\nvt 0.113636 0.863637\nvt 0.113636 0.181818\nvt 0.113636 0.500000\nvt 0.113636 0.818182\nvt 0.113636 0.136364\nvt 0.113636 0.454545\nvt 0.113636 0.772727\nvt 0.113636 0.090909\nvt 0.113636 0.409091\nvt 0.113636 0.727273\nvt 0.113636 0.045454\nvt 0.113636 0.363636\nvt 0.124999 0.000000\nvt 0.102272 0.000000\nvt 0.090909 0.045454\nvt 0.090909 0.363636\nvt 0.090909 0.318182\nvt 0.090909 0.681818\nvt 0.090909 0.636364\nvt 0.102272 1.000000\nvt 0.090908 0.954546\nvt 0.090909 0.272727\nvt 0.090909 0.590909\nvt 0.090909 0.909091\nvt 0.090909 0.227273\nvt 0.090909 0.545455\nvt 0.090909 0.863637\nvt 0.090909 0.181818\nvt 0.090909 0.500000\nvt 0.090909 0.818182\nvt 0.090909 0.136364\nvt 0.090909 0.454545\nvt 0.090909 0.772727\nvt 0.090909 0.090909\nvt 0.090909 0.409091\nvt 0.090909 0.727273\nvt 0.068182 0.409091\nvt 0.068182 0.363636\nvt 0.068182 0.727273\nvt 0.068182 0.681818\nvt 0.079545 0.000000\nvt 0.068181 0.045454\nvt 0.068182 0.318182\nvt 0.068182 0.636364\nvt 0.079544 1.000000\nvt 0.068181 0.954546\nvt 0.068182 0.272727\nvt 0.068182 0.590909\nvt 0.068182 0.909091\nvt 0.068182 0.227273\nvt 0.068182 0.545455\nvt 0.068182 0.863637\nvt 0.068182 0.181818\nvt 0.068182 0.500000\nvt 0.068182 0.818182\nvt 0.068182 0.136364\nvt 0.068182 0.454545\nvt 0.068182 0.772727\nvt 0.068181 0.090909\nvt 0.045454 0.772727\nvt 0.045454 0.727273\nvt 0.045454 0.090909\nvt 0.045454 0.045454\nvt 0.045454 0.409091\nvt 0.045455 0.363636\nvt 0.045454 0.681818\nvt 0.056817 0.000000\nvt 0.045454 0.318182\nvt 0.045454 0.636364\nvt 0.056817 1.000000\nvt 0.045454 0.954546\nvt 0.045454 0.272727\nvt 0.045455 0.590909\nvt 0.045454 0.909091\nvt 0.045454 0.227273\nvt 0.045454 0.545455\nvt 0.045454 0.863637\nvt 0.045454 0.181818\nvt 0.045455 0.500000\nvt 0.045454 0.818182\nvt 0.045454 0.136364\nvt 0.045454 0.454545\nvt 0.022727 0.454545\nvt 0.022727 0.409091\nvt 0.022727 0.772727\nvt 0.022727 0.727273\nvt 0.022727 0.090909\nvt 0.022727 0.045454\nvt 0.022727 0.363636\nvt 0.022727 0.681818\nvt 0.034090 0.000000\nvt 0.022727 0.318182\nvt 0.022727 0.636364\nvt 0.034090 1.000000\nvt 0.022727 0.954546\nvt 0.022727 0.272727\nvt 0.022727 0.590909\nvt 0.022727 0.909091\nvt 0.022727 0.227273\nvt 0.022727 0.545455\nvt 0.022727 0.863637\nvt 0.022727 0.181818\nvt 0.022727 0.500000\nvt 0.022727 0.818182\nvt 0.022727 0.136364\nvt 0.000000 0.818182\nvt 0.000000 0.772727\nvt 0.000000 0.136364\nvt 0.000000 0.090909\nvt 0.000000 0.454545\nvt 0.000000 0.409091\nvt 0.000000 0.727273\nvt 0.000000 0.045454\nvt 0.000000 0.363636\nvt 0.000000 0.681818\nvt 0.011363 0.000000\nvt 0.000000 0.318182\nvt 0.000000 0.636364\nvt 0.011363 1.000000\nvt 0.000000 0.954546\nvt 0.000000 0.272727\nvt 0.000000 0.590909\nvt 0.000000 0.909091\nvt 0.000000 0.227273\nvt 0.000000 0.545455\nvt 0.000000 0.863637\nvt 0.000000 0.181818\nvt 0.000000 0.500000\nvt 1.000000 0.136364\nvt 1.000000 0.181818\nvt 0.977273 0.181818\nvt 0.977273 0.136364\nvt 1.000000 0.454545\nvt 1.000000 0.500000\nvt 0.977273 0.500000\nvt 0.977273 0.454545\nvt 1.000000 0.772727\nvt 1.000000 0.818182\nvt 0.977273 0.818182\nvt 0.977273 0.772727\nvt 1.000000 0.090909\nvt 0.977272 0.090909\nvt 1.000000 0.409091\nvt 0.977273 0.409091\nvt 1.000000 0.727273\nvt 0.977273 0.727273\nvt 1.000000 0.045454\nvt 0.977272 0.045455\nvt 1.000000 0.363636\nvt 0.977273 0.363636\nvt 1.000000 0.681818\nvt 0.977273 0.681818\nvt 0.988635 0.000000\nvt 1.000000 0.318182\nvt 0.977273 0.318182\nvt 1.000000 0.636364\nvt 0.977273 0.636364\nvt 1.000000 0.954546\nvt 0.988635 1.000000\nvt 0.977272 0.954546\nvt 1.000000 0.272727\nvt 0.977273 0.272727\nvt 1.000000 0.590909\nvt 0.977273 0.590909\nvt 1.000000 0.909091\nvt 0.977272 0.909091\nvt 1.000000 0.227273\nvt 0.977273 0.227273\nvt 1.000000 0.545455\nvt 0.977273 0.545455\nvt 1.000000 0.863637\nvt 0.977273 0.863637\nvt 0.954545 0.545455\nvt 0.954545 0.500000\nvt 0.954545 0.863637\nvt 0.954545 0.818182\nvt 0.954545 0.181818\nvt 0.954545 0.136364\nvt 0.954545 0.454545\nvt 0.954545 0.772727\nvt 0.954545 0.090909\nvt 0.954545 0.409091\nvt 0.954545 0.727273\nvt 0.954545 0.045455\nvt 0.954545 0.363636\nvt 0.954545 0.681818\nvt 0.965908 0.000000\nvt 0.954545 0.318182\nvt 0.954545 0.636364\nvt 0.965908 1.000000\nvt 0.954545 0.954546\nvt 0.954545 0.272727\nvt 0.954545 0.590909\nvt 0.954545 0.909091\nvt 0.954545 0.227273\nvt 0.931818 0.909091\nvt 0.931818 0.863636\nvt 0.931818 0.227273\nvt 0.931818 0.181818\nvt 0.931818 0.545455\nvt 0.931818 0.500000\nvt 0.931818 0.818182\nvt 0.931818 0.136364\nvt 0.931818 0.454545\nvt 0.931818 0.772727\nvt 0.931818 0.090909\nvt 0.931818 0.409091\nvt 0.931818 0.727273\nvt 0.931818 0.045455\nvt 0.931818 0.363636\nvt 0.931818 0.681818\nvt 0.943181 0.000000\nvt 0.931818 0.318182\nvt 0.931818 0.636364\nvt 0.943181 1.000000\nvt 0.931818 0.954546\nvt 0.931818 0.272727\nvt 0.931818 0.590909\nvt 0.909091 0.590909\nvt 0.909091 0.545455\nvt 0.909091 0.909091\nvt 0.909091 0.863636\nvt 0.909091 0.227273\nvt 0.909091 0.181818\nvt 0.909091 0.500000\nvt 0.909091 0.818182\nvt 0.909091 0.136364\nvt 0.909091 0.454545\nvt 0.909091 0.772727\nvt 0.909091 0.090909\nvt 0.909091 0.409091\nvt 0.909091 0.727273\nvt 0.909090 0.045455\nvt 0.909091 0.363636\nvt 0.909091 0.681818\nvt 0.920454 0.000000\nvt 0.909091 0.318182\nvt 0.909091 0.636364\nvt 0.920454 1.000000\nvt 0.909090 0.954546\nvt 0.909091 0.272727\nvt 0.886364 0.454545\nvt 0.886364 0.409091\nvt 0.886364 0.772727\nvt 0.886364 0.727273\nvt 0.886363 0.090909\nvt 0.886363 0.045455\nvt 0.886364 0.363636\nvt 0.886364 0.681818\nvt 0.897726 0.000000\nvt 0.886364 0.318182\nvt 0.886364 0.636364\nvt 0.897727 1.000000\nvt 0.886363 0.954546\nvt 0.886364 0.272727\nvt 0.886364 0.590909\nvt 0.886363 0.909091\nvt 0.886364 0.227273\nvt 0.886364 0.545455\nvt 0.886363 0.863636\nvt 0.886364 0.181818\nvt 0.886364 0.500000\nvt 0.886364 0.818182\nvt 0.886363 0.136364\nvt 0.863636 0.818182\nvt 0.863636 0.772727\nvt 0.863636 0.136364\nvt 0.863636 0.090909\nvt 0.863636 0.454545\nvt 0.863636 0.409091\nvt 0.863636 0.727273\nvt 0.863636 0.045455\nvt 0.863636 0.363636\nvt 0.863636 0.681818\nvt 0.874999 0.000000\nvt 0.863636 0.318182\nvt 0.863636 0.636364\nvt 0.875000 1.000000\nvt 0.863636 0.954546\nvt 0.863636 0.272727\nvt 0.863636 0.590909\nvt 0.863636 0.909091\nvt 0.863636 0.227273\nvt 0.863636 0.545455\nvt 0.863636 0.863636\nvt 0.863636 0.181818\nvt 0.863636 0.500000\nvt 0.840909 0.500000\nvt 0.840909 0.454545\nvt 0.840909 0.818182\nvt 0.840909 0.772727\nvt 0.840909 0.136364\nvt 0.840909 0.090909\nvt 0.840909 0.409091\nvt 0.840909 0.727273\nvt 0.840909 0.045455\nvt 0.840909 0.363636\nvt 0.840909 0.681818\nvt 0.852272 0.000000\nvt 0.840909 0.318182\nvt 0.840909 0.636364\nvt 0.852272 1.000000\nvt 0.840909 0.954546\nvt 0.840909 0.272727\nvt 0.840909 0.590909\nvt 0.840909 0.909091\nvt 0.840909 0.227273\nvt 0.840909 0.545455\nvt 0.840909 0.863636\nvt 0.840909 0.181818\nvt 0.818182 0.863636\nvt 0.818182 0.818182\nvt 0.818182 0.181818\nvt 0.818182 0.136364\nvt 0.818182 0.500000\nvt 0.818182 0.454545\nvt 0.818182 0.772727\nvt 0.818182 0.090909\nvt 0.818182 0.409091\nvt 0.818182 0.727273\nvt 0.818182 0.045455\nvt 0.818182 0.363636\nvt 0.818182 0.681818\nvt 0.829545 0.000000\nvt 0.818182 0.318182\nvt 0.818182 0.636364\nvt 0.829545 1.000000\nvt 0.818182 0.954546\nvt 0.818182 0.272727\nvt 0.818182 0.590909\nvt 0.818182 0.909091\nvt 0.818182 0.227273\nvt 0.818182 0.545455\nvt 0.795455 0.227273\nvt 0.795455 0.181818\nvt 0.795455 0.545455\nvt 0.795455 0.500000\nvt 0.795455 0.863636\nvt 0.795455 0.818182\nvt 0.795455 0.136364\nvt 0.795455 0.454545\nvt 0.795455 0.772727\nvt 0.795454 0.090909\nvt 0.795455 0.409091\nvt 0.795455 0.727273\nvt 0.795454 0.045455\nvt 0.795455 0.363636\nvt 0.795455 0.681818\nvt 0.806818 0.000000\nvt 0.795455 0.318182\nvt 0.795455 0.636364\nvt 0.806818 1.000000\nvt 0.795454 0.954546\nvt 0.795455 0.272727\nvt 0.795455 0.590909\nvt 0.795454 0.909091\nvt 0.772727 0.590909\nvt 0.772727 0.545455\nvt 0.772727 0.909091\nvt 0.772727 0.863636\nvt 0.772727 0.227273\nvt 0.772727 0.181818\nvt 0.772727 0.500000\nvt 0.772727 0.818182\nvt 0.772727 0.136364\nvt 0.772727 0.454545\nvt 0.772727 0.772727\nvt 0.772727 0.090909\nvt 0.772727 0.409091\nvt 0.772727 0.727273\nvt 0.772727 0.045455\nvt 0.772727 0.363636\nvt 0.772727 0.681818\nvt 0.784091 0.000000\nvt 0.772727 0.318182\nvt 0.772727 0.636364\nvt 0.784091 1.000000\nvt 0.772727 0.954546\nvt 0.772727 0.272727\nvt 0.761364 0.000000\nvt 0.761364 1.000000\nvn 0.0000 0.9893 -0.1455\nvn 0.0000 1.0000 0.0000\nvn 0.0207 0.9893 -0.1440\nvn 0.0000 -0.6532 -0.7571\nvn 0.0000 -0.5391 -0.8422\nvn 0.1198 -0.5392 -0.8336\nvn 0.1077 -0.6532 -0.7494\nvn 0.0000 0.2808 -0.9597\nvn 0.0000 0.4142 -0.9102\nvn 0.1295 0.4142 -0.9009\nvn 0.1366 0.2808 -0.9499\nvn 0.0000 0.9586 -0.2847\nvn 0.0405 0.9586 -0.2818\nvn 0.0000 -0.7541 -0.6567\nvn 0.0934 -0.7541 -0.6500\nvn 0.0000 0.1419 -0.9899\nvn 0.1409 0.1419 -0.9798\nvn 0.0000 0.9084 -0.4181\nvn 0.0595 0.9084 -0.4138\nvn 0.0000 -0.8398 -0.5429\nvn 0.0772 -0.8398 -0.5374\nvn 0.0000 0.0000 -1.0000\nvn 0.1423 0.0000 -0.9898\nvn 0.0000 0.8398 -0.5429\nvn 0.0772 0.8398 -0.5374\nvn 0.0000 -0.9084 -0.4181\nvn 0.0595 -0.9084 -0.4138\nvn 0.0000 -0.1419 -0.9899\nvn 0.1409 -0.1419 -0.9798\nvn 0.0000 0.7541 -0.6567\nvn 0.0934 0.7541 -0.6500\nvn 0.0000 -0.9586 -0.2847\nvn 0.0405 -0.9586 -0.2818\nvn 0.0000 -0.2809 -0.9597\nvn 0.1366 -0.2808 -0.9499\nvn 0.0000 0.6532 -0.7571\nvn 0.1077 0.6532 -0.7494\nvn 0.0000 -0.9893 -0.1455\nvn 0.0207 -0.9893 -0.1440\nvn 0.0000 -0.4142 -0.9102\nvn 0.1295 -0.4142 -0.9009\nvn 0.0000 0.5392 -0.8422\nvn 0.1198 0.5392 -0.8336\nvn 0.0000 -1.0000 0.0000\nvn 0.2373 -0.5392 -0.8081\nvn 0.2133 -0.6532 -0.7265\nvn 0.2564 0.4142 -0.8733\nvn 0.2704 0.2808 -0.9209\nvn 0.0410 0.9893 -0.1396\nvn 0.0802 0.9586 -0.2732\nvn 0.1850 -0.7541 -0.6301\nvn 0.2789 0.1419 -0.9498\nvn 0.1178 0.9084 -0.4011\nvn 0.1530 -0.8398 -0.5209\nvn 0.2817 0.0000 -0.9595\nvn 0.1530 0.8398 -0.5209\nvn 0.1178 -0.9084 -0.4011\nvn 0.2789 -0.1419 -0.9498\nvn 0.1850 0.7541 -0.6301\nvn 0.0802 -0.9586 -0.2732\nvn 0.2704 -0.2808 -0.9209\nvn 0.2133 0.6532 -0.7265\nvn 0.0410 -0.9893 -0.1396\nvn 0.2564 -0.4142 -0.8733\nvn 0.2373 0.5392 -0.8081\nvn 0.3498 0.5392 -0.7661\nvn 0.3781 0.4142 -0.8279\nvn 0.0604 0.9893 -0.1323\nvn 0.3498 -0.5392 -0.7661\nvn 0.3145 -0.6532 -0.6887\nvn 0.3987 0.2808 -0.8730\nvn 0.1183 0.9586 -0.2590\nvn 0.2728 -0.7541 -0.5973\nvn 0.4112 0.1419 -0.9004\nvn 0.1737 0.9084 -0.3803\nvn 0.2255 -0.8398 -0.4939\nvn 0.4154 0.0000 -0.9096\nvn 0.2255 0.8398 -0.4939\nvn 0.1737 -0.9084 -0.3803\nvn 0.4112 -0.1419 -0.9004\nvn 0.2728 0.7541 -0.5973\nvn 0.1183 -0.9586 -0.2590\nvn 0.3987 -0.2808 -0.8730\nvn 0.3145 0.6532 -0.6887\nvn 0.0604 -0.9893 -0.1323\nvn 0.3781 -0.4142 -0.8279\nvn 0.4921 -0.4142 -0.7657\nvn 0.4553 -0.5392 -0.7085\nvn 0.4553 0.5392 -0.7085\nvn 0.4921 0.4142 -0.7657\nvn 0.0786 0.9893 -0.1224\nvn 0.4093 -0.6532 -0.6369\nvn 0.5189 0.2808 -0.8074\nvn 0.1539 0.9586 -0.2395\nvn 0.3550 -0.7541 -0.5524\nvn 0.5352 0.1419 -0.8327\nvn 0.2260 0.9084 -0.3517\nvn 0.2935 -0.8398 -0.4567\nvn 0.5406 0.0000 -0.8412\nvn 0.2935 0.8398 -0.4567\nvn 0.2260 -0.9084 -0.3517\nvn 0.5352 -0.1419 -0.8327\nvn 0.3550 0.7541 -0.5524\nvn 0.1539 -0.9586 -0.2395\nvn 0.5189 -0.2808 -0.8074\nvn 0.4093 0.6532 -0.6369\nvn 0.0786 -0.9893 -0.1224\nvn 0.4958 0.6532 -0.5722\nvn 0.5515 0.5392 -0.6365\nvn 0.0952 -0.9893 -0.1099\nvn 0.5960 -0.4142 -0.6879\nvn 0.5515 -0.5392 -0.6365\nvn 0.5960 0.4142 -0.6879\nvn 0.0952 0.9893 -0.1099\nvn 0.4958 -0.6532 -0.5722\nvn 0.6285 0.2808 -0.7253\nvn 0.1864 0.9586 -0.2152\nvn 0.4300 -0.7541 -0.4963\nvn 0.6482 0.1419 -0.7481\nvn 0.2738 0.9084 -0.3160\nvn 0.3555 -0.8398 -0.4103\nvn 0.6548 0.0000 -0.7557\nvn 0.3555 0.8398 -0.4103\nvn 0.2738 -0.9084 -0.3160\nvn 0.6482 -0.1419 -0.7481\nvn 0.4300 0.7541 -0.4963\nvn 0.1864 -0.9586 -0.2152\nvn 0.6285 -0.2808 -0.7253\nvn 0.2152 -0.9586 -0.1864\nvn 0.1099 -0.9893 -0.0952\nvn 0.7253 -0.2808 -0.6285\nvn 0.6879 -0.4142 -0.5960\nvn 0.5722 0.6532 -0.4958\nvn 0.6365 0.5392 -0.5515\nvn 0.6365 -0.5392 -0.5515\nvn 0.6879 0.4142 -0.5960\nvn 0.1099 0.9893 -0.0952\nvn 0.5722 -0.6532 -0.4958\nvn 0.7253 0.2808 -0.6285\nvn 0.2152 0.9586 -0.1864\nvn 0.4963 -0.7541 -0.4300\nvn 0.7481 0.1419 -0.6482\nvn 0.3160 0.9084 -0.2738\nvn 0.4103 -0.8398 -0.3555\nvn 0.7557 0.0000 -0.6548\nvn 0.4103 0.8398 -0.3555\nvn 0.3160 -0.9084 -0.2738\nvn 0.7481 -0.1419 -0.6482\nvn 0.4963 0.7541 -0.4300\nvn 0.8327 -0.1419 -0.5352\nvn 0.8074 -0.2808 -0.5189\nvn 0.5524 0.7541 -0.3550\nvn 0.6369 0.6532 -0.4093\nvn 0.2395 -0.9586 -0.1539\nvn 0.1224 -0.9893 -0.0786\nvn 0.7657 -0.4142 -0.4921\nvn 0.7085 0.5392 -0.4553\nvn 0.7085 -0.5392 -0.4553\nvn 0.7657 0.4142 -0.4921\nvn 0.1224 0.9893 -0.0786\nvn 0.6369 -0.6532 -0.4093\nvn 0.8074 0.2808 -0.5189\nvn 0.2395 0.9586 -0.1539\nvn 0.5524 -0.7541 -0.3550\nvn 0.8327 0.1419 -0.5352\nvn 0.3517 0.9084 -0.2260\nvn 0.4567 -0.8398 -0.2935\nvn 0.8412 0.0000 -0.5406\nvn 0.4567 0.8398 -0.2935\nvn 0.3517 -0.9084 -0.2260\nvn 0.4939 0.8398 -0.2255\nvn 0.5973 0.7541 -0.2728\nvn 0.3803 -0.9084 -0.1737\nvn 0.2590 -0.9586 -0.1183\nvn 0.9004 -0.1419 -0.4112\nvn 0.8730 -0.2808 -0.3987\nvn 0.6887 0.6532 -0.3145\nvn 0.1323 -0.9893 -0.0604\nvn 0.8279 -0.4142 -0.3781\nvn 0.7661 0.5392 -0.3498\nvn 0.7661 -0.5392 -0.3498\nvn 0.8279 0.4142 -0.3781\nvn 0.1323 0.9893 -0.0604\nvn 0.6887 -0.6532 -0.3145\nvn 0.8730 0.2808 -0.3987\nvn 0.2590 0.9586 -0.1183\nvn 0.5973 -0.7541 -0.2728\nvn 0.9004 0.1419 -0.4112\nvn 0.3803 0.9084 -0.1737\nvn 0.4939 -0.8398 -0.2255\nvn 0.9096 0.0000 -0.4154\nvn 0.9595 0.0000 -0.2817\nvn 0.9498 -0.1419 -0.2789\nvn 0.5209 0.8398 -0.1530\nvn 0.6301 0.7541 -0.1850\nvn 0.4011 -0.9084 -0.1178\nvn 0.2732 -0.9586 -0.0802\nvn 0.9209 -0.2808 -0.2704\nvn 0.7265 0.6532 -0.2133\nvn 0.1396 -0.9893 -0.0410\nvn 0.8733 -0.4142 -0.2564\nvn 0.8081 0.5392 -0.2373\nvn 0.8081 -0.5392 -0.2373\nvn 0.8733 0.4142 -0.2564\nvn 0.1396 0.9893 -0.0410\nvn 0.7265 -0.6532 -0.2133\nvn 0.9209 0.2808 -0.2704\nvn 0.2732 0.9586 -0.0802\nvn 0.6301 -0.7541 -0.1850\nvn 0.9498 0.1419 -0.2789\nvn 0.4011 0.9084 -0.1178\nvn 0.5209 -0.8398 -0.1530\nvn 0.4138 0.9084 -0.0595\nvn 0.5374 0.8398 -0.0772\nvn 0.5374 -0.8398 -0.0772\nvn 0.4138 -0.9084 -0.0595\nvn 0.9898 0.0000 -0.1423\nvn 0.9798 -0.1419 -0.1409\nvn 0.6500 0.7541 -0.0934\nvn 0.2818 -0.9586 -0.0405\nvn 0.9499 -0.2808 -0.1366\nvn 0.7494 0.6532 -0.1077\nvn 0.1440 -0.9893 -0.0207\nvn 0.9009 -0.4142 -0.1295\nvn 0.8336 0.5392 -0.1198\nvn 0.8336 -0.5392 -0.1198\nvn 0.9009 0.4142 -0.1295\nvn 0.1440 0.9893 -0.0207\nvn 0.7494 -0.6532 -0.1077\nvn 0.9499 0.2808 -0.1366\nvn 0.2818 0.9586 -0.0405\nvn 0.6500 -0.7541 -0.0934\nvn 0.9798 0.1419 -0.1409\nvn 0.6567 -0.7541 0.0000\nvn 0.5429 -0.8398 0.0000\nvn 0.9899 0.1419 0.0000\nvn 1.0000 0.0000 0.0000\nvn 0.4181 0.9084 0.0000\nvn 0.5429 0.8398 0.0000\nvn 0.4181 -0.9084 0.0000\nvn 0.9899 -0.1419 0.0000\nvn 0.6567 0.7541 0.0000\nvn 0.2847 -0.9586 0.0000\nvn 0.9597 -0.2808 0.0000\nvn 0.7571 0.6532 0.0000\nvn 0.1455 -0.9893 0.0000\nvn 0.9102 -0.4142 0.0000\nvn 0.8422 0.5392 0.0000\nvn 0.8422 -0.5392 0.0000\nvn 0.9102 0.4142 0.0000\nvn 0.1455 0.9893 0.0000\nvn 0.7571 -0.6532 0.0000\nvn 0.9597 0.2808 0.0000\nvn 0.2847 0.9586 0.0000\nvn 0.9499 0.2808 0.1366\nvn 0.9798 0.1419 0.1409\nvn 0.2818 0.9586 0.0405\nvn 0.4138 0.9084 0.0595\nvn 0.6500 -0.7541 0.0934\nvn 0.5374 -0.8398 0.0772\nvn 0.9898 0.0000 0.1423\nvn 0.5374 0.8398 0.0772\nvn 0.4138 -0.9084 0.0595\nvn 0.9798 -0.1419 0.1409\nvn 0.6500 0.7541 0.0934\nvn 0.2818 -0.9586 0.0405\nvn 0.9499 -0.2808 0.1366\nvn 0.7494 0.6532 0.1077\nvn 0.1440 -0.9893 0.0207\nvn 0.9009 -0.4142 0.1295\nvn 0.8336 0.5392 0.1198\nvn 0.8336 -0.5392 0.1198\nvn 0.9009 0.4142 0.1295\nvn 0.1440 0.9893 0.0207\nvn 0.7494 -0.6532 0.1077\nvn 0.1396 0.9893 0.0410\nvn 0.2732 0.9586 0.0802\nvn 0.7265 -0.6532 0.2133\nvn 0.6301 -0.7541 0.1850\nvn 0.9209 0.2808 0.2704\nvn 0.9498 0.1419 0.2789\nvn 0.4011 0.9084 0.1178\nvn 0.5209 -0.8398 0.1530\nvn 0.9595 0.0000 0.2817\nvn 0.5209 0.8398 0.1530\nvn 0.4011 -0.9084 0.1178\nvn 0.9498 -0.1419 0.2789\nvn 0.6301 0.7541 0.1850\nvn 0.2732 -0.9586 0.0802\nvn 0.9209 -0.2808 0.2704\nvn 0.7265 0.6532 0.2133\nvn 0.1396 -0.9893 0.0410\nvn 0.8733 -0.4142 0.2564\nvn 0.8081 0.5392 0.2373\nvn 0.8081 -0.5392 0.2373\nvn 0.8733 0.4142 0.2564\nvn 0.8279 0.4142 0.3781\nvn 0.8730 0.2808 0.3987\nvn 0.1323 0.9893 0.0604\nvn 0.2590 0.9586 0.1183\nvn 0.6887 -0.6532 0.3145\nvn 0.5973 -0.7541 0.2728\nvn 0.9004 0.1419 0.4112\nvn 0.3803 0.9084 0.1737\nvn 0.4939 -0.8398 0.2255\nvn 0.9096 0.0000 0.4154\nvn 0.4939 0.8398 0.2255\nvn 0.3803 -0.9084 0.1737\nvn 0.9004 -0.1419 0.4112\nvn 0.5973 0.7541 0.2728\nvn 0.2590 -0.9586 0.1183\nvn 0.8730 -0.2808 0.3987\nvn 0.6887 0.6532 0.3145\nvn 0.1323 -0.9893 0.0604\nvn 0.8279 -0.4142 0.3781\nvn 0.7661 0.5392 0.3498\nvn 0.7661 -0.5392 0.3498\nvn 0.1224 0.9893 0.0786\nvn 0.7085 -0.5392 0.4553\nvn 0.6369 -0.6532 0.4093\nvn 0.7657 0.4142 0.4921\nvn 0.8074 0.2808 0.5189\nvn 0.2395 0.9586 0.1539\nvn 0.5524 -0.7541 0.3550\nvn 0.8327 0.1419 0.5352\nvn 0.3517 0.9084 0.2260\nvn 0.4567 -0.8398 0.2935\nvn 0.8412 0.0000 0.5406\nvn 0.4567 0.8398 0.2935\nvn 0.3517 -0.9084 0.2260\nvn 0.8327 -0.1419 0.5352\nvn 0.5524 0.7541 0.3550\nvn 0.2395 -0.9586 0.1539\nvn 0.8074 -0.2808 0.5189\nvn 0.6369 0.6532 0.4093\nvn 0.1224 -0.9893 0.0786\nvn 0.7657 -0.4142 0.4921\nvn 0.7085 0.5392 0.4553\nvn 0.6879 -0.4142 0.5960\nvn 0.6365 -0.5392 0.5515\nvn 0.6365 0.5392 0.5515\nvn 0.6879 0.4142 0.5960\nvn 0.1099 0.9893 0.0952\nvn 0.5722 -0.6532 0.4958\nvn 0.7253 0.2808 0.6285\nvn 0.2152 0.9586 0.1864\nvn 0.4963 -0.7541 0.4300\nvn 0.7481 0.1419 0.6482\nvn 0.3160 0.9084 0.2738\nvn 0.4103 -0.8398 0.3555\nvn 0.7557 0.0000 0.6548\nvn 0.4103 0.8398 0.3555\nvn 0.3160 -0.9084 0.2738\nvn 0.7481 -0.1419 0.6482\nvn 0.4963 0.7541 0.4300\nvn 0.2152 -0.9586 0.1864\nvn 0.7253 -0.2808 0.6285\nvn 0.5722 0.6532 0.4958\nvn 0.1099 -0.9893 0.0952\nvn 0.4958 0.6532 0.5722\nvn 0.5515 0.5392 0.6365\nvn 0.0952 -0.9893 0.1099\nvn 0.5960 -0.4142 0.6879\nvn 0.5515 -0.5392 0.6365\nvn 0.5960 0.4142 0.6879\nvn 0.0952 0.9893 0.1099\nvn 0.4958 -0.6532 0.5722\nvn 0.6285 0.2808 0.7253\nvn 0.1864 0.9586 0.2152\nvn 0.4300 -0.7541 0.4963\nvn 0.6482 0.1419 0.7481\nvn 0.2738 0.9084 0.3160\nvn 0.3555 -0.8398 0.4103\nvn 0.6548 0.0000 0.7557\nvn 0.3555 0.8398 0.4103\nvn 0.2738 -0.9084 0.3160\nvn 0.6482 -0.1419 0.7481\nvn 0.4300 0.7541 0.4963\nvn 0.1864 -0.9586 0.2152\nvn 0.6285 -0.2808 0.7253\nvn 0.5189 -0.2808 0.8074\nvn 0.4921 -0.4142 0.7657\nvn 0.4093 0.6532 0.6369\nvn 0.4553 0.5392 0.7085\nvn 0.0786 -0.9893 0.1224\nvn 0.4553 -0.5392 0.7085\nvn 0.4921 0.4142 0.7657\nvn 0.0786 0.9893 0.1224\nvn 0.4093 -0.6532 0.6369\nvn 0.5189 0.2808 0.8074\nvn 0.1539 0.9586 0.2395\nvn 0.3550 -0.7541 0.5524\nvn 0.5352 0.1419 0.8327\nvn 0.2260 0.9084 0.3517\nvn 0.2935 -0.8398 0.4567\nvn 0.5406 0.0000 0.8412\nvn 0.2935 0.8398 0.4567\nvn 0.2260 -0.9084 0.3517\nvn 0.5352 -0.1419 0.8327\nvn 0.3550 0.7541 0.5524\nvn 0.1539 -0.9586 0.2395\nvn 0.2728 0.7541 0.5973\nvn 0.3145 0.6532 0.6887\nvn 0.1183 -0.9586 0.2590\nvn 0.0604 -0.9893 0.1323\nvn 0.3987 -0.2808 0.8730\nvn 0.3781 -0.4142 0.8279\nvn 0.3498 0.5392 0.7661\nvn 0.3498 -0.5392 0.7661\nvn 0.3781 0.4142 0.8279\nvn 0.0604 0.9893 0.1323\nvn 0.3145 -0.6532 0.6887\nvn 0.3987 0.2808 0.8730\nvn 0.1183 0.9586 0.2590\nvn 0.2728 -0.7541 0.5973\nvn 0.4112 0.1419 0.9004\nvn 0.1737 0.9084 0.3803\nvn 0.2255 -0.8398 0.4939\nvn 0.4154 0.0000 0.9096\nvn 0.2255 0.8398 0.4939\nvn 0.1737 -0.9084 0.3803\nvn 0.4112 -0.1419 0.9004\nvn 0.1178 -0.9084 0.4011\nvn 0.0802 -0.9586 0.2732\nvn 0.2789 -0.1419 0.9498\nvn 0.2704 -0.2808 0.9209\nvn 0.1850 0.7541 0.6301\nvn 0.2133 0.6532 0.7265\nvn 0.0410 -0.9893 0.1396\nvn 0.2564 -0.4142 0.8733\nvn 0.2373 0.5392 0.8081\nvn 0.2373 -0.5392 0.8081\nvn 0.2564 0.4142 0.8733\nvn 0.0410 0.9893 0.1396\nvn 0.2133 -0.6532 0.7265\nvn 0.2704 0.2808 0.9209\nvn 0.0802 0.9586 0.2732\nvn 0.1850 -0.7541 0.6301\nvn 0.2789 0.1419 0.9498\nvn 0.1178 0.9084 0.4011\nvn 0.1530 -0.8398 0.5209\nvn 0.2817 0.0000 0.9595\nvn 0.1530 0.8398 0.5209\nvn 0.1423 0.0000 0.9898\nvn 0.1409 -0.1419 0.9798\nvn 0.0772 0.8398 0.5374\nvn 0.0934 0.7541 0.6500\nvn 0.0595 -0.9084 0.4138\nvn 0.0405 -0.9586 0.2818\nvn 0.1366 -0.2808 0.9499\nvn 0.1077 0.6532 0.7494\nvn 0.0207 -0.9893 0.1440\nvn 0.1295 -0.4142 0.9009\nvn 0.1198 0.5392 0.8336\nvn 0.1198 -0.5392 0.8336\nvn 0.1295 0.4142 0.9009\nvn 0.0207 0.9893 0.1440\nvn 0.1077 -0.6532 0.7494\nvn 0.1366 0.2808 0.9499\nvn 0.0405 0.9586 0.2818\nvn 0.0934 -0.7541 0.6500\nvn 0.1409 0.1419 0.9798\nvn 0.0595 0.9084 0.4138\nvn 0.0772 -0.8398 0.5374\nvn 0.0000 0.9084 0.4181\nvn 0.0000 0.8398 0.5429\nvn 0.0000 -0.8398 0.5429\nvn 0.0000 -0.9084 0.4181\nvn 0.0000 0.0000 1.0000\nvn 0.0000 -0.1419 0.9899\nvn 0.0000 0.7541 0.6567\nvn 0.0000 -0.9586 0.2847\nvn 0.0000 -0.2808 0.9597\nvn 0.0000 0.6532 0.7571\nvn 0.0000 -0.9893 0.1455\nvn 0.0000 -0.4142 0.9102\nvn 0.0000 0.5392 0.8422\nvn 0.0000 -0.5392 0.8422\nvn 0.0000 0.4142 0.9102\nvn 0.0000 0.9893 0.1455\nvn 0.0000 -0.6532 0.7571\nvn 0.0000 0.2808 0.9597\nvn 0.0000 0.9586 0.2847\nvn 0.0000 -0.7541 0.6567\nvn 0.0000 0.1419 0.9899\nvn -0.1409 0.1419 0.9798\nvn -0.1423 0.0000 0.9898\nvn -0.0595 0.9084 0.4138\nvn -0.0772 0.8398 0.5374\nvn -0.0772 -0.8398 0.5374\nvn -0.0595 -0.9084 0.4138\nvn -0.1409 -0.1419 0.9798\nvn -0.0934 0.7541 0.6500\nvn -0.0405 -0.9586 0.2818\nvn -0.1366 -0.2808 0.9499\nvn -0.1077 0.6532 0.7494\nvn -0.0207 -0.9893 0.1440\nvn -0.1295 -0.4142 0.9009\nvn -0.1198 0.5392 0.8336\nvn -0.1198 -0.5392 0.8336\nvn -0.1295 0.4142 0.9009\nvn -0.0207 0.9893 0.1440\nvn -0.1077 -0.6532 0.7494\nvn -0.1366 0.2808 0.9499\nvn -0.0405 0.9586 0.2818\nvn -0.0934 -0.7541 0.6500\nvn -0.0802 0.9586 0.2732\nvn -0.1178 0.9084 0.4011\nvn -0.1850 -0.7541 0.6301\nvn -0.1530 -0.8398 0.5209\nvn -0.2789 0.1419 0.9498\nvn -0.2817 0.0000 0.9595\nvn -0.1530 0.8398 0.5209\nvn -0.1178 -0.9084 0.4011\nvn -0.2789 -0.1419 0.9498\nvn -0.1850 0.7541 0.6301\nvn -0.0802 -0.9586 0.2732\nvn -0.2704 -0.2808 0.9209\nvn -0.2133 0.6532 0.7265\nvn -0.0410 -0.9893 0.1396\nvn -0.2564 -0.4142 0.8733\nvn -0.2373 0.5392 0.8081\nvn -0.2373 -0.5392 0.8081\nvn -0.2564 0.4142 0.8733\nvn -0.0410 0.9893 0.1396\nvn -0.2133 -0.6532 0.7265\nvn -0.2704 0.2808 0.9209\nvn -0.3145 -0.6532 0.6887\nvn -0.2728 -0.7541 0.5973\nvn -0.3987 0.2808 0.8730\nvn -0.4112 0.1419 0.9004\nvn -0.1183 0.9586 0.2590\nvn -0.1737 0.9084 0.3803\nvn -0.2255 -0.8398 0.4939\nvn -0.4154 0.0000 0.9096\nvn -0.2255 0.8398 0.4939\nvn -0.1737 -0.9084 0.3803\nvn -0.4112 -0.1419 0.9004\nvn -0.2728 0.7541 0.5973\nvn -0.1183 -0.9586 0.2590\nvn -0.3987 -0.2808 0.8730\nvn -0.3145 0.6532 0.6887\nvn -0.0604 -0.9893 0.1323\nvn -0.3781 -0.4142 0.8279\nvn -0.3498 0.5392 0.7661\nvn -0.3498 -0.5392 0.7661\nvn -0.3781 0.4142 0.8279\nvn -0.0604 0.9893 0.1323\nvn -0.4921 0.4142 0.7657\nvn -0.5189 0.2808 0.8074\nvn -0.0786 0.9893 0.1224\nvn -0.1539 0.9586 0.2395\nvn -0.4093 -0.6532 0.6369\nvn -0.3550 -0.7541 0.5524\nvn -0.5352 0.1419 0.8327\nvn -0.2260 0.9084 0.3517\nvn -0.2935 -0.8398 0.4567\nvn -0.5406 0.0000 0.8412\nvn -0.2935 0.8398 0.4567\nvn -0.2260 -0.9084 0.3517\nvn -0.5352 -0.1419 0.8327\nvn -0.3550 0.7541 0.5524\nvn -0.1539 -0.9586 0.2395\nvn -0.5189 -0.2808 0.8074\nvn -0.4093 0.6532 0.6369\nvn -0.0786 -0.9893 0.1224\nvn -0.4921 -0.4142 0.7657\nvn -0.4553 0.5392 0.7085\nvn -0.4553 -0.5392 0.7085\nvn -0.0952 0.9893 0.1099\nvn -0.5515 -0.5392 0.6365\nvn -0.4958 -0.6532 0.5722\nvn -0.5960 0.4142 0.6879\nvn -0.6285 0.2808 0.7253\nvn -0.1864 0.9586 0.2152\nvn -0.4300 -0.7541 0.4963\nvn -0.6482 0.1419 0.7481\nvn -0.2738 0.9084 0.3160\nvn -0.3555 -0.8398 0.4103\nvn -0.6548 0.0000 0.7557\nvn -0.3555 0.8398 0.4103\nvn -0.2738 -0.9084 0.3160\nvn -0.6482 -0.1419 0.7481\nvn -0.4300 0.7541 0.4963\nvn -0.1864 -0.9586 0.2152\nvn -0.6285 -0.2808 0.7253\nvn -0.4958 0.6532 0.5722\nvn -0.0952 -0.9893 0.1099\nvn -0.5960 -0.4142 0.6879\nvn -0.5515 0.5392 0.6365\nvn -0.6365 0.5392 0.5515\nvn -0.6879 0.4142 0.5960\nvn -0.1099 0.9893 0.0952\nvn -0.6365 -0.5392 0.5515\nvn -0.5722 -0.6532 0.4958\nvn -0.7253 0.2808 0.6285\nvn -0.2152 0.9586 0.1864\nvn -0.4963 -0.7541 0.4300\nvn -0.7481 0.1419 0.6482\nvn -0.3160 0.9084 0.2738\nvn -0.4103 -0.8398 0.3555\nvn -0.7557 0.0000 0.6548\nvn -0.4103 0.8398 0.3555\nvn -0.3160 -0.9084 0.2738\nvn -0.7481 -0.1419 0.6482\nvn -0.4963 0.7541 0.4300\nvn -0.2152 -0.9586 0.1864\nvn -0.7253 -0.2808 0.6285\nvn -0.5722 0.6532 0.4958\nvn -0.1099 -0.9893 0.0952\nvn -0.6879 -0.4142 0.5960\nvn -0.1224 -0.9893 0.0786\nvn -0.7657 -0.4142 0.4921\nvn -0.7085 -0.5392 0.4553\nvn -0.7085 0.5392 0.4553\nvn -0.7657 0.4142 0.4921\nvn -0.1224 0.9893 0.0786\nvn -0.6369 -0.6532 0.4093\nvn -0.8074 0.2808 0.5189\nvn -0.2395 0.9586 0.1539\nvn -0.5524 -0.7541 0.3550\nvn -0.8327 0.1419 0.5352\nvn -0.3517 0.9084 0.2260\nvn -0.4567 -0.8398 0.2935\nvn -0.8412 0.0000 0.5406\nvn -0.4567 0.8398 0.2935\nvn -0.3517 -0.9084 0.2260\nvn -0.8327 -0.1419 0.5352\nvn -0.5524 0.7541 0.3550\nvn -0.2395 -0.9586 0.1539\nvn -0.8074 -0.2808 0.5189\nvn -0.6369 0.6532 0.4093\nvn -0.8730 -0.2808 0.3987\nvn -0.8279 -0.4142 0.3781\nvn -0.6887 0.6532 0.3145\nvn -0.7661 0.5392 0.3498\nvn -0.1323 -0.9893 0.0604\nvn -0.7661 -0.5392 0.3498\nvn -0.8279 0.4142 0.3781\nvn -0.1323 0.9893 0.0604\nvn -0.6887 -0.6532 0.3145\nvn -0.8730 0.2808 0.3987\nvn -0.2590 0.9586 0.1183\nvn -0.5973 -0.7541 0.2728\nvn -0.9004 0.1419 0.4112\nvn -0.3803 0.9084 0.1737\nvn -0.4939 -0.8398 0.2255\nvn -0.9096 0.0000 0.4154\nvn -0.4939 0.8398 0.2255\nvn -0.3803 -0.9084 0.1737\nvn -0.9004 -0.1419 0.4112\nvn -0.5973 0.7541 0.2728\nvn -0.2590 -0.9586 0.1183\nvn -0.6301 0.7541 0.1850\nvn -0.7265 0.6532 0.2133\nvn -0.2732 -0.9586 0.0802\nvn -0.1396 -0.9893 0.0410\nvn -0.9209 -0.2808 0.2704\nvn -0.8733 -0.4142 0.2564\nvn -0.8081 0.5392 0.2373\nvn -0.8081 -0.5392 0.2373\nvn -0.8733 0.4142 0.2564\nvn -0.1396 0.9893 0.0410\nvn -0.7265 -0.6532 0.2133\nvn -0.9209 0.2808 0.2704\nvn -0.2732 0.9586 0.0802\nvn -0.6301 -0.7541 0.1850\nvn -0.9498 0.1419 0.2789\nvn -0.4011 0.9084 0.1178\nvn -0.5209 -0.8398 0.1530\nvn -0.9595 0.0000 0.2817\nvn -0.5209 0.8398 0.1530\nvn -0.4011 -0.9084 0.1178\nvn -0.9498 -0.1419 0.2789\nvn -0.9798 -0.1419 0.1409\nvn -0.9499 -0.2808 0.1366\nvn -0.6500 0.7541 0.0934\nvn -0.7494 0.6532 0.1077\nvn -0.2818 -0.9586 0.0405\nvn -0.1440 -0.9893 0.0207\nvn -0.9009 -0.4142 0.1295\nvn -0.8336 0.5392 0.1198\nvn -0.8336 -0.5391 0.1198\nvn -0.9009 0.4142 0.1295\nvn -0.1440 0.9893 0.0207\nvn -0.7494 -0.6532 0.1077\nvn -0.9499 0.2808 0.1366\nvn -0.2818 0.9586 0.0405\nvn -0.6500 -0.7541 0.0934\nvn -0.9798 0.1419 0.1409\nvn -0.4138 0.9084 0.0595\nvn -0.5374 -0.8398 0.0772\nvn -0.9898 0.0000 0.1423\nvn -0.5374 0.8398 0.0772\nvn -0.4138 -0.9084 0.0595\nvn -0.5429 0.8398 0.0000\nvn -0.6567 0.7541 0.0000\nvn -0.4181 -0.9084 0.0000\nvn -0.2847 -0.9586 0.0000\nvn -0.9899 -0.1419 0.0000\nvn -0.9597 -0.2808 0.0000\nvn -0.7571 0.6532 0.0000\nvn -0.1455 -0.9893 0.0000\nvn -0.9102 -0.4142 0.0000\nvn -0.8422 0.5392 0.0000\nvn -0.8422 -0.5391 0.0000\nvn -0.9102 0.4142 0.0000\nvn -0.1455 0.9893 0.0000\nvn -0.7571 -0.6532 0.0000\nvn -0.9597 0.2808 0.0000\nvn -0.2847 0.9586 0.0000\nvn -0.6567 -0.7541 0.0000\nvn -0.9899 0.1419 0.0000\nvn -0.4181 0.9084 0.0000\nvn -0.5429 -0.8398 0.0000\nvn -1.0000 0.0000 0.0000\nvn -0.5374 -0.8398 -0.0772\nvn -0.4138 -0.9084 -0.0595\nvn -0.9898 0.0000 -0.1423\nvn -0.9798 -0.1419 -0.1409\nvn -0.5374 0.8398 -0.0772\nvn -0.6500 0.7541 -0.0934\nvn -0.2818 -0.9586 -0.0405\nvn -0.9499 -0.2808 -0.1366\nvn -0.7494 0.6532 -0.1077\nvn -0.1440 -0.9893 -0.0207\nvn -0.9009 -0.4142 -0.1295\nvn -0.8336 0.5392 -0.1198\nvn -0.8336 -0.5391 -0.1198\nvn -0.9009 0.4142 -0.1295\nvn -0.1440 0.9893 -0.0207\nvn -0.7494 -0.6532 -0.1077\nvn -0.9499 0.2808 -0.1366\nvn -0.2818 0.9586 -0.0405\nvn -0.6500 -0.7541 -0.0934\nvn -0.9798 0.1419 -0.1409\nvn -0.4138 0.9084 -0.0595\nvn -0.9498 0.1419 -0.2789\nvn -0.9595 0.0000 -0.2817\nvn -0.4011 0.9084 -0.1178\nvn -0.5209 0.8398 -0.1530\nvn -0.5209 -0.8398 -0.1530\nvn -0.4011 -0.9084 -0.1178\nvn -0.9498 -0.1419 -0.2789\nvn -0.6301 0.7541 -0.1850\nvn -0.2732 -0.9586 -0.0802\nvn -0.9209 -0.2808 -0.2704\nvn -0.7265 0.6532 -0.2133\nvn -0.1396 -0.9893 -0.0410\nvn -0.8733 -0.4142 -0.2564\nvn -0.8081 0.5392 -0.2373\nvn -0.8081 -0.5391 -0.2373\nvn -0.8733 0.4142 -0.2564\nvn -0.1396 0.9893 -0.0410\nvn -0.7265 -0.6532 -0.2133\nvn -0.9209 0.2808 -0.2704\nvn -0.2732 0.9586 -0.0802\nvn -0.6301 -0.7541 -0.1850\nvn -0.2590 0.9586 -0.1183\nvn -0.3803 0.9084 -0.1737\nvn -0.5973 -0.7541 -0.2728\nvn -0.4939 -0.8398 -0.2255\nvn -0.9004 0.1419 -0.4112\nvn -0.9096 0.0000 -0.4154\nvn -0.4939 0.8398 -0.2255\nvn -0.3803 -0.9084 -0.1737\nvn -0.9004 -0.1419 -0.4112\nvn -0.5973 0.7541 -0.2728\nvn -0.2590 -0.9586 -0.1183\nvn -0.8730 -0.2808 -0.3987\nvn -0.6887 0.6532 -0.3145\nvn -0.1323 -0.9893 -0.0604\nvn -0.8279 -0.4142 -0.3781\nvn -0.7661 0.5392 -0.3498\nvn -0.7661 -0.5391 -0.3498\nvn -0.8279 0.4142 -0.3781\nvn -0.1323 0.9893 -0.0604\nvn -0.6887 -0.6532 -0.3145\nvn -0.8730 0.2808 -0.3987\nvn -0.8074 0.2808 -0.5189\nvn -0.8327 0.1419 -0.5352\nvn -0.2395 0.9586 -0.1539\nvn -0.3517 0.9084 -0.2260\nvn -0.5524 -0.7541 -0.3550\nvn -0.4567 -0.8398 -0.2935\nvn -0.8412 0.0000 -0.5406\nvn -0.4567 0.8398 -0.2935\nvn -0.3517 -0.9084 -0.2260\nvn -0.8327 -0.1419 -0.5352\nvn -0.5524 0.7541 -0.3550\nvn -0.2395 -0.9586 -0.1539\nvn -0.8074 -0.2808 -0.5189\nvn -0.6369 0.6532 -0.4093\nvn -0.1224 -0.9893 -0.0786\nvn -0.7657 -0.4142 -0.4921\nvn -0.7085 0.5392 -0.4553\nvn -0.7085 -0.5391 -0.4553\nvn -0.7657 0.4142 -0.4921\nvn -0.1224 0.9893 -0.0786\nvn -0.6369 -0.6532 -0.4093\nvn -0.7481 -0.1419 -0.6482\nvn -0.7253 -0.2809 -0.6285\nvn -0.4963 0.7541 -0.4300\nvn -0.5722 0.6532 -0.4958\nvn -0.2152 -0.9586 -0.1864\nvn -0.1099 -0.9893 -0.0952\nvn -0.6879 -0.4142 -0.5960\nvn -0.6365 0.5392 -0.5515\nvn -0.6365 -0.5391 -0.5515\nvn -0.6879 0.4142 -0.5960\nvn -0.1099 0.9893 -0.0952\nvn -0.5722 -0.6532 -0.4958\nvn -0.7253 0.2808 -0.6285\nvn -0.2152 0.9586 -0.1864\nvn -0.4963 -0.7541 -0.4300\nvn -0.7481 0.1419 -0.6482\nvn -0.3160 0.9084 -0.2738\nvn -0.4103 -0.8398 -0.3555\nvn -0.7557 0.0000 -0.6548\nvn -0.4103 0.8398 -0.3555\nvn -0.3160 -0.9084 -0.2738\nvn -0.3555 0.8398 -0.4103\nvn -0.4300 0.7541 -0.4963\nvn -0.2738 -0.9084 -0.3160\nvn -0.1864 -0.9586 -0.2152\nvn -0.6482 -0.1419 -0.7481\nvn -0.6285 -0.2808 -0.7253\nvn -0.4958 0.6532 -0.5722\nvn -0.0952 -0.9893 -0.1099\nvn -0.5960 -0.4142 -0.6879\nvn -0.5515 0.5392 -0.6365\nvn -0.5515 -0.5391 -0.6365\nvn -0.5960 0.4142 -0.6879\nvn -0.0952 0.9893 -0.1099\nvn -0.4958 -0.6532 -0.5722\nvn -0.6285 0.2808 -0.7253\nvn -0.1864 0.9586 -0.2152\nvn -0.4300 -0.7541 -0.4963\nvn -0.6482 0.1419 -0.7481\nvn -0.2738 0.9084 -0.3160\nvn -0.3555 -0.8398 -0.4103\nvn -0.6548 0.0000 -0.7557\nvn -0.5406 0.0000 -0.8412\nvn -0.5352 -0.1419 -0.8327\nvn -0.2935 0.8398 -0.4567\nvn -0.3550 0.7541 -0.5524\nvn -0.2260 -0.9084 -0.3517\nvn -0.1539 -0.9586 -0.2395\nvn -0.5189 -0.2808 -0.8074\nvn -0.4093 0.6532 -0.6369\nvn -0.0786 -0.9893 -0.1224\nvn -0.4921 -0.4142 -0.7657\nvn -0.4553 0.5392 -0.7085\nvn -0.4553 -0.5391 -0.7085\nvn -0.4921 0.4142 -0.7657\nvn -0.0786 0.9893 -0.1224\nvn -0.4093 -0.6532 -0.6369\nvn -0.5189 0.2808 -0.8074\nvn -0.1539 0.9586 -0.2395\nvn -0.3550 -0.7541 -0.5524\nvn -0.5352 0.1419 -0.8327\nvn -0.2260 0.9084 -0.3517\nvn -0.2935 -0.8398 -0.4567\nvn -0.1737 0.9084 -0.3803\nvn -0.2255 0.8398 -0.4939\nvn -0.2255 -0.8398 -0.4939\nvn -0.1737 -0.9084 -0.3803\nvn -0.4154 0.0000 -0.9096\nvn -0.4112 -0.1419 -0.9004\nvn -0.2728 0.7541 -0.5973\nvn -0.1183 -0.9586 -0.2590\nvn -0.3987 -0.2809 -0.8730\nvn -0.3145 0.6532 -0.6887\nvn -0.0604 -0.9893 -0.1323\nvn -0.3781 -0.4142 -0.8279\nvn -0.3498 0.5392 -0.7661\nvn -0.3498 -0.5391 -0.7661\nvn -0.3781 0.4142 -0.8279\nvn -0.0604 0.9893 -0.1323\nvn -0.3145 -0.6532 -0.6887\nvn -0.3987 0.2808 -0.8730\nvn -0.1183 0.9586 -0.2590\nvn -0.2728 -0.7541 -0.5973\nvn -0.4112 0.1419 -0.9004\nvn -0.1850 -0.7541 -0.6301\nvn -0.1530 -0.8398 -0.5209\nvn -0.2789 0.1419 -0.9498\nvn -0.2817 0.0000 -0.9595\nvn -0.1178 0.9084 -0.4011\nvn -0.1530 0.8398 -0.5209\nvn -0.1178 -0.9084 -0.4011\nvn -0.2789 -0.1419 -0.9498\nvn -0.1850 0.7541 -0.6301\nvn -0.0802 -0.9586 -0.2732\nvn -0.2704 -0.2809 -0.9209\nvn -0.2133 0.6532 -0.7265\nvn -0.0410 -0.9893 -0.1396\nvn -0.2564 -0.4142 -0.8733\nvn -0.2373 0.5392 -0.8081\nvn -0.2373 -0.5391 -0.8081\nvn -0.2564 0.4142 -0.8733\nvn -0.0410 0.9893 -0.1396\nvn -0.2133 -0.6532 -0.7265\nvn -0.2704 0.2808 -0.9209\nvn -0.0802 0.9586 -0.2732\nvn -0.1366 0.2808 -0.9499\nvn -0.1409 0.1419 -0.9798\nvn -0.0405 0.9586 -0.2818\nvn -0.0595 0.9084 -0.4138\nvn -0.0934 -0.7541 -0.6500\nvn -0.0772 -0.8398 -0.5374\nvn -0.1423 0.0000 -0.9898\nvn -0.0772 0.8398 -0.5374\nvn -0.0595 -0.9084 -0.4138\nvn -0.1409 -0.1419 -0.9798\nvn -0.0934 0.7541 -0.6500\nvn -0.0405 -0.9586 -0.2818\nvn -0.1366 -0.2809 -0.9499\nvn -0.1077 0.6532 -0.7494\nvn -0.0207 -0.9893 -0.1440\nvn -0.1295 -0.4142 -0.9009\nvn -0.1198 0.5392 -0.8336\nvn -0.1198 -0.5391 -0.8336\nvn -0.1295 0.4142 -0.9009\nvn -0.0207 0.9893 -0.1440\nvn -0.1077 -0.6532 -0.7494\nusemtl None\ns 1\nf 908/1/1 192/2/2 3/3/3\nf 922/4/4 921/5/5 17/6/6 18/7/7\nf 916/8/8 915/9/9 10/10/10 11/11/11\nf 909/12/12 908/1/1 3/3/3 4/13/13\nf 923/14/14 922/4/4 18/7/7 19/15/15\nf 917/16/16 916/8/8 11/11/11 12/17/17\nf 910/18/18 909/12/12 4/13/13 5/19/19\nf 924/20/20 923/14/14 19/15/15 20/21/21\nf 918/22/22 917/16/16 12/17/17 13/23/23\nf 911/24/24 910/18/18 5/19/19 6/25/25\nf 925/26/26 924/20/20 20/21/21 21/27/27\nf 1/28/28 918/22/22 13/23/23 14/29/29\nf 912/30/30 911/24/24 6/25/25 7/31/31\nf 926/32/32 925/26/26 21/27/27 22/33/33\nf 919/34/34 1/28/28 14/29/29 15/35/35\nf 913/36/36 912/30/30 7/31/31 8/37/37\nf 2/38/38 926/32/32 22/33/33 23/39/39\nf 920/40/40 919/34/34 15/35/35 16/41/41\nf 914/42/42 913/36/36 8/37/37 9/43/43\nf 529/44/44 2/38/38 23/39/39\nf 921/5/5 920/40/40 16/41/41 17/6/6\nf 915/9/9 914/42/42 9/43/43 10/10/10\nf 18/7/7 17/6/6 38/45/45 39/46/46\nf 11/11/11 10/10/10 31/47/47 32/48/48\nf 4/13/13 3/3/3 24/49/49 25/50/50\nf 19/15/15 18/7/7 39/46/46 40/51/51\nf 12/17/17 11/11/11 32/48/48 33/52/52\nf 5/19/19 4/13/13 25/50/50 26/53/53\nf 20/21/21 19/15/15 40/51/51 41/54/54\nf 13/23/23 12/17/17 33/52/52 34/55/55\nf 6/25/25 5/19/19 26/53/53 27/56/56\nf 21/27/27 20/21/21 41/54/54 42/57/57\nf 14/29/29 13/23/23 34/55/55 35/58/58\nf 7/31/31 6/25/25 27/56/56 28/59/59\nf 22/33/33 21/27/27 42/57/57 43/60/60\nf 15/35/35 14/29/29 35/58/58 36/61/61\nf 8/37/37 7/31/31 28/59/59 29/62/62\nf 23/39/39 22/33/33 43/60/60 44/63/63\nf 16/41/41 15/35/35 36/61/61 37/64/64\nf 9/43/43 8/37/37 29/62/62 30/65/65\nf 529/66/44 23/39/39 44/63/63\nf 17/6/6 16/41/41 37/64/64 38/45/45\nf 10/10/10 9/43/43 30/65/65 31/47/47\nf 3/3/3 192/67/2 24/49/49\nf 31/47/47 30/65/65 51/68/66 52/69/67\nf 24/49/49 192/70/2 45/71/68\nf 39/46/46 38/45/45 59/72/69 60/73/70\nf 32/48/48 31/47/47 52/69/67 53/74/71\nf 25/50/50 24/49/49 45/71/68 46/75/72\nf 40/51/51 39/46/46 60/73/70 61/76/73\nf 33/52/52 32/48/48 53/74/71 54/77/74\nf 26/53/53 25/50/50 46/75/72 47/78/75\nf 41/54/54 40/51/51 61/76/73 62/79/76\nf 34/55/55 33/52/52 54/77/74 55/80/77\nf 27/56/56 26/53/53 47/78/75 48/81/78\nf 42/57/57 41/54/54 62/79/76 63/82/79\nf 35/58/58 34/55/55 55/80/77 56/83/80\nf 28/59/59 27/56/56 48/81/78 49/84/81\nf 43/60/60 42/57/57 63/82/79 64/85/82\nf 36/61/61 35/58/58 56/83/80 57/86/83\nf 29/62/62 28/59/59 49/84/81 50/87/84\nf 44/63/63 43/60/60 64/85/82 65/88/85\nf 37/64/64 36/61/61 57/86/83 58/89/86\nf 30/65/65 29/62/62 50/87/84 51/68/66\nf 529/90/44 44/63/63 65/88/85\nf 38/45/45 37/64/64 58/89/86 59/72/69\nf 59/72/69 58/89/86 79/91/87 80/92/88\nf 52/69/67 51/68/66 72/93/89 73/94/90\nf 45/71/68 192/95/2 66/96/91\nf 60/73/70 59/72/69 80/92/88 81/97/92\nf 53/74/71 52/69/67 73/94/90 74/98/93\nf 46/75/72 45/71/68 66/96/91 67/99/94\nf 61/76/73 60/73/70 81/97/92 82/100/95\nf 54/77/74 53/74/71 74/98/93 75/101/96\nf 47/78/75 46/75/72 67/99/94 68/102/97\nf 62/79/76 61/76/73 82/100/95 83/103/98\nf 55/80/77 54/77/74 75/101/96 76/104/99\nf 48/81/78 47/78/75 68/102/97 69/105/100\nf 63/82/79 62/79/76 83/103/98 84/106/101\nf 56/83/80 55/80/77 76/104/99 77/107/102\nf 49/84/81 48/81/78 69/105/100 70/108/103\nf 64/85/82 63/82/79 84/106/101 85/109/104\nf 57/86/83 56/83/80 77/107/102 78/110/105\nf 50/87/84 49/84/81 70/108/103 71/111/106\nf 65/88/85 64/85/82 85/109/104 86/112/107\nf 58/89/86 57/86/83 78/110/105 79/91/87\nf 51/68/66 50/87/84 71/111/106 72/93/89\nf 529/113/44 65/88/85 86/112/107\nf 72/93/89 71/111/106 92/114/108 93/115/109\nf 529/116/44 86/112/107 107/117/110\nf 80/92/88 79/91/87 100/118/111 101/119/112\nf 73/94/90 72/93/89 93/115/109 94/120/113\nf 66/96/91 192/121/2 87/122/114\nf 81/97/92 80/92/88 101/119/112 102/123/115\nf 74/98/93 73/94/90 94/120/113 95/124/116\nf 67/99/94 66/96/91 87/122/114 88/125/117\nf 82/100/95 81/97/92 102/123/115 103/126/118\nf 75/101/96 74/98/93 95/124/116 96/127/119\nf 68/102/97 67/99/94 88/125/117 89/128/120\nf 83/103/98 82/100/95 103/126/118 104/129/121\nf 76/104/99 75/101/96 96/127/119 97/130/122\nf 69/105/100 68/102/97 89/128/120 90/131/123\nf 84/106/101 83/103/98 104/129/121 105/132/124\nf 77/107/102 76/104/99 97/130/122 98/133/125\nf 70/108/103 69/105/100 90/131/123 91/134/126\nf 85/109/104 84/106/101 105/132/124 106/135/127\nf 78/110/105 77/107/102 98/133/125 99/136/128\nf 71/111/106 70/108/103 91/134/126 92/114/108\nf 86/112/107 85/109/104 106/135/127 107/117/110\nf 79/91/87 78/110/105 99/136/128 100/118/111\nf 107/117/110 106/135/127 127/137/129 128/138/130\nf 100/118/111 99/136/128 120/139/131 121/140/132\nf 93/115/109 92/114/108 113/141/133 114/142/134\nf 529/143/44 107/117/110 128/138/130\nf 101/119/112 100/118/111 121/140/132 122/144/135\nf 94/120/113 93/115/109 114/142/134 115/145/136\nf 87/122/114 192/146/2 108/147/137\nf 102/123/115 101/119/112 122/144/135 123/148/138\nf 95/124/116 94/120/113 115/145/136 116/149/139\nf 88/125/117 87/122/114 108/147/137 109/150/140\nf 103/126/118 102/123/115 123/148/138 124/151/141\nf 96/127/119 95/124/116 116/149/139 117/152/142\nf 89/128/120 88/125/117 109/150/140 110/153/143\nf 104/129/121 103/126/118 124/151/141 125/154/144\nf 97/130/122 96/127/119 117/152/142 118/155/145\nf 90/131/123 89/128/120 110/153/143 111/156/146\nf 105/132/124 104/129/121 125/154/144 126/157/147\nf 98/133/125 97/130/122 118/155/145 119/158/148\nf 91/134/126 90/131/123 111/156/146 112/159/149\nf 106/135/127 105/132/124 126/157/147 127/137/129\nf 99/136/128 98/133/125 119/158/148 120/139/131\nf 92/114/108 91/134/126 112/159/149 113/141/133\nf 120/139/131 119/158/148 140/160/150 141/161/151\nf 113/141/133 112/159/149 133/162/152 134/163/153\nf 128/138/130 127/137/129 148/164/154 149/165/155\nf 121/140/132 120/139/131 141/161/151 142/166/156\nf 114/142/134 113/141/133 134/163/153 135/167/157\nf 529/168/44 128/138/130 149/165/155\nf 122/144/135 121/140/132 142/166/156 143/169/158\nf 115/145/136 114/142/134 135/167/157 136/170/159\nf 108/147/137 192/171/2 129/172/160\nf 123/148/138 122/144/135 143/169/158 144/173/161\nf 116/149/139 115/145/136 136/170/159 137/174/162\nf 109/150/140 108/147/137 129/172/160 130/175/163\nf 124/151/141 123/148/138 144/173/161 145/176/164\nf 117/152/142 116/149/139 137/174/162 138/177/165\nf 110/153/143 109/150/140 130/175/163 131/178/166\nf 125/154/144 124/151/141 145/176/164 146/179/167\nf 118/155/145 117/152/142 138/177/165 139/180/168\nf 111/156/146 110/153/143 131/178/166 132/181/169\nf 126/157/147 125/154/144 146/179/167 147/182/170\nf 119/158/148 118/155/145 139/180/168 140/160/150\nf 112/159/149 111/156/146 132/181/169 133/162/152\nf 127/137/129 126/157/147 147/182/170 148/164/154\nf 133/162/152 132/181/169 153/183/171 154/184/172\nf 148/164/154 147/182/170 168/185/173 169/186/174\nf 141/161/151 140/160/150 161/187/175 162/188/176\nf 134/163/153 133/162/152 154/184/172 155/189/177\nf 149/165/155 148/164/154 169/186/174 170/190/178\nf 142/166/156 141/161/151 162/188/176 163/191/179\nf 135/167/157 134/163/153 155/189/177 156/192/180\nf 529/193/44 149/165/155 170/190/178\nf 143/169/158 142/166/156 163/191/179 164/194/181\nf 136/170/159 135/167/157 156/192/180 157/195/182\nf 129/172/160 192/196/2 150/197/183\nf 144/173/161 143/169/158 164/194/181 165/198/184\nf 137/174/162 136/170/159 157/195/182 158/199/185\nf 130/175/163 129/172/160 150/197/183 151/200/186\nf 145/176/164 144/173/161 165/198/184 166/201/187\nf 138/177/165 137/174/162 158/199/185 159/202/188\nf 131/178/166 130/175/163 151/200/186 152/203/189\nf 146/179/167 145/176/164 166/201/187 167/204/190\nf 139/180/168 138/177/165 159/202/188 160/205/191\nf 132/181/169 131/178/166 152/203/189 153/183/171\nf 147/182/170 146/179/167 167/204/190 168/185/173\nf 140/160/150 139/180/168 160/205/191 161/187/175\nf 161/187/175 160/205/191 181/206/192 182/207/193\nf 154/184/172 153/183/171 174/208/194 175/209/195\nf 169/186/174 168/185/173 189/210/196 190/211/197\nf 162/188/176 161/187/175 182/207/193 183/212/198\nf 155/189/177 154/184/172 175/209/195 176/213/199\nf 170/190/178 169/186/174 190/211/197 191/214/200\nf 163/191/179 162/188/176 183/212/198 184/215/201\nf 156/192/180 155/189/177 176/213/199 177/216/202\nf 529/217/44 170/190/178 191/214/200\nf 164/194/181 163/191/179 184/215/201 185/218/203\nf 157/195/182 156/192/180 177/216/202 178/219/204\nf 150/197/183 192/220/2 171/221/205\nf 165/198/184 164/194/181 185/218/203 186/222/206\nf 158/199/185 157/195/182 178/219/204 179/223/207\nf 151/200/186 150/197/183 171/221/205 172/224/208\nf 166/201/187 165/198/184 186/222/206 187/225/209\nf 159/202/188 158/199/185 179/223/207 180/226/210\nf 152/203/189 151/200/186 172/224/208 173/227/211\nf 167/204/190 166/201/187 187/225/209 188/228/212\nf 160/205/191 159/202/188 180/226/210 181/206/192\nf 153/183/171 152/203/189 173/227/211 174/208/194\nf 168/185/173 167/204/190 188/228/212 189/210/196\nf 174/208/194 173/227/211 195/229/213 196/230/214\nf 189/210/196 188/228/212 210/231/215 211/232/216\nf 182/207/193 181/206/192 203/233/217 204/234/218\nf 175/209/195 174/208/194 196/230/214 197/235/219\nf 190/211/197 189/210/196 211/232/216 212/236/220\nf 183/212/198 182/207/193 204/234/218 205/237/221\nf 176/213/199 175/209/195 197/235/219 198/238/222\nf 191/214/200 190/211/197 212/236/220 213/239/223\nf 184/215/201 183/212/198 205/237/221 206/240/224\nf 177/216/202 176/213/199 198/238/222 199/241/225\nf 529/242/44 191/214/200 213/239/223\nf 185/218/203 184/215/201 206/240/224 207/243/226\nf 178/219/204 177/216/202 199/241/225 200/244/227\nf 171/221/205 192/245/2 193/246/228\nf 186/222/206 185/218/203 207/243/226 208/247/229\nf 179/223/207 178/219/204 200/244/227 201/248/230\nf 172/224/208 171/221/205 193/246/228 194/249/231\nf 187/225/209 186/222/206 208/247/229 209/250/232\nf 180/226/210 179/223/207 201/248/230 202/251/233\nf 173/227/211 172/224/208 194/249/231 195/229/213\nf 188/228/212 187/225/209 209/250/232 210/231/215\nf 181/206/192 180/226/210 202/251/233 203/233/217\nf 210/231/215 209/250/232 230/252/234 231/253/235\nf 203/233/217 202/251/233 223/254/236 224/255/237\nf 196/230/214 195/229/213 216/256/238 217/257/239\nf 211/232/216 210/231/215 231/253/235 232/258/240\nf 204/234/218 203/233/217 224/255/237 225/259/241\nf 197/235/219 196/230/214 217/257/239 218/260/242\nf 212/236/220 211/232/216 232/258/240 233/261/243\nf 205/237/221 204/234/218 225/259/241 226/262/244\nf 198/238/222 197/235/219 218/260/242 219/263/245\nf 213/239/223 212/236/220 233/261/243 234/264/246\nf 206/240/224 205/237/221 226/262/244 227/265/247\nf 199/241/225 198/238/222 219/263/245 220/266/248\nf 529/267/44 213/239/223 234/264/246\nf 207/243/226 206/240/224 227/265/247 228/268/249\nf 200/244/227 199/241/225 220/266/248 221/269/250\nf 193/246/228 192/270/2 214/271/251\nf 208/247/229 207/243/226 228/268/249 229/272/252\nf 201/248/230 200/244/227 221/269/250 222/273/253\nf 194/249/231 193/246/228 214/271/251 215/274/254\nf 209/250/232 208/247/229 229/272/252 230/252/234\nf 202/251/233 201/248/230 222/273/253 223/254/236\nf 195/229/213 194/249/231 215/274/254 216/256/238\nf 223/254/236 222/273/253 243/275/255 244/276/256\nf 216/256/238 215/274/254 236/277/257 237/278/258\nf 231/253/235 230/252/234 251/279/259 252/280/260\nf 224/255/237 223/254/236 244/276/256 245/281/261\nf 217/257/239 216/256/238 237/278/258 238/282/262\nf 232/258/240 231/253/235 252/280/260 253/283/263\nf 225/259/241 224/255/237 245/281/261 246/284/264\nf 218/260/242 217/257/239 238/282/262 239/285/265\nf 233/261/243 232/258/240 253/283/263 254/286/266\nf 226/262/244 225/259/241 246/284/264 247/287/267\nf 219/263/245 218/260/242 239/285/265 240/288/268\nf 234/264/246 233/261/243 254/286/266 255/289/269\nf 227/265/247 226/262/244 247/287/267 248/290/270\nf 220/266/248 219/263/245 240/288/268 241/291/271\nf 529/292/44 234/264/246 255/289/269\nf 228/268/249 227/265/247 248/290/270 249/293/272\nf 221/269/250 220/266/248 241/291/271 242/294/273\nf 214/271/251 192/295/2 235/296/274\nf 229/272/252 228/268/249 249/293/272 250/297/275\nf 222/273/253 221/269/250 242/294/273 243/275/255\nf 215/274/254 214/271/251 235/296/274 236/277/257\nf 230/252/234 229/272/252 250/297/275 251/279/259\nf 236/277/257 235/296/274 256/298/276 257/299/277\nf 251/279/259 250/297/275 271/300/278 272/301/279\nf 244/276/256 243/275/255 264/302/280 265/303/281\nf 237/278/258 236/277/257 257/299/277 258/304/282\nf 252/280/260 251/279/259 272/301/279 273/305/283\nf 245/281/261 244/276/256 265/303/281 266/306/284\nf 238/282/262 237/278/258 258/304/282 259/307/285\nf 253/283/263 252/280/260 273/305/283 274/308/286\nf 246/284/264 245/281/261 266/306/284 267/309/287\nf 239/285/265 238/282/262 259/307/285 260/310/288\nf 254/286/266 253/283/263 274/308/286 275/311/289\nf 247/287/267 246/284/264 267/309/287 268/312/290\nf 240/288/268 239/285/265 260/310/288 261/313/291\nf 255/289/269 254/286/266 275/311/289 276/314/292\nf 248/290/270 247/287/267 268/312/290 269/315/293\nf 241/291/271 240/288/268 261/313/291 262/316/294\nf 529/317/44 255/289/269 276/314/292\nf 249/293/272 248/290/270 269/315/293 270/318/295\nf 242/294/273 241/291/271 262/316/294 263/319/296\nf 235/296/274 192/320/2 256/298/276\nf 250/297/275 249/293/272 270/318/295 271/300/278\nf 243/275/255 242/294/273 263/319/296 264/302/280\nf 264/302/280 263/319/296 284/321/297 285/322/298\nf 257/299/277 256/298/276 277/323/299 278/324/300\nf 272/301/279 271/300/278 292/325/301 293/326/302\nf 265/303/281 264/302/280 285/322/298 286/327/303\nf 258/304/282 257/299/277 278/324/300 279/328/304\nf 273/305/283 272/301/279 293/326/302 294/329/305\nf 266/306/284 265/303/281 286/327/303 287/330/306\nf 259/307/285 258/304/282 279/328/304 280/331/307\nf 274/308/286 273/305/283 294/329/305 295/332/308\nf 267/309/287 266/306/284 287/330/306 288/333/309\nf 260/310/288 259/307/285 280/331/307 281/334/310\nf 275/311/289 274/308/286 295/332/308 296/335/311\nf 268/312/290 267/309/287 288/333/309 289/336/312\nf 261/313/291 260/310/288 281/334/310 282/337/313\nf 276/314/292 275/311/289 296/335/311 297/338/314\nf 269/315/293 268/312/290 289/336/312 290/339/315\nf 262/316/294 261/313/291 282/337/313 283/340/316\nf 529/341/44 276/314/292 297/338/314\nf 270/318/295 269/315/293 290/339/315 291/342/317\nf 263/319/296 262/316/294 283/340/316 284/321/297\nf 256/298/276 192/343/2 277/323/299\nf 271/300/278 270/318/295 291/342/317 292/325/301\nf 277/323/299 192/344/2 298/345/318\nf 292/325/301 291/342/317 312/346/319 313/347/320\nf 285/322/298 284/321/297 305/348/321 306/349/322\nf 278/324/300 277/323/299 298/345/318 299/350/323\nf 293/326/302 292/325/301 313/347/320 314/351/324\nf 286/327/303 285/322/298 306/349/322 307/352/325\nf 279/328/304 278/324/300 299/350/323 300/353/326\nf 294/329/305 293/326/302 314/351/324 315/354/327\nf 287/330/306 286/327/303 307/352/325 308/355/328\nf 280/331/307 279/328/304 300/353/326 301/356/329\nf 295/332/308 294/329/305 315/354/327 316/357/330\nf 288/333/309 287/330/306 308/355/328 309/358/331\nf 281/334/310 280/331/307 301/356/329 302/359/332\nf 296/335/311 295/332/308 316/357/330 317/360/333\nf 289/336/312 288/333/309 309/358/331 310/361/334\nf 282/337/313 281/334/310 302/359/332 303/362/335\nf 297/338/314 296/335/311 317/360/333 318/363/336\nf 290/339/315 289/336/312 310/361/334 311/364/337\nf 283/340/316 282/337/313 303/362/335 304/365/338\nf 529/366/44 297/338/314 318/363/336\nf 291/342/317 290/339/315 311/364/337 312/346/319\nf 284/321/297 283/340/316 304/365/338 305/348/321\nf 312/346/319 311/364/337 332/367/339 333/368/340\nf 305/348/321 304/365/338 325/369/341 326/370/342\nf 298/345/318 192/371/2 319/372/343\nf 313/347/320 312/346/319 333/368/340 334/373/344\nf 306/349/322 305/348/321 326/370/342 327/374/345\nf 299/350/323 298/345/318 319/372/343 320/375/346\nf 314/351/324 313/347/320 334/373/344 335/376/347\nf 307/352/325 306/349/322 327/374/345 328/377/348\nf 300/353/326 299/350/323 320/375/346 321/378/349\nf 315/354/327 314/351/324 335/376/347 336/379/350\nf 308/355/328 307/352/325 328/377/348 329/380/351\nf 301/356/329 300/353/326 321/378/349 322/381/352\nf 316/357/330 315/354/327 336/379/350 337/382/353\nf 309/358/331 308/355/328 329/380/351 330/383/354\nf 302/359/332 301/356/329 322/381/352 323/384/355\nf 317/360/333 316/357/330 337/382/353 338/385/356\nf 310/361/334 309/358/331 330/383/354 331/386/357\nf 303/362/335 302/359/332 323/384/355 324/387/358\nf 318/363/336 317/360/333 338/385/356 339/388/359\nf 311/364/337 310/361/334 331/386/357 332/367/339\nf 304/365/338 303/362/335 324/387/358 325/369/341\nf 529/389/44 318/363/336 339/388/359\nf 325/369/341 324/387/358 345/390/360 346/391/361\nf 529/392/44 339/388/359 360/393/362\nf 333/368/340 332/367/339 353/394/363 354/395/364\nf 326/370/342 325/369/341 346/391/361 347/396/365\nf 319/372/343 192/397/2 340/398/366\nf 334/373/344 333/368/340 354/395/364 355/399/367\nf 327/374/345 326/370/342 347/396/365 348/400/368\nf 320/375/346 319/372/343 340/398/366 341/401/369\nf 335/376/347 334/373/344 355/399/367 356/402/370\nf 328/377/348 327/374/345 348/400/368 349/403/371\nf 321/378/349 320/375/346 341/401/369 342/404/372\nf 336/379/350 335/376/347 356/402/370 357/405/373\nf 329/380/351 328/377/348 349/403/371 350/406/374\nf 322/381/352 321/378/349 342/404/372 343/407/375\nf 337/382/353 336/379/350 357/405/373 358/408/376\nf 330/383/354 329/380/351 350/406/374 351/409/377\nf 323/384/355 322/381/352 343/407/375 344/410/378\nf 338/385/356 337/382/353 358/408/376 359/411/379\nf 331/386/357 330/383/354 351/409/377 352/412/380\nf 324/387/358 323/384/355 344/410/378 345/390/360\nf 339/388/359 338/385/356 359/411/379 360/393/362\nf 332/367/339 331/386/357 352/412/380 353/394/363\nf 353/394/363 352/412/380 373/413/381 374/414/382\nf 346/391/361 345/390/360 366/415/383 367/416/384\nf 529/417/44 360/393/362 381/418/385\nf 354/395/364 353/394/363 374/414/382 375/419/386\nf 347/396/365 346/391/361 367/416/384 368/420/387\nf 340/398/366 192/421/2 361/422/388\nf 355/399/367 354/395/364 375/419/386 376/423/389\nf 348/400/368 347/396/365 368/420/387 369/424/390\nf 341/401/369 340/398/366 361/422/388 362/425/391\nf 356/402/370 355/399/367 376/423/389 377/426/392\nf 349/403/371 348/400/368 369/424/390 370/427/393\nf 342/404/372 341/401/369 362/425/391 363/428/394\nf 357/405/373 356/402/370 377/426/392 378/429/395\nf 350/406/374 349/403/371 370/427/393 371/430/396\nf 343/407/375 342/404/372 363/428/394 364/431/397\nf 358/408/376 357/405/373 378/429/395 379/432/398\nf 351/409/377 350/406/374 371/430/396 372/433/399\nf 344/410/378 343/407/375 364/431/397 365/434/400\nf 359/411/379 358/408/376 379/432/398 380/435/401\nf 352/412/380 351/409/377 372/433/399 373/413/381\nf 345/390/360 344/410/378 365/434/400 366/415/383\nf 360/393/362 359/411/379 380/435/401 381/418/385\nf 366/415/383 365/434/400 386/436/402 387/437/403\nf 381/418/385 380/435/401 401/438/404 402/439/405\nf 374/414/382 373/413/381 394/440/406 395/441/407\nf 367/416/384 366/415/383 387/437/403 388/442/408\nf 529/443/44 381/418/385 402/439/405\nf 375/419/386 374/414/382 395/441/407 396/444/409\nf 368/420/387 367/416/384 388/442/408 389/445/410\nf 361/422/388 192/446/2 382/447/411\nf 376/423/389 375/419/386 396/444/409 397/448/412\nf 369/424/390 368/420/387 389/445/410 390/449/413\nf 362/425/391 361/422/388 382/447/411 383/450/414\nf 377/426/392 376/423/389 397/448/412 398/451/415\nf 370/427/393 369/424/390 390/449/413 391/452/416\nf 363/428/394 362/425/391 383/450/414 384/453/417\nf 378/429/395 377/426/392 398/451/415 399/454/418\nf 371/430/396 370/427/393 391/452/416 392/455/419\nf 364/431/397 363/428/394 384/453/417 385/456/420\nf 379/432/398 378/429/395 399/454/418 400/457/421\nf 372/433/399 371/430/396 392/455/419 393/458/422\nf 365/434/400 364/431/397 385/456/420 386/436/402\nf 380/435/401 379/432/398 400/457/421 401/438/404\nf 373/413/381 372/433/399 393/458/422 394/440/406\nf 401/438/404 400/457/421 421/459/423 422/460/424\nf 394/440/406 393/458/422 414/461/425 415/462/426\nf 387/437/403 386/436/402 407/463/427 408/464/428\nf 402/439/405 401/438/404 422/460/424 423/465/429\nf 395/441/407 394/440/406 415/462/426 416/466/430\nf 388/442/408 387/437/403 408/464/428 409/467/431\nf 529/468/44 402/439/405 423/465/429\nf 396/444/409 395/441/407 416/466/430 417/469/432\nf 389/445/410 388/442/408 409/467/431 410/470/433\nf 382/447/411 192/471/2 403/472/434\nf 397/448/412 396/444/409 417/469/432 418/473/435\nf 390/449/413 389/445/410 410/470/433 411/474/436\nf 383/450/414 382/447/411 403/472/434 404/475/437\nf 398/451/415 397/448/412 418/473/435 419/476/438\nf 391/452/416 390/449/413 411/474/436 412/477/439\nf 384/453/417 383/450/414 404/475/437 405/478/440\nf 399/454/418 398/451/415 419/476/438 420/479/441\nf 392/455/419 391/452/416 412/477/439 413/480/442\nf 385/456/420 384/453/417 405/478/440 406/481/443\nf 400/457/421 399/454/418 420/479/441 421/459/423\nf 393/458/422 392/455/419 413/480/442 414/461/425\nf 386/436/402 385/456/420 406/481/443 407/463/427\nf 414/461/425 413/480/442 434/482/444 435/483/445\nf 407/463/427 406/481/443 427/484/446 428/485/447\nf 422/460/424 421/459/423 442/486/448 443/487/449\nf 415/462/426 414/461/425 435/483/445 436/488/450\nf 408/464/428 407/463/427 428/485/447 429/489/451\nf 423/465/429 422/460/424 443/487/449 444/490/452\nf 416/466/430 415/462/426 436/488/450 437/491/453\nf 409/467/431 408/464/428 429/489/451 430/492/454\nf 529/493/44 423/465/429 444/490/452\nf 417/469/432 416/466/430 437/491/453 438/494/455\nf 410/470/433 409/467/431 430/492/454 431/495/456\nf 403/472/434 192/496/2 424/497/457\nf 418/473/435 417/469/432 438/494/455 439/498/458\nf 411/474/436 410/470/433 431/495/456 432/499/459\nf 404/475/437 403/472/434 424/497/457 425/500/460\nf 419/476/438 418/473/435 439/498/458 440/501/461\nf 412/477/439 411/474/436 432/499/459 433/502/462\nf 405/478/440 404/475/437 425/500/460 426/503/463\nf 420/479/441 419/476/438 440/501/461 441/504/464\nf 413/480/442 412/477/439 433/502/462 434/482/444\nf 406/481/443 405/478/440 426/503/463 427/484/446\nf 421/459/423 420/479/441 441/504/464 442/486/448\nf 427/484/446 426/503/463 447/505/465 448/506/466\nf 442/486/448 441/504/464 462/507/467 463/508/468\nf 435/483/445 434/482/444 455/509/469 456/510/470\nf 428/485/447 427/484/446 448/506/466 449/511/471\nf 443/487/449 442/486/448 463/508/468 464/512/472\nf 436/488/450 435/483/445 456/510/470 457/513/473\nf 429/489/451 428/485/447 449/511/471 450/514/474\nf 444/490/452 443/487/449 464/512/472 465/515/475\nf 437/491/453 436/488/450 457/513/473 458/516/476\nf 430/492/454 429/489/451 450/514/474 451/517/477\nf 529/518/44 444/490/452 465/515/475\nf 438/494/455 437/491/453 458/516/476 459/519/478\nf 431/495/456 430/492/454 451/517/477 452/520/479\nf 424/497/457 192/521/2 445/522/480\nf 439/498/458 438/494/455 459/519/478 460/523/481\nf 432/499/459 431/495/456 452/520/479 453/524/482\nf 425/500/460 424/497/457 445/522/480 446/525/483\nf 440/501/461 439/498/458 460/523/481 461/526/484\nf 433/502/462 432/499/459 453/524/482 454/527/485\nf 426/503/463 425/500/460 446/525/483 447/505/465\nf 441/504/464 440/501/461 461/526/484 462/507/467\nf 434/482/444 433/502/462 454/527/485 455/509/469\nf 455/509/469 454/527/485 475/528/486 476/529/487\nf 448/506/466 447/505/465 468/530/488 469/531/489\nf 463/508/468 462/507/467 483/532/490 484/533/491\nf 456/510/470 455/509/469 476/529/487 477/534/492\nf 449/511/471 448/506/466 469/531/489 470/535/493\nf 464/512/472 463/508/468 484/533/491 485/536/494\nf 457/513/473 456/510/470 477/534/492 478/537/495\nf 450/514/474 449/511/471 470/535/493 471/538/496\nf 465/515/475 464/512/472 485/536/494 486/539/497\nf 458/516/476 457/513/473 478/537/495 479/540/498\nf 451/517/477 450/514/474 471/538/496 472/541/499\nf 529/542/44 465/515/475 486/539/497\nf 459/519/478 458/516/476 479/540/498 480/543/500\nf 452/520/479 451/517/477 472/541/499 473/544/501\nf 445/522/480 192/545/2 466/546/502\nf 460/523/481 459/519/478 480/543/500 481/547/503\nf 453/524/482 452/520/479 473/544/501 474/548/504\nf 446/525/483 445/522/480 466/546/502 467/549/505\nf 461/526/484 460/523/481 481/547/503 482/550/506\nf 454/527/485 453/524/482 474/548/504 475/528/486\nf 447/505/465 446/525/483 467/549/505 468/530/488\nf 462/507/467 461/526/484 482/550/506 483/532/490\nf 468/530/488 467/549/505 488/551/507 489/552/508\nf 483/532/490 482/550/506 503/553/509 504/554/510\nf 476/529/487 475/528/486 496/555/511 497/556/512\nf 469/531/489 468/530/488 489/552/508 490/557/513\nf 484/533/491 483/532/490 504/554/510 505/558/514\nf 477/534/492 476/529/487 497/556/512 498/559/515\nf 470/535/493 469/531/489 490/557/513 491/560/516\nf 485/536/494 484/533/491 505/558/514 506/561/517\nf 478/537/495 477/534/492 498/559/515 499/562/518\nf 471/538/496 470/535/493 491/560/516 492/563/519\nf 486/539/497 485/536/494 506/561/517 507/564/520\nf 479/540/498 478/537/495 499/562/518 500/565/521\nf 472/541/499 471/538/496 492/563/519 493/566/522\nf 529/567/44 486/539/497 507/564/520\nf 480/543/500 479/540/498 500/565/521 501/568/523\nf 473/544/501 472/541/499 493/566/522 494/569/524\nf 466/546/502 192/570/2 487/571/525\nf 481/547/503 480/543/500 501/568/523 502/572/526\nf 474/548/504 473/544/501 494/569/524 495/573/527\nf 467/549/505 466/546/502 487/571/525 488/551/507\nf 482/550/506 481/547/503 502/572/526 503/553/509\nf 475/528/486 474/548/504 495/573/527 496/555/511\nf 503/553/509 502/572/526 523/574/528 524/575/529\nf 496/555/511 495/573/527 516/576/530 517/577/531\nf 489/552/508 488/551/507 509/578/532 510/579/533\nf 504/554/510 503/553/509 524/575/529 525/580/534\nf 497/556/512 496/555/511 517/577/531 518/581/535\nf 490/557/513 489/552/508 510/579/533 511/582/536\nf 505/558/514 504/554/510 525/580/534 526/583/537\nf 498/559/515 497/556/512 518/581/535 519/584/538\nf 491/560/516 490/557/513 511/582/536 512/585/539\nf 506/561/517 505/558/514 526/583/537 527/586/540\nf 499/562/518 498/559/515 519/584/538 520/587/541\nf 492/563/519 491/560/516 512/585/539 513/588/542\nf 507/564/520 506/561/517 527/586/540 528/589/543\nf 500/565/521 499/562/518 520/587/541 521/590/544\nf 493/566/522 492/563/519 513/588/542 514/591/545\nf 529/592/44 507/564/520 528/589/543\nf 501/568/523 500/565/521 521/590/544 522/593/546\nf 494/569/524 493/566/522 514/591/545 515/594/547\nf 487/571/525 192/595/2 508/596/548\nf 502/572/526 501/568/523 522/593/546 523/574/528\nf 495/573/527 494/569/524 515/594/547 516/576/530\nf 488/551/507 487/571/525 508/596/548 509/578/532\nf 516/576/530 515/594/547 537/597/549 538/598/550\nf 509/578/532 508/596/548 530/599/551 531/600/552\nf 524/575/529 523/574/528 545/601/553 546/602/554\nf 517/577/531 516/576/530 538/598/550 539/603/555\nf 510/579/533 509/578/532 531/600/552 532/604/556\nf 525/580/534 524/575/529 546/602/554 547/605/557\nf 518/581/535 517/577/531 539/603/555 540/606/558\nf 511/582/536 510/579/533 532/604/556 533/607/559\nf 526/583/537 525/580/534 547/605/557 548/608/560\nf 519/584/538 518/581/535 540/606/558 541/609/561\nf 512/585/539 511/582/536 533/607/559 534/610/562\nf 527/586/540 526/583/537 548/608/560 549/611/563\nf 520/587/541 519/584/538 541/609/561 542/612/564\nf 513/588/542 512/585/539 534/610/562 535/613/565\nf 528/589/543 527/586/540 549/611/563 550/614/566\nf 521/590/544 520/587/541 542/612/564 543/615/567\nf 514/591/545 513/588/542 535/613/565 536/616/568\nf 529/617/44 528/589/543 550/614/566\nf 522/593/546 521/590/544 543/615/567 544/618/569\nf 515/594/547 514/591/545 536/616/568 537/597/549\nf 508/596/548 192/619/2 530/599/551\nf 523/574/528 522/593/546 544/618/569 545/601/553\nf 530/599/551 192/620/2 551/621/570\nf 545/601/553 544/618/569 565/622/571 566/623/572\nf 538/598/550 537/597/549 558/624/573 559/625/574\nf 531/600/552 530/599/551 551/621/570 552/626/575\nf 546/602/554 545/601/553 566/623/572 567/627/576\nf 539/603/555 538/598/550 559/625/574 560/628/577\nf 532/604/556 531/600/552 552/626/575 553/629/578\nf 547/605/557 546/602/554 567/627/576 568/630/579\nf 540/606/558 539/603/555 560/628/577 561/631/580\nf 533/607/559 532/604/556 553/629/578 554/632/581\nf 548/608/560 547/605/557 568/630/579 569/633/582\nf 541/609/561 540/606/558 561/631/580 562/634/583\nf 534/610/562 533/607/559 554/632/581 555/635/584\nf 549/611/563 548/608/560 569/633/582 570/636/585\nf 542/612/564 541/609/561 562/634/583 563/637/586\nf 535/613/565 534/610/562 555/635/584 556/638/587\nf 550/614/566 549/611/563 570/636/585 571/639/588\nf 543/615/567 542/612/564 563/637/586 564/640/589\nf 536/616/568 535/613/565 556/638/587 557/641/590\nf 529/642/44 550/614/566 571/639/588\nf 544/618/569 543/615/567 564/640/589 565/622/571\nf 537/597/549 536/616/568 557/641/590 558/624/573\nf 558/624/573 557/641/590 578/643/591 579/644/592\nf 551/621/570 192/645/2 572/646/593\nf 566/623/572 565/622/571 586/647/594 587/648/595\nf 559/625/574 558/624/573 579/644/592 580/649/596\nf 552/626/575 551/621/570 572/646/593 573/650/597\nf 567/627/576 566/623/572 587/648/595 588/651/598\nf 560/628/577 559/625/574 580/649/596 581/652/599\nf 553/629/578 552/626/575 573/650/597 574/653/600\nf 568/630/579 567/627/576 588/651/598 589/654/601\nf 561/631/580 560/628/577 581/652/599 582/655/602\nf 554/632/581 553/629/578 574/653/600 575/656/603\nf 569/633/582 568/630/579 589/654/601 590/657/604\nf 562/634/583 561/631/580 582/655/602 583/658/605\nf 555/635/584 554/632/581 575/656/603 576/659/606\nf 570/636/585 569/633/582 590/657/604 591/660/607\nf 563/637/586 562/634/583 583/658/605 584/661/608\nf 556/638/587 555/635/584 576/659/606 577/662/609\nf 571/639/588 570/636/585 591/660/607 592/663/610\nf 564/640/589 563/637/586 584/661/608 585/664/611\nf 557/641/590 556/638/587 577/662/609 578/643/591\nf 529/665/44 571/639/588 592/663/610\nf 565/622/571 564/640/589 585/664/611 586/647/594\nf 529/666/44 592/663/610 613/667/612\nf 586/647/594 585/664/611 606/668/613 607/669/614\nf 579/644/592 578/643/591 599/670/615 600/671/616\nf 572/646/593 192/672/2 593/673/617\nf 587/648/595 586/647/594 607/669/614 608/674/618\nf 580/649/596 579/644/592 600/671/616 601/675/619\nf 573/650/597 572/646/593 593/673/617 594/676/620\nf 588/651/598 587/648/595 608/674/618 609/677/621\nf 581/652/599 580/649/596 601/675/619 602/678/622\nf 574/653/600 573/650/597 594/676/620 595/679/623\nf 589/654/601 588/651/598 609/677/621 610/680/624\nf 582/655/602 581/652/599 602/678/622 603/681/625\nf 575/656/603 574/653/600 595/679/623 596/682/626\nf 590/657/604 589/654/601 610/680/624 611/683/627\nf 583/658/605 582/655/602 603/681/625 604/684/628\nf 576/659/606 575/656/603 596/682/626 597/685/629\nf 591/660/607 590/657/604 611/683/627 612/686/630\nf 584/661/608 583/658/605 604/684/628 605/687/631\nf 577/662/609 576/659/606 597/685/629 598/688/632\nf 592/663/610 591/660/607 612/686/630 613/667/612\nf 585/664/611 584/661/608 605/687/631 606/668/613\nf 578/643/591 577/662/609 598/688/632 599/670/615\nf 606/668/613 605/687/631 626/689/633 627/690/634\nf 599/670/615 598/688/632 619/691/635 620/692/636\nf 529/693/44 613/667/612 634/694/637\nf 607/669/614 606/668/613 627/690/634 628/695/638\nf 600/671/616 599/670/615 620/692/636 621/696/639\nf 593/673/617 192/697/2 614/698/640\nf 608/674/618 607/669/614 628/695/638 629/699/641\nf 601/675/619 600/671/616 621/696/639 622/700/642\nf 594/676/620 593/673/617 614/698/640 615/701/643\nf 609/677/621 608/674/618 629/699/641 630/702/644\nf 602/678/622 601/675/619 622/700/642 623/703/645\nf 595/679/623 594/676/620 615/701/643 616/704/646\nf 610/680/624 609/677/621 630/702/644 631/705/647\nf 603/681/625 602/678/622 623/703/645 624/706/648\nf 596/682/626 595/679/623 616/704/646 617/707/649\nf 611/683/627 610/680/624 631/705/647 632/708/650\nf 604/684/628 603/681/625 624/706/648 625/709/651\nf 597/685/629 596/682/626 617/707/649 618/710/652\nf 612/686/630 611/683/627 632/708/650 633/711/653\nf 605/687/631 604/684/628 625/709/651 626/689/633\nf 598/688/632 597/685/629 618/710/652 619/691/635\nf 613/667/612 612/686/630 633/711/653 634/694/637\nf 619/691/635 618/710/652 639/712/654 640/713/655\nf 634/694/637 633/711/653 654/714/656 655/715/657\nf 627/690/634 626/689/633 647/716/658 648/717/659\nf 620/692/636 619/691/635 640/713/655 641/718/660\nf 529/719/44 634/694/637 655/715/657\nf 628/695/638 627/690/634 648/717/659 649/720/661\nf 621/696/639 620/692/636 641/718/660 642/721/662\nf 614/698/640 192/722/2 635/723/663\nf 629/699/641 628/695/638 649/720/661 650/724/664\nf 622/700/642 621/696/639 642/721/662 643/725/665\nf 615/701/643 614/698/640 635/723/663 636/726/666\nf 630/702/644 629/699/641 650/724/664 651/727/667\nf 623/703/645 622/700/642 643/725/665 644/728/668\nf 616/704/646 615/701/643 636/726/666 637/729/669\nf 631/705/647 630/702/644 651/727/667 652/730/670\nf 624/706/648 623/703/645 644/728/668 645/731/671\nf 617/707/649 616/704/646 637/729/669 638/732/672\nf 632/708/650 631/705/647 652/730/670 653/733/673\nf 625/709/651 624/706/648 645/731/671 646/734/674\nf 618/710/652 617/707/649 638/732/672 639/712/654\nf 633/711/653 632/708/650 653/733/673 654/714/656\nf 626/689/633 625/709/651 646/734/674 647/716/658\nf 647/716/658 646/734/674 667/735/675 668/736/676\nf 640/713/655 639/712/654 660/737/677 661/738/678\nf 655/715/657 654/714/656 675/739/679 676/740/680\nf 648/717/659 647/716/658 668/736/676 669/741/681\nf 641/718/660 640/713/655 661/738/678 662/742/682\nf 529/743/44 655/715/657 676/740/680\nf 649/720/661 648/717/659 669/741/681 670/744/683\nf 642/721/662 641/718/660 662/742/682 663/745/684\nf 635/723/663 192/746/2 656/747/685\nf 650/724/664 649/720/661 670/744/683 671/748/686\nf 643/725/665 642/721/662 663/745/684 664/749/687\nf 636/726/666 635/723/663 656/747/685 657/750/688\nf 651/727/667 650/724/664 671/748/686 672/751/689\nf 644/728/668 643/725/665 664/749/687 665/752/690\nf 637/729/669 636/726/666 657/750/688 658/753/691\nf 652/730/670 651/727/667 672/751/689 673/754/692\nf 645/731/671 644/728/668 665/752/690 666/755/693\nf 638/732/672 637/729/669 658/753/691 659/756/694\nf 653/733/673 652/730/670 673/754/692 674/757/695\nf 646/734/674 645/731/671 666/755/693 667/735/675\nf 639/712/654 638/732/672 659/756/694 660/737/677\nf 654/714/656 653/733/673 674/757/695 675/739/679\nf 660/737/677 659/756/694 680/758/696 681/759/697\nf 675/739/679 674/757/695 695/760/698 696/761/699\nf 668/736/676 667/735/675 688/762/700 689/763/701\nf 661/738/678 660/737/677 681/759/697 682/764/702\nf 676/740/680 675/739/679 696/761/699 697/765/703\nf 669/741/681 668/736/676 689/763/701 690/766/704\nf 662/742/682 661/738/678 682/764/702 683/767/705\nf 529/768/44 676/740/680 697/765/703\nf 670/744/683 669/741/681 690/766/704 691/769/706\nf 663/745/684 662/742/682 683/767/705 684/770/707\nf 656/747/685 192/771/2 677/772/708\nf 671/748/686 670/744/683 691/769/706 692/773/709\nf 664/749/687 663/745/684 684/770/707 685/774/710\nf 657/750/688 656/747/685 677/772/708 678/775/711\nf 672/751/689 671/748/686 692/773/709 693/776/712\nf 665/752/690 664/749/687 685/774/710 686/777/713\nf 658/753/691 657/750/688 678/775/711 679/778/714\nf 673/754/692 672/751/689 693/776/712 694/779/715\nf 666/755/693 665/752/690 686/777/713 687/780/716\nf 659/756/694 658/753/691 679/778/714 680/758/696\nf 674/757/695 673/754/692 694/779/715 695/760/698\nf 667/735/675 666/755/693 687/780/716 688/762/700\nf 695/781/698 694/782/715 715/783/717 716/784/718\nf 688/785/700 687/786/716 708/787/719 709/788/720\nf 681/789/697 680/790/696 701/791/721 702/792/722\nf 696/793/699 695/781/698 716/784/718 717/794/723\nf 689/795/701 688/785/700 709/788/720 710/796/724\nf 682/797/702 681/789/697 702/792/722 703/798/725\nf 697/799/703 696/793/699 717/794/723 718/800/726\nf 690/801/704 689/795/701 710/796/724 711/802/727\nf 683/803/705 682/797/702 703/798/725 704/804/728\nf 529/805/44 697/799/703 718/800/726\nf 691/806/706 690/801/704 711/802/727 712/807/729\nf 684/808/707 683/803/705 704/804/728 705/809/730\nf 677/810/708 192/811/2 698/812/731\nf 692/813/709 691/806/706 712/807/729 713/814/732\nf 685/815/710 684/808/707 705/809/730 706/816/733\nf 678/817/711 677/810/708 698/812/731 699/818/734\nf 693/819/712 692/813/709 713/814/732 714/820/735\nf 686/821/713 685/815/710 706/816/733 707/822/736\nf 679/823/714 678/817/711 699/818/734 700/824/737\nf 694/782/715 693/819/712 714/820/735 715/783/717\nf 687/786/716 686/821/713 707/822/736 708/787/719\nf 680/790/696 679/823/714 700/824/737 701/791/721\nf 708/787/719 707/822/736 728/825/738 729/826/739\nf 701/791/721 700/824/737 721/827/740 722/828/741\nf 716/784/718 715/783/717 736/829/742 737/830/743\nf 709/788/720 708/787/719 729/826/739 730/831/744\nf 702/792/722 701/791/721 722/828/741 723/832/745\nf 717/794/723 716/784/718 737/830/743 738/833/746\nf 710/796/724 709/788/720 730/831/744 731/834/747\nf 703/798/725 702/792/722 723/832/745 724/835/748\nf 718/800/726 717/794/723 738/833/746 739/836/749\nf 711/802/727 710/796/724 731/834/747 732/837/750\nf 704/804/728 703/798/725 724/835/748 725/838/751\nf 529/839/44 718/800/726 739/836/749\nf 712/807/729 711/802/727 732/837/750 733/840/752\nf 705/809/730 704/804/728 725/838/751 726/841/753\nf 698/812/731 192/842/2 719/843/754\nf 713/814/732 712/807/729 733/840/752 734/844/755\nf 706/816/733 705/809/730 726/841/753 727/845/756\nf 699/818/734 698/812/731 719/843/754 720/846/757\nf 714/820/735 713/814/732 734/844/755 735/847/758\nf 707/822/736 706/816/733 727/845/756 728/825/738\nf 700/824/737 699/818/734 720/846/757 721/827/740\nf 715/783/717 714/820/735 735/847/758 736/829/742\nf 721/827/740 720/846/757 741/848/759 742/849/760\nf 736/829/742 735/847/758 756/850/761 757/851/762\nf 729/826/739 728/825/738 749/852/763 750/853/764\nf 722/828/741 721/827/740 742/849/760 743/854/765\nf 737/830/743 736/829/742 757/851/762 758/855/766\nf 730/831/744 729/826/739 750/853/764 751/856/767\nf 723/832/745 722/828/741 743/854/765 744/857/768\nf 738/833/746 737/830/743 758/855/766 759/858/769\nf 731/834/747 730/831/744 751/856/767 752/859/770\nf 724/835/748 723/832/745 744/857/768 745/860/771\nf 739/836/749 738/833/746 759/858/769 760/861/772\nf 732/837/750 731/834/747 752/859/770 753/862/773\nf 725/838/751 724/835/748 745/860/771 746/863/774\nf 529/864/44 739/836/749 760/861/772\nf 733/840/752 732/837/750 753/862/773 754/865/775\nf 726/841/753 725/838/751 746/863/774 747/866/776\nf 719/843/754 192/867/2 740/868/777\nf 734/844/755 733/840/752 754/865/775 755/869/778\nf 727/845/756 726/841/753 747/866/776 748/870/779\nf 720/846/757 719/843/754 740/868/777 741/848/759\nf 735/847/758 734/844/755 755/869/778 756/850/761\nf 728/825/738 727/845/756 748/870/779 749/852/763\nf 749/852/763 748/870/779 769/871/780 770/872/781\nf 742/849/760 741/848/759 762/873/782 763/874/783\nf 757/851/762 756/850/761 777/875/784 778/876/785\nf 750/853/764 749/852/763 770/872/781 771/877/786\nf 743/854/765 742/849/760 763/874/783 764/878/787\nf 758/855/766 757/851/762 778/876/785 779/879/788\nf 751/856/767 750/853/764 771/877/786 772/880/789\nf 744/857/768 743/854/765 764/878/787 765/881/790\nf 759/858/769 758/855/766 779/879/788 780/882/791\nf 752/859/770 751/856/767 772/880/789 773/883/792\nf 745/860/771 744/857/768 765/881/790 766/884/793\nf 760/861/772 759/858/769 780/882/791 781/885/794\nf 753/862/773 752/859/770 773/883/792 774/886/795\nf 746/863/774 745/860/771 766/884/793 767/887/796\nf 529/888/44 760/861/772 781/885/794\nf 754/865/775 753/862/773 774/886/795 775/889/797\nf 747/866/776 746/863/774 767/887/796 768/890/798\nf 740/868/777 192/891/2 761/892/799\nf 755/869/778 754/865/775 775/889/797 776/893/800\nf 748/870/779 747/866/776 768/890/798 769/871/780\nf 741/848/759 740/868/777 761/892/799 762/873/782\nf 756/850/761 755/869/778 776/893/800 777/875/784\nf 773/883/792 772/880/789 793/894/801 794/895/802\nf 766/884/793 765/881/790 786/896/803 787/897/804\nf 781/885/794 780/882/791 801/898/805 802/899/806\nf 774/886/795 773/883/792 794/895/802 795/900/807\nf 767/887/796 766/884/793 787/897/804 788/901/808\nf 529/902/44 781/885/794 802/899/806\nf 775/889/797 774/886/795 795/900/807 796/903/809\nf 768/890/798 767/887/796 788/901/808 789/904/810\nf 761/892/799 192/905/2 782/906/811\nf 776/893/800 775/889/797 796/903/809 797/907/812\nf 769/871/780 768/890/798 789/904/810 790/908/813\nf 762/873/782 761/892/799 782/906/811 783/909/814\nf 777/875/784 776/893/800 797/907/812 798/910/815\nf 770/872/781 769/871/780 790/908/813 791/911/816\nf 763/874/783 762/873/782 783/909/814 784/912/817\nf 778/876/785 777/875/784 798/910/815 799/913/818\nf 771/877/786 770/872/781 791/911/816 792/914/819\nf 764/878/787 763/874/783 784/912/817 785/915/820\nf 779/879/788 778/876/785 799/913/818 800/916/821\nf 772/880/789 771/877/786 792/914/819 793/894/801\nf 765/881/790 764/878/787 785/915/820 786/896/803\nf 780/882/791 779/879/788 800/916/821 801/898/805\nf 786/896/803 785/915/820 806/917/822 807/918/823\nf 801/898/805 800/916/821 821/919/824 822/920/825\nf 794/895/802 793/894/801 814/921/826 815/922/827\nf 787/897/804 786/896/803 807/918/823 808/923/828\nf 802/899/806 801/898/805 822/920/825 823/924/829\nf 795/900/807 794/895/802 815/922/827 816/925/830\nf 788/901/808 787/897/804 808/923/828 809/926/831\nf 529/927/44 802/899/806 823/924/829\nf 796/903/809 795/900/807 816/925/830 817/928/832\nf 789/904/810 788/901/808 809/926/831 810/929/833\nf 782/906/811 192/930/2 803/931/834\nf 797/907/812 796/903/809 817/928/832 818/932/835\nf 790/908/813 789/904/810 810/929/833 811/933/836\nf 783/909/814 782/906/811 803/931/834 804/934/837\nf 798/910/815 797/907/812 818/932/835 819/935/838\nf 791/911/816 790/908/813 811/933/836 812/936/839\nf 784/912/817 783/909/814 804/934/837 805/937/840\nf 799/913/818 798/910/815 819/935/838 820/938/841\nf 792/914/819 791/911/816 812/936/839 813/939/842\nf 785/915/820 784/912/817 805/937/840 806/917/822\nf 800/916/821 799/913/818 820/938/841 821/919/824\nf 793/894/801 792/914/819 813/939/842 814/921/826\nf 814/921/826 813/939/842 834/940/843 835/941/844\nf 807/918/823 806/917/822 827/942/845 828/943/846\nf 822/920/825 821/919/824 842/944/847 843/945/848\nf 815/922/827 814/921/826 835/941/844 836/946/849\nf 808/923/828 807/918/823 828/943/846 829/947/850\nf 823/924/829 822/920/825 843/945/848 844/948/851\nf 816/925/830 815/922/827 836/946/849 837/949/852\nf 809/926/831 808/923/828 829/947/850 830/950/853\nf 529/951/44 823/924/829 844/948/851\nf 817/928/832 816/925/830 837/949/852 838/952/854\nf 810/929/833 809/926/831 830/950/853 831/953/855\nf 803/931/834 192/954/2 824/955/856\nf 818/932/835 817/928/832 838/952/854 839/956/857\nf 811/933/836 810/929/833 831/953/855 832/957/858\nf 804/934/837 803/931/834 824/955/856 825/958/859\nf 819/935/838 818/932/835 839/956/857 840/959/860\nf 812/936/839 811/933/836 832/957/858 833/960/861\nf 805/937/840 804/934/837 825/958/859 826/961/862\nf 820/938/841 819/935/838 840/959/860 841/962/863\nf 813/939/842 812/936/839 833/960/861 834/940/843\nf 806/917/822 805/937/840 826/961/862 827/942/845\nf 821/919/824 820/938/841 841/962/863 842/944/847\nf 827/942/845 826/961/862 847/963/864 848/964/865\nf 842/944/847 841/962/863 862/965/866 863/966/867\nf 835/941/844 834/940/843 855/967/868 856/968/869\nf 828/943/846 827/942/845 848/964/865 849/969/870\nf 843/945/848 842/944/847 863/966/867 864/970/871\nf 836/946/849 835/941/844 856/968/869 857/971/872\nf 829/947/850 828/943/846 849/969/870 850/972/873\nf 844/948/851 843/945/848 864/970/871 865/973/874\nf 837/949/852 836/946/849 857/971/872 858/974/875\nf 830/950/853 829/947/850 850/972/873 851/975/876\nf 529/976/44 844/948/851 865/973/874\nf 838/952/854 837/949/852 858/974/875 859/977/877\nf 831/953/855 830/950/853 851/975/876 852/978/878\nf 824/955/856 192/979/2 845/980/879\nf 839/956/857 838/952/854 859/977/877 860/981/880\nf 832/957/858 831/953/855 852/978/878 853/982/881\nf 825/958/859 824/955/856 845/980/879 846/983/882\nf 840/959/860 839/956/857 860/981/880 861/984/883\nf 833/960/861 832/957/858 853/982/881 854/985/884\nf 826/961/862 825/958/859 846/983/882 847/963/864\nf 841/962/863 840/959/860 861/984/883 862/965/866\nf 834/940/843 833/960/861 854/985/884 855/967/868\nf 862/965/866 861/984/883 882/986/885 883/987/886\nf 855/967/868 854/985/884 875/988/887 876/989/888\nf 848/964/865 847/963/864 868/990/889 869/991/890\nf 863/966/867 862/965/866 883/987/886 884/992/891\nf 856/968/869 855/967/868 876/989/888 877/993/892\nf 849/969/870 848/964/865 869/991/890 870/994/893\nf 864/970/871 863/966/867 884/992/891 885/995/894\nf 857/971/872 856/968/869 877/993/892 878/996/895\nf 850/972/873 849/969/870 870/994/893 871/997/896\nf 865/973/874 864/970/871 885/995/894 886/998/897\nf 858/974/875 857/971/872 878/996/895 879/999/898\nf 851/975/876 850/972/873 871/997/896 872/1000/899\nf 529/1001/44 865/973/874 886/998/897\nf 859/977/877 858/974/875 879/999/898 880/1002/900\nf 852/978/878 851/975/876 872/1000/899 873/1003/901\nf 845/980/879 192/1004/2 866/1005/902\nf 860/981/880 859/977/877 880/1002/900 881/1006/903\nf 853/982/881 852/978/878 873/1003/901 874/1007/904\nf 846/983/882 845/980/879 866/1005/902 867/1008/905\nf 861/984/883 860/981/880 881/1006/903 882/986/885\nf 854/985/884 853/982/881 874/1007/904 875/988/887\nf 847/963/864 846/983/882 867/1008/905 868/990/889\nf 875/988/887 874/1007/904 895/1009/906 896/1010/907\nf 868/990/889 867/1008/905 888/1011/908 889/1012/909\nf 883/987/886 882/986/885 903/1013/910 904/1014/911\nf 876/989/888 875/988/887 896/1010/907 897/1015/912\nf 869/991/890 868/990/889 889/1012/909 890/1016/913\nf 884/992/891 883/987/886 904/1014/911 905/1017/914\nf 877/993/892 876/989/888 897/1015/912 898/1018/915\nf 870/994/893 869/991/890 890/1016/913 891/1019/916\nf 885/995/894 884/992/891 905/1017/914 906/1020/917\nf 878/996/895 877/993/892 898/1018/915 899/1021/918\nf 871/997/896 870/994/893 891/1019/916 892/1022/919\nf 886/998/897 885/995/894 906/1020/917 907/1023/920\nf 879/999/898 878/996/895 899/1021/918 900/1024/921\nf 872/1000/899 871/997/896 892/1022/919 893/1025/922\nf 529/1026/44 886/998/897 907/1023/920\nf 880/1002/900 879/999/898 900/1024/921 901/1027/923\nf 873/1003/901 872/1000/899 893/1025/922 894/1028/924\nf 866/1005/902 192/1029/2 887/1030/925\nf 881/1006/903 880/1002/900 901/1027/923 902/1031/926\nf 874/1007/904 873/1003/901 894/1028/924 895/1009/906\nf 867/1008/905 866/1005/902 887/1030/925 888/1011/908\nf 882/986/885 881/1006/903 902/1031/926 903/1013/910\nf 888/1011/908 887/1030/925 908/1/1 909/12/12\nf 903/1013/910 902/1031/926 922/4/4 923/14/14\nf 896/1010/907 895/1009/906 916/8/8 917/16/16\nf 889/1012/909 888/1011/908 909/12/12 910/18/18\nf 904/1014/911 903/1013/910 923/14/14 924/20/20\nf 897/1015/912 896/1010/907 917/16/16 918/22/22\nf 890/1016/913 889/1012/909 910/18/18 911/24/24\nf 905/1017/914 904/1014/911 924/20/20 925/26/26\nf 898/1018/915 897/1015/912 918/22/22 1/28/28\nf 891/1019/916 890/1016/913 911/24/24 912/30/30\nf 906/1020/917 905/1017/914 925/26/26 926/32/32\nf 899/1021/918 898/1018/915 1/28/28 919/34/34\nf 892/1022/919 891/1019/916 912/30/30 913/36/36\nf 907/1023/920 906/1020/917 926/32/32 2/38/38\nf 900/1024/921 899/1021/918 919/34/34 920/40/40\nf 893/1025/922 892/1022/919 913/36/36 914/42/42\nf 529/1032/44 907/1023/920 2/38/38\nf 901/1027/923 900/1024/921 920/40/40 921/5/5\nf 894/1028/924 893/1025/922 914/42/42 915/9/9\nf 887/1030/925 192/1033/2 908/1/1\nf 902/1031/926 901/1027/923 921/5/5 922/4/4\nf 895/1009/906 894/1028/924 915/9/9 916/8/8\n";
+  bg.scene.primitiveData.plane = "\no Plane\nv -0.500000 0.000000 0.500000\nv 0.500000 0.000000 0.500000\nv -0.500000 0.000000 -0.500000\nv 0.500000 0.000000 -0.500000\nvt 0.000000 0.000000\nvt 1.000000 0.000000\nvt 1.000000 1.000000\nvt 0.000000 1.000000\nvn 0.0000 1.0000 0.0000\nusemtl None\ns off\nf 1/1/1 2/2/1 4/3/1 3/4/1\n";
+})();
+
+"use strict";
+(function() {
+  var s_pbrMaterials = false;
   function createCube(context, w, h, d) {
     var plist = new bg.base.PolyList(context);
     var x = w / 2;
@@ -10375,6 +13500,7 @@ bg.scene = {};
     plist.build();
     return plist;
   }
+  function _createSphere(context, radius, slices, stacks) {}
   function createSphere(context, radius, slices, stacks) {
     var plist = new bg.base.PolyList(context);
     ++slices;
@@ -10384,6 +13510,7 @@ bg.scene = {};
         s;
     var vertex = [];
     var normal = [];
+    var tangent = [];
     var texCoord = [];
     var index = [];
     for (r = 0; r < stacks; r++)
@@ -10391,9 +13518,13 @@ bg.scene = {};
         var y = bg.Math.sin(-bg.Math.PI_2 + bg.Math.PI * r * R);
         var x = bg.Math.cos(2 * bg.Math.PI * s * S) * bg.Math.sin(bg.Math.PI * r * R);
         var z = bg.Math.sin(2 * bg.Math.PI * s * S) * bg.Math.sin(bg.Math.PI * r * R);
+        var ty = bg.Math.cos(2 * bg.Math.PI * s * S) * bg.Math.sin(bg.Math.PI * r * R);
+        var tx = bg.Math.sin(-bg.Math.PI_2 + bg.Math.PI * r * R);
+        var tz = bg.Math.sin(2 * bg.Math.PI * s * S) * bg.Math.sin(bg.Math.PI * r * R);
         texCoord.push(s * S);
         texCoord.push(r * R);
         normal.push(x, y, z);
+        tangent.push(tx, ty, tz);
         vertex.push(x * radius, y * radius, z * radius);
       }
     for (r = 0; r < stacks - 1; r++)
@@ -10412,20 +13543,83 @@ bg.scene = {};
     plist.vertex = vertex;
     plist.normal = normal;
     plist.texCoord0 = texCoord;
+    plist.tangent = tangent;
     plist.texCoord1 = bg.tools.UVMap.atlas(vertex, index, 0.03);
     plist.index = index;
-    plist.build();
+    plist.build(false);
     return plist;
   }
   function createDrawable(plist, name) {
     var drawable = new bg.scene.Drawable(name);
-    drawable.addPolyList(plist);
+    var mat = s_pbrMaterials ? new bg.base.PBRMaterial() : new bg.base.Material();
+    drawable.addPolyList(plist, mat);
     return drawable;
+  }
+  var s_objLoader = null;
+  function applyTransform(polyList, matrix) {
+    var newVertex = [];
+    var newNormal = [];
+    var rotationMatrix = matrix.rotation;
+    for (var i = 0; i < polyList.vertex.length; i += 3) {
+      var newV = new bg.Vector3(polyList.vertex[i], polyList.vertex[i + 1], polyList.vertex[i + 2]);
+      newV = matrix.multVector(newV);
+      newVertex.push(newV.x, newV.y, newV.z);
+      var newN = new bg.Vector3(polyList.normal[i], polyList.normal[i + 1], polyList.normal[i + 2]);
+      newN = rotationMatrix.multVector(newN);
+      newN.normalize();
+      newNormal.push(newN.x, newN.y, newN.z);
+    }
+    polyList.vertex = newVertex;
+    polyList.normal = newNormal;
+    polyList.build();
+  }
+  function loadObjData(context, objData, name, trx) {
+    if (!s_objLoader) {
+      s_objLoader = new bg.base.OBJLoaderPlugin();
+    }
+    var node = s_objLoader.loadDataSync(context, objData, name);
+    if (node) {
+      var drw = node.drawable;
+      drw.forEach(function(plist) {
+        return applyTransform(plist, trx);
+      });
+      if (s_pbrMaterials) {
+        var index = 0;
+        drw.forEach(function(plist, mat) {
+          drw.replaceMaterial(index++, new bg.base.PBRMaterial());
+        });
+      }
+      return drw;
+    } else {
+      return null;
+    }
   }
   var PrimitiveFactory = function() {
     function PrimitiveFactory() {}
     return ($traceurRuntime.createClass)(PrimitiveFactory, {}, {
+      SetPBRMaterials: function(pbrMat) {
+        s_pbrMaterials = pbrMat;
+      },
+      ObjDataPolyList: function(context, objData, name) {
+        var trx = arguments[3] !== (void 0) ? arguments[3] : null;
+        var drw = loadObjData(context, objData, name, trx);
+        var plist = null;
+        drw.some(function(pl) {
+          plist = pl;
+          return true;
+        });
+        return plist;
+      },
       CubePolyList: function(context) {
+        var w = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var h = arguments[2];
+        var d = arguments[3];
+        h = h || w;
+        d = d || w;
+        var trx = bg.Matrix4.Scale(w, h, d);
+        return PrimitiveFactory.ObjDataPolyList(context, bg.scene.primitiveData.cube, "Cube", trx);
+      },
+      CubePolyList_procedural: function(context) {
         var w = arguments[1] !== (void 0) ? arguments[1] : 1;
         var h = arguments[2];
         var d = arguments[3];
@@ -10438,9 +13632,27 @@ bg.scene = {};
         var d = arguments[2];
         var plane = arguments[3] !== (void 0) ? arguments[3] : 'y';
         d = d || w;
+        var trx = bg.Matrix4.Scale(w, 1, d);
+        if (plane == "x") {
+          trx.rotate(bg.Math.degreesToRadians(90), 0, 0, 1);
+        } else if (plane == "z") {
+          trx.rotate(bg.Math.degreesToRadians(90), -1, 0, 0);
+        }
+        return PrimitiveFactory.ObjDataPolyList(context, bg.scene.primitiveData.plane, "Plane", trx);
+      },
+      PlanePolyList_procedural: function(context) {
+        var w = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var d = arguments[2];
+        var plane = arguments[3] !== (void 0) ? arguments[3] : 'y';
+        d = d || w;
         return createPlane(context, w, d, plane);
       },
       SpherePolyList: function(context) {
+        var r = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var trx = bg.Matrix4.Scale(r, r, r);
+        return PrimitiveFactory.ObjDataPolyList(context, bg.scene.primitiveData.sphere, "Sphere", trx);
+      },
+      SpherePolyList_procedural: function(context) {
         var r = arguments[1] !== (void 0) ? arguments[1] : 1;
         var slices = arguments[2] !== (void 0) ? arguments[2] : 20;
         var stacks = arguments[3];
@@ -10453,16 +13665,43 @@ bg.scene = {};
         var d = arguments[3];
         h = h || w;
         d = d || w;
+        var trx = bg.Matrix4.Scale(w, h, d);
+        return loadObjData(context, bg.scene.primitiveData.cube, "Cube", trx);
+      },
+      Cube_procedural: function(context) {
+        var w = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var h = arguments[2];
+        var d = arguments[3];
+        h = h || w;
+        d = d || w;
         return createDrawable(createCube(context, w, h, d), "Cube");
       },
-      Plane: function(context) {
+      Plane_procedural: function(context) {
         var w = arguments[1] !== (void 0) ? arguments[1] : 1;
         var d = arguments[2];
         var plane = arguments[3] !== (void 0) ? arguments[3] : 'y';
         d = d || w;
         return createDrawable(createPlane(context, w, d, plane), "Plane");
       },
+      Plane: function(context) {
+        var w = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var d = arguments[2];
+        var plane = arguments[3] !== (void 0) ? arguments[3] : "y";
+        d = d || w;
+        var trx = bg.Matrix4.Scale(w, 1, d);
+        if (plane == "x") {
+          trx.rotate(bg.Math.degreesToRadians(90), 0, 0, 1);
+        } else if (plane == "z") {
+          trx.rotate(bg.Math.degreesToRadians(90), -1, 0, 0);
+        }
+        return loadObjData(context, bg.scene.primitiveData.plane, "Plane", trx);
+      },
       Sphere: function(context) {
+        var r = arguments[1] !== (void 0) ? arguments[1] : 1;
+        var trx = bg.Matrix4.Scale(r * 2, r * 2, r * 2);
+        return loadObjData(context, bg.scene.primitiveData.sphere, "Sphere", trx);
+      },
+      Sphere_procedural: function(context) {
         var r = arguments[1] !== (void 0) ? arguments[1] : 1;
         var slices = arguments[2] !== (void 0) ? arguments[2] : 20;
         var stacks = arguments[3];
@@ -10797,6 +14036,27 @@ bg.scene = {};
           pipeline.effect.material = curMaterial;
         }
       },
+      draw: function(renderQueue, modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        var $__2 = this;
+        if (this._textures.length == 6) {
+          viewMatrixStack.push();
+          modelMatrixStack.push();
+          viewMatrixStack.matrix.setPosition(0, 0, 0);
+          var projectionMatrix = projectionMatrixStack.matrix;
+          var m22 = -projectionMatrix.m22;
+          var m32 = -projectionMatrix.m32;
+          var far = (2.0 * m32) / (2.0 * m22 - 2.0);
+          var offset = 1;
+          var scale = bg.Math.sin(bg.Math.PI_4) * far - offset;
+          modelMatrixStack.scale(scale, scale, scale);
+          this._plist.forEach(function(pl, index) {
+            $__2._material.texture = $__2._textures[index];
+            renderQueue.renderOpaque(pl, $__2._material.clone(), modelMatrixStack.matrix, viewMatrixStack.matrix);
+          });
+          viewMatrixStack.pop();
+          modelMatrixStack.pop();
+        }
+      },
       removedFromNode: function() {
         this._plist.forEach(function(pl) {
           pl.destroy();
@@ -10842,7 +14102,7 @@ bg.scene = {};
       this._text = "Hello, World!";
       this._sprite = null;
       this._material = null;
-      this._sizeMatrix = bg.Matrix4.Scale(this._rectSize.x, this._rectSize.y, 1);
+      this._sizeMatrix = bg.Matrix4.Scale(this._rectSize.x, this._rectSize.y * -1, 1);
       this._canvasTexture = null;
       this._dirty = true;
     }
@@ -10900,7 +14160,7 @@ bg.scene = {};
         var $__2 = this;
         if (!this._sprite && this.node && this.node.context) {
           this._sprite = bg.scene.PrimitiveFactory.PlanePolyList(this.node.context, 1, 1, 'z');
-          this._material = new bg.base.Material();
+          this._material = new bg.base.PBRMaterial();
           this._material.alphaCutoff = 0.9;
           this._dirty = true;
         }
@@ -10947,9 +14207,15 @@ bg.scene = {};
       frame: function(delta) {
         if ((this._dirty || this._textProperties.dirty) && this._material && this._canvasTexture) {
           this._canvasTexture.update();
-          this._material.texture = this._canvasTexture.texture;
-          this._material.unlit = this._unlit;
-          this._material.cullFace = !this._doubleSided;
+          if (this._material instanceof bg.base.PBRMaterial) {
+            this._material.diffuse = this._canvasTexture.texture;
+            this._material.unlit = this._unlit;
+            this._material.cullFace = !this._doubleSided;
+          } else {
+            this._material.texture = this._canvasTexture.texture;
+            this._material.unlit = this._unlit;
+            this._material.cullFace = !this._doubleSided;
+          }
           this._dirty = false;
           this.textProperties.dirty = false;
         }
@@ -10972,6 +14238,18 @@ bg.scene = {};
             matrixState.modelMatrixStack.pop();
             pipeline.effect.material = curMaterial;
           }
+        }
+      },
+      draw: function(renderQueue, modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        if (this._sprite && this._material) {
+          modelMatrixStack.push();
+          modelMatrixStack.mult(this._sizeMatrix);
+          if (this._material.isTransparent) {
+            renderQueue.renderTransparent(this._sprite, this._material, modelMatrixStack.matrix, viewMatrixStack.matrix);
+          } else {
+            renderQueue.renderOpaque(this._sprite, this._material, modelMatrixStack.matrix, viewMatrixStack.matrix);
+          }
+          modelMatrixStack.pop();
         }
       },
       serialize: function(componentData, promises, url) {
@@ -11075,8 +14353,31 @@ bg.scene = {};
           matrixState.modelMatrixStack.pop();
         }
         this._globalMatrixValid = false;
+      },
+      willUpdate: function(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        if (this.node && this.node.enabled) {
+          modelMatrixStack.push();
+          modelMatrixStack.mult(this.matrix);
+        }
+      },
+      didUpdate: function(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+        if (this.node && this.node.enabled) {
+          modelMatrixStack.pop();
+        }
+        this._globalMatrixValid = false;
       }
-    }, {}, $__super);
+    }, {WorldMatrix: function(nodeOrComp) {
+        var node = nodeOrComp;
+        if (nodeOrComp instanceof bg.scene.Component) {
+          node = nodeOrComp.node;
+        }
+        if (!node) {
+          return bg.Matrix4.Identity();
+        }
+        var visitor = new bg.scene.TransformVisitor();
+        node.acceptReverse(visitor);
+        return visitor.matrix;
+      }}, $__super);
   }(bg.scene.Component);
   bg.scene.registerComponent(bg.scene, Transform, "bg.scene.Transform");
 })();
@@ -11113,6 +14414,46 @@ bg.scene = {};
     }, {}, $__super);
   }(bg.scene.NodeVisitor);
   bg.scene.DrawVisitor = DrawVisitor;
+  var RenderQueueVisitor = function($__super) {
+    function RenderQueueVisitor(modelMatrixStack, viewMatrixStack, projectionMatrixStack) {
+      $traceurRuntime.superConstructor(RenderQueueVisitor).call(this);
+      this._modelMatrixStack = modelMatrixStack || new bg.base.MatrixStack();
+      this._viewMatrixStack = viewMatrixStack || new bg.base.MatrixStack();
+      this._projectionMatrixStack = projectionMatrixStack || new bg.base.MatrixStack();
+      this._renderQueue = new bg.base.RenderQueue();
+    }
+    return ($traceurRuntime.createClass)(RenderQueueVisitor, {
+      get modelMatrixStack() {
+        return this._modelMatrixStack;
+      },
+      set modelMatrixStack(m) {
+        this._modelMatrixStack = m;
+      },
+      get viewMatrixStack() {
+        return this._viewMatrixStack;
+      },
+      set viewMatrixStack(m) {
+        this._viewMatrixStack = m;
+      },
+      get projectionMatrixStack() {
+        return this._projectionMatrixStack;
+      },
+      set projectionMatrixStack(m) {
+        this._projectionMatrixStack = m;
+      },
+      get renderQueue() {
+        return this._renderQueue;
+      },
+      visit: function(node) {
+        node.willUpdate(this._modelMatrixStack);
+        node.draw(this._renderQueue, this._modelMatrixStack, this._viewMatrixStack, this._projectionMatrixStack);
+      },
+      didVisit: function(node) {
+        node.didUpdate(this._modelMatrixStack, this._viewMatrixStack, this._projectionMatrixStack);
+      }
+    }, {}, $__super);
+  }(bg.scene.NodeVisitor);
+  bg.scene.RenderQueueVisitor = RenderQueueVisitor;
   var FrameVisitor = function($__super) {
     function FrameVisitor() {
       $traceurRuntime.superConstructor(FrameVisitor).call(this);
@@ -11484,7 +14825,7 @@ bg.scene = {};
               break;
             case 'plst':
             case 'endf':
-              if (block == 'endf') {
+              if (block == 'endf' && (offset + 4) < data.byteLength) {
                 try {
                   block = readBlock(data, offset);
                   offset += 4;
@@ -11498,6 +14839,8 @@ bg.scene = {};
                 } catch (err) {
                   console.error(err.message);
                 }
+                done = true;
+              } else if ((offset + 4) >= data.byteLength) {
                 done = true;
               }
               var plistData = {
@@ -11550,13 +14893,19 @@ bg.scene = {};
           polyList.texCoord1 = plistData.texcoord1 || polyList.texCoord1;
           polyList.texCoord2 = plistData.texcoord2 || polyList.texCoord2;
           polyList.index = plistData.indices || polyList.index;
-          polyList.groupName = materialData.groupName;
-          polyList.visible = materialData.visible;
+          polyList.groupName = materialData.groupName || "";
+          polyList.visible = materialData.visible !== undefined ? materialData.visible : true;
           polyList.visibleToShadows = materialData.visibleToShadows !== undefined ? materialData.visibleToShadows : true;
           polyList.build();
-          promises.push(bg.base.Material.GetMaterialWithJson($__1._context, materialData, path).then(function(material) {
-            drawable.addPolyList(polyList, material);
-          }));
+          if (materialData['class'] == 'PBRMaterial') {
+            promises.push(bg.base.PBRMaterial.GetMaterialWithJson($__1._context, materialData, path).then(function(material) {
+              drawable.addPolyList(polyList, material);
+            }));
+          } else {
+            promises.push(bg.base.Material.GetMaterialWithJson($__1._context, materialData, path).then(function(material) {
+              drawable.addPolyList(polyList, material);
+            }));
+          }
         });
         return Promise.all(promises).then(function() {
           return drawable;
@@ -11580,7 +14929,10 @@ bg.scene = {};
         }
         if (this._componentData) {
           console.log("Component data found");
-          var baseUrl = bg.base.Writer.StandarizePath(url);
+          var baseUrl = url;
+          if (bg.isElectronApp) {
+            baseUrl = bg.base.Writer.StandarizePath(url);
+          }
           baseUrl = baseUrl.split("/");
           baseUrl.pop();
           baseUrl = baseUrl.join("/");
@@ -11650,7 +15002,7 @@ bg.scene = {};
                     }
                   });
                   if (matDef) {
-                    var p = bg.base.Material.FromMaterialDefinition(context, matDef, basePath);
+                    var p = matDef["class"] == 'PBRMaterial' ? bg.base.PBRMaterial.FromMaterialDefinition(context, matDef, basePath) : bg.base.Material.FromMaterialDefinition(context, matDef, basePath);
                     promises.push(p);
                     p.then(function(newMat) {
                       mat.assign(newMat);
@@ -11771,6 +15123,96 @@ bg.manipulation = {};
 
 "use strict";
 (function() {
+  function buildPlist(context, vertex, color) {
+    var plist = new bg.base.PolyList(context);
+    var normal = [];
+    var texCoord0 = [];
+    var index = [];
+    var currentIndex = 0;
+    for (var i = 0; i < vertex.length; i += 3) {
+      normal.push(0);
+      normal.push(0);
+      normal.push(1);
+      texCoord0.push(0);
+      texCoord0.push(0);
+      index.push(currentIndex++);
+    }
+    plist.vertex = vertex;
+    plist.normal = normal;
+    plist.texCoord0 = texCoord0;
+    plist.color = color;
+    plist.index = index;
+    plist.drawMode = bg.base.DrawMode.LINES;
+    plist.build();
+    return plist;
+  }
+  function getGizmo() {
+    if (this.bounds.x != this._gizmoSize.x || this.bounds.y != this._gizmoSize.y || this.bounds.z != this._gizmoSize.z) {
+      var x = -this.bounds.x / 2;
+      var X = this.bounds.x / 2;
+      var y = -this.bounds.y / 2;
+      var Y = this.bounds.y / 2;
+      var z = -this.bounds.z / 2;
+      var Z = this.bounds.z / 2;
+      var vertex = [x, y, z, X, y, z, X, y, z, X, Y, z, X, Y, z, x, Y, z, x, Y, z, x, y, z, x, y, Z, X, y, Z, X, y, Z, X, Y, Z, X, Y, Z, x, Y, Z, x, Y, Z, x, y, Z, x, y, z, x, y, Z, X, y, z, X, y, Z, X, Y, z, X, Y, Z, x, Y, z, x, Y, Z];
+      var color = [];
+      for (var i = 0; i < vertex.length; i += 3) {
+        color.push(this._gizmoColor.r);
+        color.push(this._gizmoColor.g);
+        color.push(this._gizmoColor.b);
+        color.push(this._gizmoColor.a);
+      }
+      if (!this._gizmo) {
+        this._gizmo = buildPlist(this.node.context, vertex, color);
+      } else {
+        this._gizmo.updateBuffer(bg.base.BufferType.VERTEX, vertex);
+        this._gizmo.updateBuffer(bg.base.BufferType.COLOR, color);
+      }
+      this._gizmoScale = new bg.Vector3(this.bounds);
+    }
+    return this._gizmo;
+  }
+  var GizmoConstraints = function($__super) {
+    function GizmoConstraints() {
+      $traceurRuntime.superConstructor(GizmoConstraints).call(this);
+      this._bounds = new bg.Vector3(1, 1, 1);
+      this._gizmoSize = new bg.Vector3(0, 0, 0);
+      this._gizmoColor = new bg.Color(0.2, 0.4, 0.95, 1.0);
+    }
+    return ($traceurRuntime.createClass)(GizmoConstraints, {
+      clone: function() {
+        var c = new bg.manipulation.GizmoConstraints();
+        c.bounds.assign(this._bounds);
+        return c;
+      },
+      get bounds() {
+        return this._bounds;
+      },
+      set bounds(b) {
+        this._bounds = b;
+      },
+      serialize: function(componentData, promises, url) {
+        $traceurRuntime.superGet(this, GizmoConstraints.prototype, "serialize").call(this, componentData, promises, url);
+        componentData.bounds = this.bounds.toArray();
+      },
+      deserialize: function(context, sceneData, url) {
+        if (Array.isArray(sceneData.bounds)) {
+          this.bounds = new bg.Vector3(sceneData.bounds);
+        }
+      },
+      displayGizmo: function(pipeline, matrixState) {
+        var plist = getGizmo.apply(this);
+        if (plist) {
+          pipeline.draw(plist);
+        }
+      }
+    }, {}, $__super);
+  }(bg.scene.Component);
+  bg.scene.registerComponent(bg.manipulation, GizmoConstraints, "bg.manipulation.GizmoConstraints");
+})();
+
+"use strict";
+(function() {
   var GizmoManager = function($__super) {
     function GizmoManager(context) {
       $traceurRuntime.superConstructor(GizmoManager).call(this, context);
@@ -11863,23 +15305,99 @@ bg.manipulation = {};
       clearGizmoIcons: function() {
         this.drawVisitor.clearGizmoIcons();
       },
-      startAction: function(gizmoPickData, pos) {
+      startAction: function(gizmoPickData, pos, camera) {
+        var sceneRoot = arguments[3] !== (void 0) ? arguments[3] : null;
+        var $__2 = this;
+        if (!camera) {
+          throw new Error("GizmoManager.startAction(): camera parameter is null.");
+        }
+        if (!sceneRoot) {
+          sceneRoot = camera.node && camera.node.sceneRoot;
+        }
+        if (!sceneRoot) {
+          throw new Error("GizmoManager.startAction(): The sceneRoot parameter can't be null because the camera is not attached to a scene.");
+        }
+        var findVisitor = new bg.scene.FindComponentVisitor("bg.scene.AnchorJoint");
+        sceneRoot.accept(findVisitor);
+        this._anchorPoints = [];
+        this._anchorPoints.closestPoint = function(p, anchorComp) {
+          if (!(p instanceof bg.Vector3)) {
+            p = new bg.Vector3(p);
+          }
+          var c = null;
+          var d = Number.MAX_VALUE;
+          this.forEach(function(point) {
+            var distance = point.position.distance(p);
+            if (point.component != anchorComp && distance < d) {
+              d = distance;
+              c = {
+                anchor: point,
+                distance: d
+              };
+            }
+          });
+          return c;
+        };
+        findVisitor.result.forEach(function(node) {
+          var anchorComponent = node.anchorJoint;
+          anchorComponent.getWorldPositionAnchors().forEach(function(anchor) {
+            $__2._anchorPoints.push({
+              position: new bg.Vector3(anchor.position),
+              radius: anchor.radius,
+              component: anchorComponent
+            });
+          });
+        });
         this._working = true;
-        this._startPoint = pos;
+        this._startPoint = new bg.Vector2(pos.x, pos.y);
+        this._startPoint.y = camera.viewport.height - pos.y;
         this._currentGizmoData = gizmoPickData;
         if (this._currentGizmoData && this._currentGizmoData.node) {
           var gizmo = this._currentGizmoData.node.component("bg.manipulation.Gizmo");
           if (gizmo) {
-            gizmo.beginDrag(this._currentGizmoData.action, pos);
+            gizmo.beginDrag(this._currentGizmoData.action, this._startPoint, this._anchorPoints);
           }
         }
       },
       move: function(pos, camera) {
+        var $__2 = this;
         if (this._currentGizmoData && this._currentGizmoData.node) {
+          var parent = this._currentGizmoData.node.parent;
+          var constraints = parent && parent.component("bg.manipulation.GizmoConstraints");
+          var trxComp = this._currentGizmoData.node.transform;
+          var prevTrx = trxComp && new bg.Matrix4(trxComp.matrix);
           var gizmo = this._currentGizmoData.node.component("bg.manipulation.Gizmo");
+          var anchorJoint = gizmo && this._currentGizmoData.node.anchorJoint;
           if (gizmo) {
+            var anchorData = null;
+            if (anchorJoint) {
+              var minDist = Number.MAX_VALUE;
+              anchorJoint.getWorldPositionAnchors().forEach(function(anchor) {
+                var p = new bg.Vector3(anchor.position);
+                var cp = $__2._anchorPoints.closestPoint(p, anchorJoint);
+                if (cp.distance < minDist) {
+                  minDist = cp.distance;
+                  anchor.position = new bg.Vector3(anchor.position);
+                  anchorData = {
+                    distance: minDist,
+                    nodeAnchor: anchor,
+                    closestAnchor: cp.anchor,
+                    triggerAnchor: minDist < anchor.radius
+                  };
+                }
+              });
+            }
             pos.y = camera.viewport.height - pos.y;
-            gizmo.drag(this._currentGizmoData.action, this._startPoint, pos, camera);
+            gizmo.drag(this._currentGizmoData.action, this._startPoint, pos, camera, this._anchorPoints, anchorData);
+            if (trxComp && constraints) {
+              var newMatrix = trxComp.matrix;
+              var pos$__3 = newMatrix.position;
+              var b = new bg.Vector3(constraints.bounds);
+              b.scale(0.5);
+              if (pos$__3.x < -b.x || pos$__3.x > b.x || pos$__3.y < -b.y || pos$__3.y > b.y || pos$__3.z < -b.z || pos$__3.z > b.z) {
+                trxComp.matrix = prevTrx;
+              }
+            }
           }
           this._startPoint = pos;
         }
@@ -11888,7 +15406,7 @@ bg.manipulation = {};
         if (this._currentGizmoData && this._currentGizmoData.node) {
           var gizmo = this._currentGizmoData.node.component("bg.manipulation.Gizmo");
           if (gizmo) {
-            gizmo.endDrag(this._currentGizmoData.action);
+            gizmo.endDrag(this._currentGizmoData.action, this._anchorPoints);
           }
         }
         this._working = false;
@@ -12164,9 +15682,9 @@ bg.manipulation = {};
       get gizmoTransform() {
         return this._gizmoTransform;
       },
-      beginDrag: function(action, pos) {},
-      drag: function(action, startPos, endPos, camera) {},
-      endDrag: function(action) {},
+      beginDrag: function(action, pos, anchorPoints) {},
+      drag: function(action, startPos, endPos, camera, anchorPoints) {},
+      endDrag: function(action, anchorPoints) {},
       findId: function(id) {
         var result = null;
         if (this._gizmoItems) {
@@ -12421,10 +15939,18 @@ bg.manipulation = {};
         matrixState.modelMatrixStack.pop();
       },
       beginDrag: function(action, pos) {
+        var $__1 = this;
         this._lastPickPoint = null;
+        if (this._stopDrag) {
+          this._disableAnchor = true;
+          this._stopDrag = false;
+          setTimeout(function() {
+            $__1._disableAnchor = false;
+          }, 500);
+        }
       },
-      drag: function(action, startPos, endPos, camera) {
-        if (this.transform) {
+      drag: function(action, startPos, endPos, camera, anchorPoints, anchorData) {
+        if (this.transform && !this._stopDrag) {
           var plane = new bg.physics.Plane(this.planeAxis);
           var ray = bg.physics.Ray.RayWithScreenPoint(endPos, camera.projection, camera.viewMatrix, camera.viewport);
           var intersection = bg.physics.Intersection.RayToPlane(ray, plane);
@@ -12434,6 +15960,13 @@ bg.manipulation = {};
             switch (action) {
               case bg.manipulation.GizmoAction.TRANSLATE:
                 matrix = translateMatrix(this, intersection);
+                if (anchorData && anchorData.triggerAnchor && !this._disableAnchor) {
+                  var diff = new bg.Vector3(anchorData.closestAnchor.position);
+                  diff.sub(anchorData.nodeAnchor.position);
+                  var currentPos = matrix.position;
+                  matrix.setPosition(new bg.Vector3(currentPos.x + diff.x, currentPos.y + diff.y, currentPos.z + diff.z));
+                  this._stopDrag = true;
+                }
                 break;
               case bg.manipulation.GizmoAction.ROTATE:
                 matrix = rotateMatrix(this, intersection, false);
@@ -12978,7 +16511,7 @@ bg.manipulation = {};
         fragment.addFunction(lib().functions.utils.applyConvolution);
         fragment.setMainBody("\n                vec4 selectionColor = applyConvolution(inTexture,fsTexCoord,inTexSize,inConvMatrix,inBorderWidth);\n                if (selectionColor.r!=0.0 && selectionColor.g!=0.0 && selectionColor.b!=0.0) {\n                    gl_FragColor = inBorderColor;\n                }\n                else {\n                    discard;\n                }\n                ");
       }
-      this.setupShaderSource([vertex, fragment]);
+      this.setupShaderSource([vertex, fragment], false);
       this._highlightColor = bg.Color.White();
       this._borderWidth = 2;
     }
@@ -13091,7 +16624,7 @@ bg.manipulation = {};
       this._pipeline.textureEffect = new bg.manipulation.BorderDetectionEffect(this.context);
       this._matrixState = new bg.base.MatrixState();
       this._drawVisitor = new bg.scene.DrawVisitor(this._offscreenPipeline, this._matrixState);
-      this._drawVisitor.forceDraw = true;
+      this._drawVisitor.forceDraw = false;
     }
     return ($traceurRuntime.createClass)(SelectionHighlight, {
       get highlightColor() {
@@ -13105,6 +16638,12 @@ bg.manipulation = {};
       },
       set borderWidth(w) {
         this._pipeline.textureEffect.borderWidth = w;
+      },
+      get drawInvisiblePolyList() {
+        return this._drawVisitor.forceDraw;
+      },
+      set drawInvisiblePolyList(d) {
+        this._drawVisitor.forceDraw = d;
       },
       drawSelection: function(sceneRoot, camera) {
         var restorePipeline = bg.base.Pipeline.Current();
@@ -13120,6 +16659,8 @@ bg.manipulation = {};
         sceneRoot.accept(this._drawVisitor);
         var texture = this._offscreenPipeline.renderSurface.getTexture(0);
         bg.base.Pipeline.SetCurrent(this._pipeline);
+        this._pipeline.blend = true;
+        this._pipeline.blendMode = bg.base.BlendMode.ADD;
         this._pipeline.drawTexture(texture);
         if (restorePipeline) {
           bg.base.Pipeline.SetCurrent(restorePipeline);
@@ -13655,7 +17196,7 @@ bg.tools = {};
       transformMatrix = transformMatrix || bg.Matrix4.Identity();
       if (drawableOrPlist instanceof bg.scene.Drawable) {
         this.addDrawable(drawableOrPlist, transformMatrix);
-      } else if (drawableOrPlist instanceof bg.scene.PolyList) {
+      } else if (drawableOrPlist instanceof bg.base.PolyList) {
         this.addPolyList(drawableOrPlist, transformMatrix);
       }
     }
@@ -13944,6 +17485,55 @@ bg.tools = {};
 })();
 
 "use strict";
+(function() {
+  bg.tools = bg.tools || {};
+  var TextureMergerImpl = function() {
+    function TextureMergerImpl() {}
+    return ($traceurRuntime.createClass)(TextureMergerImpl, {
+      mergeMaps: function(context, r, g, b, a) {
+        throw new Error("TextureMergerImpl.mergeMaps(): not implemented");
+      },
+      destroy: function(ctx) {
+        throw new Error("TextureMergerImpl.destroy(): not implemented");
+      }
+    }, {});
+  }();
+  bg.tools.TextureMergerImpl = TextureMergerImpl;
+  var TextureMerger = function($__super) {
+    function TextureMerger(context) {
+      $traceurRuntime.superConstructor(TextureMerger).call(this, context);
+      this._mergerImpl = null;
+    }
+    return ($traceurRuntime.createClass)(TextureMerger, {
+      mergeMaps: function(r, g, b, a) {
+        this._mergerImpl = this._mergerImpl || bg.Engine.Get().createTextureMergerInstance();
+        r = (r && r.map) ? r : {
+          map: bg.base.TextureCache.BlackTexture(this.context),
+          channel: 0
+        };
+        g = (g && g.map) ? g : {
+          map: bg.base.TextureCache.BlackTexture(this.context),
+          channel: 0
+        };
+        b = (b && b.map) ? b : {
+          map: bg.base.TextureCache.BlackTexture(this.context),
+          channel: 0
+        };
+        a = (a && a.map) ? a : {
+          map: bg.base.TextureCache.BlackTexture(this.context),
+          channel: 0
+        };
+        return this._mergerImpl.mergeMaps(this.context, r, g, b, a);
+      },
+      destroy: function() {
+        this._mergerImpl.destroy(this.context);
+      }
+    }, {}, $__super);
+  }(bg.app.ContextObject);
+  bg.tools.TextureMerger = TextureMerger;
+})();
+
+"use strict";
 bg.render = {};
 
 "use strict";
@@ -13987,7 +17577,9 @@ bg.render = {};
 (function() {
   bg.render.RenderPath = {
     FORWARD: 1,
-    DEFERRED: 2
+    DEFERRED: 2,
+    PBR: 3,
+    PBR_DEFERRED: 4
   };
   function getRenderPass(context, renderPath) {
     var Factory = null;
@@ -14053,6 +17645,12 @@ bg.render = {};
     shadows: {
       quality: bg.render.ShadowMapQuality.mid,
       type: bg.render.ShadowType.SOFT
+    },
+    colorCorrection: {
+      gamma: 2,
+      saturation: 1,
+      brightness: 1,
+      contrast: 1
     }
   };
   var Renderer = function($__super) {
@@ -14093,6 +17691,13 @@ bg.render = {};
         if (renderPath == bg.render.RenderPath.FORWARD || (result && !result.isSupported)) {
           result = new bg.render.ForwardRenderer(context);
         }
+        if (renderPath == bg.render.RenderPath.PBR) {
+          result = new bg.render.PBRForwardRenderer(context);
+        }
+        if (renderPath == bg.render.RenderPath.PBR_DEFERRED) {
+          bg.log("WARNING: PBR deferred renderer is not implemented. Using PBR forward renderer");
+          result = new bg.render.PBRForwardRenderer(context);
+        }
         if (result.isSupported) {
           result.create();
         } else {
@@ -14102,6 +17707,231 @@ bg.render = {};
       }}, $__super);
   }(bg.app.ContextObject);
   bg.render.Renderer = Renderer;
+})();
+
+"use strict";
+(function() {
+  function buildDefaultShader() {
+    var shader = null;
+    var vert = "\n        attribute vec3 inPosition;\n\n        varying vec3 fsPosition;\n\n        uniform mat4 inProjection;\n        uniform mat4 inView;\n\n        void main() {\n            fsPosition = inPosition;\n            gl_Position = inProjection * inView * vec4(inPosition,1.0);\n        }\n        ";
+    var frag = "\n        precision highp float;\n        varying vec3 fsPosition;\n\n        void main() {\n            gl_FragColor = vec4(1.0,0.0,0.0,1.0);\n        }\n        ";
+    shader = new bg.base.Shader(this.context);
+    shader.addShaderSource(bg.base.ShaderType.VERTEX, vert);
+    shader.addShaderSource(bg.base.ShaderType.FRAGMENT, frag);
+    status = shader.link();
+    if (!shader.status) {
+      throw new Error("Error generating default equirectangular cube shader");
+    }
+    shader.initVars(["inPosition"], ["inProjection", "inView"]);
+    this.setShader(shader, function(shader, projection, view) {
+      shader.setMatrix4("inProjection", projection);
+      shader.setMatrix4("inView", view);
+    });
+  }
+  function buildCube(size) {
+    var plist = new bg.base.PolyList(this.context);
+    var hsize = size / 2;
+    plist.vertex = [-hsize, -hsize, -hsize, -hsize, -hsize, hsize, -hsize, hsize, -hsize, -hsize, hsize, hsize, hsize, -hsize, -hsize, hsize, -hsize, hsize, hsize, hsize, -hsize, hsize, hsize, hsize];
+    plist.index = [1, 5, 7, 7, 3, 1, 0, 2, 6, 6, 4, 0, 0, 1, 3, 3, 2, 0, 5, 4, 6, 6, 7, 5, 3, 7, 6, 6, 2, 3, 5, 1, 0, 0, 4, 5];
+    plist.build();
+    return plist;
+  }
+  var s_cube = null;
+  var CubeRenderer = function($__super) {
+    function CubeRenderer(context) {
+      var size = arguments[1] !== (void 0) ? arguments[1] : 1;
+      $traceurRuntime.superConstructor(CubeRenderer).call(this, context);
+      this._size = size;
+      this._shader = null;
+      this._cube = null;
+      this._pipeline = new bg.base.Pipeline(this.context);
+    }
+    return ($traceurRuntime.createClass)(CubeRenderer, {
+      setShader: function(shader, setInputVarsCallback) {
+        this._shader = shader;
+        this._setInputVarsCallback = setInputVarsCallback;
+      },
+      get shader() {
+        if (!this._shader) {
+          buildDefaultShader.apply(this);
+        }
+        return this._shader;
+      },
+      get cube() {
+        if (!this._cube) {
+          this._cube = buildCube.apply(this, [this._size]);
+        }
+        return this._cube;
+      },
+      get projectionMatrix() {
+        if (!this._projection) {
+          this._projection = bg.Matrix4.Perspective(60.0, 1.0, 0.1, 100.0);
+        }
+        return this._projection;
+      },
+      set projectionMatrix(p) {
+        this._projection = p;
+      },
+      get viewMatrix() {
+        if (!this._viewMatrix) {
+          this._viewMatrix = bg.Matrix4.Identity();
+        }
+        return this._viewMatrix;
+      },
+      set viewMatrix(m) {
+        this._viewMatrix = m;
+      },
+      get pipeline() {
+        return this._pipeline;
+      },
+      create: function() {},
+      destroy: function() {
+        this.shader.destroy();
+        this.cube.destroy();
+        this._shader = null;
+        this._cube = null;
+      },
+      render: function() {
+        var customPipeline = arguments[0] !== (void 0) ? arguments[0] : false;
+        var prevPipeline = bg.base.Pipeline.Current();
+        if (!customPipeline) {
+          bg.base.Pipeline.SetCurrent(this._pipeline);
+          this._pipeline.clearBuffers();
+        }
+        this.shader.setActive();
+        this.shader.setInputBuffer("position", this.cube.vertexBuffer, 3);
+        this._setInputVarsCallback(this.shader, this.projectionMatrix, this.viewMatrix);
+        this.cube.draw();
+        this.shader.disableInputBuffer("position");
+        this.shader.clearActive();
+        if (!customPipeline) {
+          bg.base.Pipeline.SetCurrent(prevPipeline);
+        }
+      }
+    }, {}, $__super);
+  }(bg.app.ContextObject);
+  bg.render.CubeRenderer = CubeRenderer;
+  var EquirectangularCubeRenderer = function($__super) {
+    function EquirectangularCubeRenderer(context) {
+      var size = arguments[1] !== (void 0) ? arguments[1] : 1;
+      $traceurRuntime.superConstructor(EquirectangularCubeRenderer).call(this, context, size);
+      this._texture = null;
+    }
+    return ($traceurRuntime.createClass)(EquirectangularCubeRenderer, {
+      get texture() {
+        return this._texture;
+      },
+      set texture(t) {
+        this._texture = t;
+      },
+      create: function() {
+        var $__3 = this;
+        this.pipeline.buffersToClear = 0;
+        this.pipeline.cullFace = false;
+        var context = this.context;
+        var shader = new bg.base.Shader(context);
+        var vert = "\n            attribute vec3 inPosition;\n\n            varying vec3 fsPosition;\n\n            uniform mat4 inProjection;\n            uniform mat4 inView;\n\n            void main() {\n                fsPosition = inPosition;\n                gl_Position = inProjection * inView * vec4(inPosition,1.0);\n            }\n            ";
+        var frag = "\n            precision highp float;\n            varying vec3 fsPosition;\n            \n            uniform sampler2D inEquirectangularMap;\n\n            const vec2 invAtan = vec2(0.1591,0.3183);\n            vec2 sampleSphericalMap(vec3 v) {\n                vec2 uv = vec2(atan(v.z,v.x),asin(v.y));\n                uv *= invAtan;\n                uv += 0.5;\n                return uv;\n            }\n\n            void main() {\n                vec2 uv = sampleSphericalMap(normalize(fsPosition));\n                vec3 color = texture2D(inEquirectangularMap,uv).rgb;\n                gl_FragColor = vec4(color,1.0);\n            }\n            ";
+        shader.addShaderSource(bg.base.ShaderType.VERTEX, vert);
+        shader.addShaderSource(bg.base.ShaderType.FRAGMENT, frag);
+        if (!shader.link()) {
+          throw new Error("Error generating equirectangular cube renderer: shader compile error");
+        }
+        shader.initVars(['inPosition'], ['inProjection', 'inView', 'inEquirectangularMap']);
+        this.setShader(shader, function(sh, proj, view) {
+          sh.setMatrix4("inProjection", proj);
+          sh.setMatrix4("inView", view);
+          if ($__3.texture) {
+            sh.setTexture("inEquirectangularMap", $__3.texture, bg.base.TextureUnit.TEXTURE_0);
+          }
+        });
+      }
+    }, {}, $__super);
+  }(CubeRenderer);
+  bg.render.EquirectangularCubeRenderer = EquirectangularCubeRenderer;
+  function createIrradianceMapShader() {
+    var $__3 = this;
+    var context = this.context;
+    var shader = new bg.base.Shader(context);
+    var vert = "\n        attribute vec3 inPosition;\n\n        varying vec3 fsPosition;\n\n        uniform mat4 inProjection;\n        uniform mat4 inView;\n\n        void main() {\n            fsPosition = inPosition;\n            gl_Position = inProjection * inView * vec4(inPosition,1.0);\n        }\n        ";
+    var sampleDelta = 0.07;
+    var frag = ("\n        precision highp float;\n        varying vec3 fsPosition;\n        \n        uniform samplerCube inCubeMap;\n\n        void main() {\n            vec3 normal = normalize(fsPosition);\n            vec3 irradiance = vec3(0.0);\n\n            vec3 up    = vec3(0.0, 1.0, 0.0);\n            vec3 right = cross(up, normal);\n            up         = cross(normal, right);\n            \n            float nrSamples = 0.0; \n            for(float phi = 0.0; phi < " + 2.0 * Math.PI + "; phi += " + sampleDelta + ")\n            {\n                for(float theta = 0.0; theta < " + 0.5 * Math.PI + "; theta += " + sampleDelta + ")\n                {\n                    // spherical to cartesian (in tangent space)\n                    vec3 tangentSample = vec3(sin(theta) * cos(phi),  sin(theta) * sin(phi), cos(theta));\n                    // tangent space to world\n                    vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * normal; \n            \n                    irradiance += textureCube(inCubeMap, sampleVec).rgb * cos(theta) * sin(theta);\n                    nrSamples++;\n                }\n            }\n            irradiance = " + Math.PI + " * irradiance * (1.0 / float(nrSamples));\n\n            gl_FragColor = vec4(irradiance,1.0);\n        }\n        ");
+    shader.addShaderSource(bg.base.ShaderType.VERTEX, vert);
+    shader.addShaderSource(bg.base.ShaderType.FRAGMENT, frag);
+    if (!shader.link()) {
+      throw new Error("Error generating irradiance map cube renderer: shader compile error");
+    }
+    shader.initVars(['inPosition'], ['inProjection', 'inView', 'inCubeMap']);
+    this.setShader(shader, function(sh, proj, view) {
+      sh.setMatrix4("inProjection", proj);
+      sh.setMatrix4("inView", view);
+      if ($__3.texture) {
+        sh.setTexture("inCubeMap", $__3.texture, bg.base.TextureUnit.TEXTURE_0);
+      }
+    });
+  }
+  function createSpecularMapShader() {
+    var $__3 = this;
+    var context = this.context;
+    var shader = new bg.base.Shader(context);
+    var vert = "\n        attribute vec3 inPosition;\n\n        varying vec3 fsPosition;\n\n        uniform mat4 inProjection;\n        uniform mat4 inView;\n\n        void main() {\n            fsPosition = inPosition;\n            gl_Position = inProjection * inView * vec4(inPosition,1.0);\n        }\n        ";
+    var sampleDelta = 0.09;
+    var sampleCount = 128;
+    var frag = ("\n        precision highp float;\n        varying vec3 fsPosition;\n        \n        uniform samplerCube inCubeMap;\n        uniform float inRoughness;\n\n        float vanDerCorpus(int n, int base) {\n            float invBase = 1.0 / float(base);\n            float denom   = 1.0;\n            float result  = 0.0;\n\n            for(int i = 0; i < 16; ++i)\n            {\n                if(n > 0)\n                {\n                    denom   = mod(float(n), 2.0);\n                    result += denom * invBase;\n                    invBase = invBase / 2.0;\n                    n       = int(float(n) / 2.0);\n                }\n            }\n\n            return result;\n        }\n\n        vec2 hammersleyNoBitOps(int i, int N) {\n            return vec2(float(i)/float(N), vanDerCorpus(i, 2));\n        }\n\n        vec3 importanceSampleGGX(vec2 Xi, vec3 N, float roughness) {\n            float a = roughness*roughness;\n            \n            float phi = 2.0 * " + Math.PI + " * Xi.x;\n            float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));\n            float sinTheta = sqrt(1.0 - cosTheta*cosTheta);\n            \n            // from spherical coordinates to cartesian coordinates\n            vec3 H;\n            H.x = sin(phi) * sinTheta;\n            H.y = cos(phi) * sinTheta;\n            H.z = cosTheta;\n            \n            // from tangent-space vector to world-space sample vector\n            vec3 up        = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);\n            vec3 tangent   = normalize(cross(up, N));\n            vec3 bitangent = cross(N, tangent);\n            \n            vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;\n            return normalize(sampleVec);\n        }  \n\n        void main() {\n            vec3 N = normalize(fsPosition);    \n            vec3 R = N;\n            vec3 V = R;\n\n            float totalWeight = 0.0;   \n            vec3 prefilteredColor = vec3(0.0);     \n            for(int i = 0; i < " + sampleCount + "; ++i)\n            {\n                vec2 Xi = hammersleyNoBitOps(i, " + sampleCount + ");\n                vec3 H  = importanceSampleGGX(Xi, N, inRoughness);\n                vec3 L  = normalize(2.0 * dot(V, H) * H - V);\n\n                float NdotL = max(dot(N, L), 0.0);\n                if(NdotL > 0.0)\n                {\n                    prefilteredColor += textureCube(inCubeMap, L).rgb * NdotL;\n                    totalWeight      += NdotL;\n                }\n            }\n            prefilteredColor = prefilteredColor / totalWeight;\n\n            gl_FragColor = vec4(prefilteredColor, 1.0);\n        }\n        ");
+    shader.addShaderSource(bg.base.ShaderType.VERTEX, vert);
+    shader.addShaderSource(bg.base.ShaderType.FRAGMENT, frag);
+    if (!shader.link()) {
+      throw new Error("Error generating specular map cube renderer: shader compile error");
+    }
+    shader.initVars(['inPosition'], ['inProjection', 'inView', 'inCubeMap', 'inRoughness']);
+    this.setShader(shader, function(sh, proj, view) {
+      sh.setMatrix4("inProjection", proj);
+      sh.setMatrix4("inView", view);
+      sh.setValueFloat("inRoughness", $__3.roughness);
+      if ($__3.texture) {
+        sh.setTexture("inCubeMap", $__3.texture, bg.base.TextureUnit.TEXTURE_0);
+      }
+    });
+  }
+  bg.render.CubeMapShader = {
+    IRRADIANCE_MAP: 0,
+    SPECULAR_MAP: 1
+  };
+  var CubeMapRenderer = function($__super) {
+    function CubeMapRenderer(context) {
+      var size = arguments[1] !== (void 0) ? arguments[1] : 1;
+      $traceurRuntime.superConstructor(CubeMapRenderer).call(this, context, size);
+      this._texture = null;
+    }
+    return ($traceurRuntime.createClass)(CubeMapRenderer, {
+      get texture() {
+        return this._texture;
+      },
+      set texture(t) {
+        this._texture = t;
+      },
+      set roughness(r) {
+        this._roughness = r;
+      },
+      get roughness() {
+        return this._roughness || 0;
+      },
+      create: function() {
+        var shaderType = arguments[0] !== (void 0) ? arguments[0] : bg.render.CubeMapShader.IRRADIANCE_MAP;
+        this.pipeline.buffersToClear = 0;
+        this.pipeline.cullFace = false;
+        switch (shaderType) {
+          case bg.render.CubeMapShader.IRRADIANCE_MAP:
+            createIrradianceMapShader.apply(this);
+            break;
+          case bg.render.CubeMapShader.SPECULAR_MAP:
+            createSpecularMapShader.apply(this);
+            break;
+        }
+      }
+    }, {}, $__super);
+  }(CubeRenderer);
+  bg.render.CubeMapRenderer = CubeMapRenderer;
 })();
 
 "use strict";
@@ -14177,7 +18007,7 @@ bg.render = {};
             this._fragmentShaderSource.addFunction(lib().functions.blur.textureDownsample);
             this._fragmentShaderSource.addFunction(lib().functions.blur.blur);
             this._fragmentShaderSource.addFunction(lib().functions.blur.glowBlur);
-            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 shin = texture2D(inShininessColor,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\n\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\troughness *= 250.0 * ssrtScale;\n\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb + shin.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
+            this._fragmentShaderSource.setMainBody("\n\t\t\t\t\tvec4 lighting = clamp(texture2D(inLighting,fsTexCoord),vec4(0.0),vec4(1.0));\n\t\t\t\t\tvec4 diffuse = texture2D(inDiffuse,fsTexCoord);\n\t\t\t\t\tvec4 pos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\tvec4 shin = texture2D(inShininessColor,fsTexCoord);\n\t\t\t\t\tvec4 ssao = blur(inSSAO,fsTexCoord,inSSAOBlur * 20,inViewSize);\n\t\t\t\t\tvec4 material = texture2D(inMaterial,fsTexCoord);\n\n\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\t// The roughness parameter is stored on A component, inside specular map\n\t\t\t\t\t\n\t\t\t\t\tvec4 opaqueDepth = texture2D(inOpaqueDepthMap,fsTexCoord);\n\t\t\t\t\tif (pos.z<opaqueDepth.z && opaqueDepth.w<1.0) {\n\t\t\t\t\t\tdiscard;\n\t\t\t\t\t}\n\t\t\t\t\telse {\n\t\t\t\t\t\tfloat roughness = specular.a;\n\t\t\t\t\t\tfloat ssrtScale = inSSRTScale;\n\t\t\t\t\t\troughness *= 250.0 * ssrtScale;\n\t\t\t\t\t\tvec4 reflect = blur(inReflection,fsTexCoord,int(roughness),inViewSize * ssrtScale);\n\n\t\t\t\t\t\tfloat reflectionAmount = material.b;\n\t\t\t\t\t\tvec3 finalColor = lighting.rgb * (1.0 - reflectionAmount);\n\t\t\t\t\t\tfinalColor += reflect.rgb * reflectionAmount * diffuse.rgb + shin.rgb;\n\t\t\t\t\t\tfinalColor *= ssao.rgb;\n\t\t\t\t\t\tgl_FragColor = vec4(finalColor,diffuse.a);\n\t\t\t\t\t}");
           }
         }
         return this._fragmentShaderSource;
@@ -14482,13 +18312,13 @@ bg.render = {};
       get texture() {
         return this.maps.mix;
       },
-      draw: function(scene, camera) {
+      draw: function(renderQueue, scene, camera) {
         g_ssaoScale = this.settings.ambientOcclusion.scale || 1;
         g_ssrtScale = this.settings.raytracer.scale || 0.5;
         this.matrixState.projectionMatrixStack.set(camera.projection);
         this.matrixState.viewMatrixStack.set(camera.viewMatrix);
         this.matrixState.modelMatrixStack.identity();
-        this.performDraw(scene, camera);
+        this.performDraw(renderQueue, scene, camera);
       },
       get maps() {
         return this._surfaces;
@@ -14499,16 +18329,29 @@ bg.render = {};
         var vp = camera.viewport;
         this.maps.resize(new bg.Size2D(vp.width, vp.height));
       },
-      performDraw: function(scene, camera) {
+      performDraw: function(renderQueue, scene, camera) {
         var $__2 = this;
+        var activeQueue = this._opacityLayer == bg.base.OpacityLayer.OPAQUE ? renderQueue.opaqueQueue : renderQueue.transparentQueue;
+        var performRenderQueue = function(queue, pipeline) {
+          $__2.matrixState.modelMatrixStack.push();
+          $__2.matrixState.viewMatrixStack.push();
+          queue.forEach(function(objectData) {
+            $__2.matrixState.modelMatrixStack.set(objectData.modelMatrix);
+            $__2.matrixState.viewMatrixStack.set(objectData.viewMatrix);
+            pipeline.effect.material = objectData.material;
+            pipeline.draw(objectData.plist);
+          });
+          $__2.matrixState.modelMatrixStack.pop();
+          $__2.matrixState.viewMatrixStack.pop();
+        };
         bg.base.Pipeline.SetCurrent(this._gbufferUbyte);
         this._gbufferUbyte.viewport = camera.viewport;
         this._gbufferUbyte.clearBuffers();
-        scene.accept(this.ubyteVisitor);
+        performRenderQueue(activeQueue, this._gbufferUbyte);
         bg.base.Pipeline.SetCurrent(this._gbufferFloat);
         this._gbufferFloat.viewport = camera.viewport;
         this._gbufferFloat.clearBuffers();
-        scene.accept(this.floatVisitor);
+        performRenderQueue(activeQueue, this._gbufferFloat);
         this._lighting.viewport = camera.viewport;
         this._lighting.clearcolor = bg.Color.White();
         bg.base.Pipeline.SetCurrent(this._lighting);
@@ -14618,6 +18461,7 @@ bg.render = {};
       },
       create: function() {
         var ctx = this.context;
+        this._renderQueueVisitor = new bg.scene.RenderQueueVisitor();
         this._opaqueLayer = new bg.render.DeferredRenderLayer(ctx);
         this._opaqueLayer.settings = this.settings;
         this._opaqueLayer.createOpaque();
@@ -14676,8 +18520,16 @@ bg.render = {};
           this._opaqueLayer.resize(camera);
           this._transparentLayer.resize(camera);
         }
-        this._opaqueLayer.draw(scene, camera);
-        this._transparentLayer.draw(scene, camera);
+        this._renderQueueVisitor.modelMatrixStack.identity();
+        this._renderQueueVisitor.projectionMatrixStack.push();
+        this._renderQueueVisitor.projectionMatrixStack.set(camera.projection);
+        this._renderQueueVisitor.viewMatrixStack.set(camera.viewMatrix);
+        this._renderQueueVisitor.renderQueue.beginFrame(camera.worldPosition);
+        scene.accept(this._renderQueueVisitor);
+        this._renderQueueVisitor.renderQueue.sortTransparentObjects();
+        this._opaqueLayer.draw(this._renderQueueVisitor.renderQueue, scene, camera);
+        this._transparentLayer.draw(this._renderQueueVisitor.renderQueue, scene, camera);
+        this._renderQueueVisitor.projectionMatrixStack.pop();
         bg.base.Pipeline.SetCurrent(this._mixPipeline);
         this._mixPipeline.viewport = camera.viewport;
         this._mixPipeline.clearColor = bg.Color.Black();
@@ -14760,18 +18612,23 @@ bg.render = {};
       get shadowMap() {
         return this._shadowMap;
       },
-      draw: function(scene, camera) {
+      draw: function(renderQueue, scene, camera) {
+        var $__1 = this;
+        var activeQueue = this._pipeline.opacityLayer == bg.base.OpacityLayer.OPAQUE ? renderQueue.opaqueQueue : renderQueue.transparentQueue;
+        this.matrixState.modelMatrixStack.push();
+        activeQueue.forEach(function(objectData) {
+          $__1.matrixState.modelMatrixStack.set(objectData.modelMatrix);
+          $__1.matrixState.viewMatrixStack.set(objectData.viewMatrix);
+        });
+        this.matrixState.modelMatrixStack.pop();
         bg.base.Pipeline.SetCurrent(this._pipeline);
         this._pipeline.viewport = camera.viewport;
         if (camera.clearBuffers != 0) {
           this._pipeline.clearBuffers();
         }
         this.matrixState.projectionMatrixStack.set(camera.projection);
-        this.matrixState.viewMatrixStack.set(camera.viewMatrix);
-        bg.base.Pipeline.SetCurrent(this._pipeline);
-        this._pipeline.viewport = camera.viewport;
         this.willDraw(scene, camera);
-        this.performDraw(scene, camera);
+        this.performDraw(renderQueue, scene, camera);
       },
       willDraw: function(scene, camera) {
         var $__1 = this;
@@ -14787,9 +18644,18 @@ bg.render = {};
           this._pipeline.effect.shadowMap = this._shadowMap;
         }
       },
-      performDraw: function(scene, camera) {
+      performDraw: function(renderQueue, scene, camera) {
+        var $__1 = this;
         this._pipeline.viewport = camera.viewport;
-        scene.accept(this.drawVisitor);
+        var activeQueue = this._pipeline.opacityLayer == bg.base.OpacityLayer.OPAQUE ? renderQueue.opaqueQueue : renderQueue.transparentQueue;
+        this.matrixState.modelMatrixStack.push();
+        activeQueue.forEach(function(objectData) {
+          $__1.matrixState.modelMatrixStack.set(objectData.modelMatrix);
+          $__1.matrixState.viewMatrixStack.set(objectData.viewMatrix);
+          $__1._pipeline.effect.material = objectData.material;
+          $__1._pipeline.draw(objectData.plist);
+        });
+        this.matrixState.modelMatrixStack.pop();
       }
     }, {}, $__super);
   }(bg.render.RenderLayer);
@@ -14813,19 +18679,23 @@ bg.render = {};
         this._shadowMap = new bg.base.ShadowMap(ctx);
         this._shadowMap.size = new bg.Vector2(2048);
         this.settings.shadows.cascade = bg.base.ShadowCascade.NEAR;
+        this._renderQueueVisitor = new bg.scene.RenderQueueVisitor;
       },
       draw: function(scene, camera) {
         var shadowLight = null;
         var lightSources = [];
+        var enabledLights = 0;
         bg.scene.Light.GetActiveLights().some(function(lightComponent, index) {
           if (index >= bg.base.MAX_FORWARD_LIGHTS)
             return true;
-          if (lightComponent.light && lightComponent.light.enabled) {
+          if (lightComponent.light && lightComponent.light.enabled && lightComponent.node && lightComponent.node.enabled) {
+            enabledLights++;
             lightSources.push(lightComponent);
-            if (lightComponent.light.type != bg.base.LightType.POINT && lightComponent.light.castShadows) {
+            if (!shadowLight && lightComponent.light.type != bg.base.LightType.POINT && lightComponent.light.castShadows) {
               shadowLight = lightComponent;
             }
           }
+          return enabledLights >= bg.base.MAX_FORWARD_LIGHTS;
         });
         if (shadowLight) {
           if (this._shadowMap.size.x != this.settings.shadows.quality) {
@@ -14838,10 +18708,21 @@ bg.render = {};
           this._opaqueLayer.shadowMap = this._shadowMap;
           this._transparentLayer.setLightSources(lightSources);
           this._transparentLayer.shadowMap = this._shadowMap;
+        } else {
+          this._opaqueLayer.setLightSources([]);
+          this._opaqueLayer.shadowMap = null;
+          this._transparentLayer.setLightSources([]);
+          this._transparentLayer.shadowMap = null;
         }
+        this._renderQueueVisitor.projectionMatrixStack.set(camera.projection);
+        this._renderQueueVisitor.modelMatrixStack.identity();
+        this._renderQueueVisitor.viewMatrixStack.set(camera.viewMatrix);
+        this._renderQueueVisitor.renderQueue.beginFrame(camera.worldPosition);
+        scene.accept(this._renderQueueVisitor);
+        this._renderQueueVisitor.renderQueue.sortTransparentObjects();
         this._opaqueLayer.pipeline.clearColor = this.clearColor;
-        this._opaqueLayer.draw(scene, camera);
-        this._transparentLayer.draw(scene, camera);
+        this._opaqueLayer.draw(this._renderQueueVisitor.renderQueue, scene, camera);
+        this._transparentLayer.draw(this._renderQueueVisitor.renderQueue, scene, camera);
       },
       getImage: function(scene, camera, width, height) {
         var prevViewport = camera.viewport;
@@ -15282,6 +19163,487 @@ bg.render = {};
     }, {}, $__super);
   }(bg.base.TextureEffect);
   bg.render.LightingEffect = LightingEffect;
+})();
+
+"use strict";
+(function() {
+  var shaders = {};
+  function lib() {
+    return bg.base.ShaderLibrary.Get();
+  }
+  var s_vertexSource = null;
+  var s_fragmentSources = [];
+  var s_supportedTextureUnits = 0;
+  function vertexShaderSource() {
+    if (!s_vertexSource) {
+      s_vertexSource = new bg.base.ShaderSource(bg.base.ShaderType.VERTEX);
+      s_vertexSource.addParameter([lib().inputs.buffers.vertex, lib().inputs.buffers.normal, lib().inputs.buffers.tangent, lib().inputs.buffers.tex0, lib().inputs.buffers.tex1]);
+      s_vertexSource.addParameter(lib().inputs.matrix.all);
+      s_vertexSource.addParameter([{
+        name: "inLightProjectionMatrix",
+        dataType: "mat4",
+        role: "value"
+      }, {
+        name: "inLightViewMatrix",
+        dataType: "mat4",
+        role: "value"
+      }]);
+      s_vertexSource.addParameter([{
+        name: "fsTex0Coord",
+        dataType: "vec2",
+        role: "out"
+      }, {
+        name: "fsTex1Coord",
+        dataType: "vec2",
+        role: "out"
+      }, {
+        name: "fsNormal",
+        dataType: "vec3",
+        role: "out"
+      }, {
+        name: "fsTangent",
+        dataType: "vec3",
+        role: "out"
+      }, {
+        name: "fsBitangent",
+        dataType: "vec3",
+        role: "out"
+      }, {
+        name: "fsPosition",
+        dataType: "vec3",
+        role: "out"
+      }, {
+        name: "fsVertexPosFromLight",
+        dataType: "vec4",
+        role: "out"
+      }, {
+        name: "fsTangentViewPos",
+        dataType: "vec3",
+        role: "out"
+      }, {
+        name: "fsTangentFragPos",
+        dataType: "vec3",
+        role: "out"
+      }]);
+      if (bg.Engine.Get().id == "webgl1") {
+        s_vertexSource.setMainBody("\n                    mat4 ScaleMatrix = mat4(0.5, 0.0, 0.0, 0.0,\n                        0.0, 0.5, 0.0, 0.0,\n                        0.0, 0.0, 0.5, 0.0,\n                        0.5, 0.5, 0.5, 1.0);\n\n                    vec4 viewPos = inViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n                    gl_Position = inProjectionMatrix * viewPos;\n\n                    fsNormal = normalize((inNormalMatrix * vec4(inNormal,1.0)).xyz);\n                    fsTangent = normalize((inNormalMatrix * vec4(inTangent,1.0)).xyz);\n                    fsBitangent = cross(fsNormal,fsTangent);\n\n                    fsVertexPosFromLight = ScaleMatrix * inLightProjectionMatrix * inLightViewMatrix * inModelMatrix * vec4(inVertex,1.0);\n\n                    fsTex0Coord = inTex0;\n                    fsTex1Coord = inTex1;\n                    fsPosition = viewPos.rgb;\n\n                    mat3 TBN = mat3(\n                        fsTangent.x, fsBitangent.x, fsNormal.x,\n                        fsTangent.y, fsBitangent.y, fsNormal.y,\n                        fsTangent.z, fsBitangent.z, fsNormal.z\n                    );\n                    fsTangentViewPos = TBN * vec3(0.0); // Using view space, the view position is at 0,0,0\n                    fsTangentFragPos = TBN * fsPosition;\n                ");
+      }
+    }
+    return s_vertexSource;
+  }
+  function fragmentShaderSource(numLights) {
+    if (!s_fragmentSources[numLights - 1] && numLights > 0) {
+      s_fragmentSources[numLights - 1] = new bg.base.ShaderSource(bg.base.ShaderType.FRAGMENT);
+      var fragSrc = s_fragmentSources[numLights - 1];
+      fragSrc.addParameter(lib().inputs.pbr.material.all);
+      fragSrc.addParameter(lib().inputs.pbr.lightingForward.all);
+      fragSrc.addParameter(lib().inputs.pbr.shadows.all);
+      fragSrc.addParameter(lib().inputs.pbr.colorCorrection.all);
+      fragSrc.addParameter([{
+        name: "fsTex0Coord",
+        dataType: "vec2",
+        role: "in"
+      }, {
+        name: "fsTex1Coord",
+        dataType: "vec2",
+        role: "in"
+      }, {
+        name: "fsNormal",
+        dataType: "vec3",
+        role: "in"
+      }, {
+        name: "fsTangent",
+        dataType: "vec3",
+        role: "in"
+      }, {
+        name: "fsBitangent",
+        dataType: "vec3",
+        role: "in"
+      }, {
+        name: "fsPosition",
+        dataType: "vec3",
+        role: "in"
+      }, {
+        name: "fsVertexPosFromLight",
+        dataType: "vec4",
+        role: "in"
+      }, {
+        name: "fsTangentViewPos",
+        dataType: "vec3",
+        role: "in"
+      }, {
+        name: "fsTangentFragPos",
+        dataType: "vec3",
+        role: "in"
+      }, {
+        name: "inIrradianceMapIntensity",
+        dataType: "float",
+        role: "value"
+      }, {
+        name: "inIrradianceMap",
+        dataType: "samplerCube",
+        role: "value"
+      }, {
+        name: "inSpecularMap0",
+        dataType: "samplerCube",
+        role: "value"
+      }, {
+        name: "inSpecularMap1",
+        dataType: "samplerCube",
+        role: "value"
+      }, {
+        name: "inSpecularMap2",
+        dataType: "samplerCube",
+        role: "value"
+      }, {
+        name: "inBRDF",
+        dataType: "sampler2D",
+        role: "value"
+      }, {
+        name: "inViewMatrix",
+        dataType: "mat4",
+        role: "value"
+      }, {
+        name: "inShadowLightDirection",
+        dataType: "vec3",
+        role: "value"
+      }, {
+        name: "inShadowLightIndex",
+        dataType: "int",
+        role: "value"
+      }]);
+      fragSrc.addFunction(lib().functions.pbr.material.all);
+      fragSrc.addFunction(lib().functions.pbr.utils.unpack);
+      fragSrc.addFunction(lib().functions.pbr.utils.pack);
+      fragSrc.addFunction(lib().functions.pbr.utils.random);
+      fragSrc.addFunction(lib().functions.pbr.utils.gammaCorrection);
+      fragSrc.addFunction(lib().functions.pbr.utils.inverseGammaCorrection);
+      fragSrc.addFunction(lib().functions.pbr.lighting.all);
+      fragSrc.addFunction(lib().functions.colorCorrection.all);
+      if (bg.Engine.Get().id == "webgl1") {
+        fragSrc.addFunction({
+          returnType: "vec3",
+          name: "fresnelSchlick",
+          params: {
+            cosTheta: "float",
+            F0: "vec3"
+          },
+          body: "\n                    return max(F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0), 0.0);\n                    "
+        });
+        fragSrc.addFunction({
+          returnType: "vec3",
+          name: "fresnelSchlickRoughness",
+          params: {
+            cosTheta: "float",
+            F0: "vec3",
+            roughness: "float"
+          },
+          body: "\n                    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);\n                    "
+        });
+        fragSrc.addFunction({
+          returnType: "float",
+          name: "distributionGGX",
+          params: {
+            N: "vec3",
+            H: "vec3",
+            roughness: "float"
+          },
+          body: ("\n                    float a = roughness * roughness;\n                    float a2 = a * a;\n                    float NdotH = max(dot(N,H), 0.0);\n                    float NdotH2 = NdotH * NdotH;\n\n                    float num = a2;\n                    float denom = (NdotH2 * (a2 - 1.0) +  1.0);\n                    denom = " + Math.PI + " * denom * denom;\n\n                    return num / denom;\n                    ")
+        });
+        fragSrc.addFunction({
+          returnType: "float",
+          name: "geometrySchlickGGX",
+          params: {
+            NdotV: "float",
+            roughness: "float"
+          },
+          body: "\n                    float r = (roughness + 1.0);\n                    float k = (r*r) / 8.0;\n                    return NdotV / NdotV * (1.0 - k) + k;\n                    "
+        });
+        fragSrc.addFunction({
+          returnType: "float",
+          name: "geometrySmith",
+          params: {
+            N: "vec3",
+            V: "vec3",
+            L: "vec3",
+            roughness: "float"
+          },
+          body: "\n                    float NdotV = dot(N, V);\n                    float NdotL = dot(N, L);\n                    float ggx2 = geometrySchlickGGX(NdotV, roughness);\n                    float ggx1 = geometrySchlickGGX(NdotL, roughness);\n\n                    return ggx1 * ggx2;\n                    "
+        });
+        var maxReflectionLod = 4;
+        var irradianceBody = ("\n                vec3 N = normalize(normal);\n                vec3 V = normalize(camPos - worldPos);\n                roughness = max(roughness,0.0001);    // Prevent some artifacts\n\n                vec3 F0 = vec3(0.04); \n                F0 = mix(F0, albedo, metallic);\n\n                // reflectance equation\n                vec3 Lo = vec3(0.0);\n                for(int i = 0; i < " + numLights + "; ++i) \n                {\n                    // calculate per-light radiance\n                    vec3 L = vec3(0.0);\n                    vec3 H = vec3(0.0);\n\n                    float intensity = 1.0;\n                    if (inLightType[i]==" + bg.base.LightType.POINT + ") {\n                        L = normalize(inLightPosition[i] - worldPos);\n                        H = normalize(V + L);\n                    }\n                    else if (inLightType[i]==" + bg.base.LightType.SPOT + ") {\n                        float theta = dot(normalize(inLightPosition[i] - worldPos),normalize(-inLightDirection[i]));\n                        if (theta > inLightSpotCutoff[i]) {\n                            L = normalize(-inLightDirection[i]);\n                            H = normalize(V + L);\n                            float epsilon = inLightSpotCutoff[i] - inLightOuterSpotCutoff[i];\n                            intensity = 1.0 - clamp((theta - inLightOuterSpotCutoff[i]) / epsilon, 0.0, 1.0);\n                        }\n                        else {\n                            //Lo += inLightAmbient[i].rgb * albedo;\n                            if (i==inShadowLightIndex) {\n                                shadowColor = vec3(1.0);\n                            }\n                            else {\n                                shadowColor *= vec3(1.0/" + numLights + ".0 );\n                            } \n                            \n                            continue;\n                        }\n                    }\n                    else if (inLightType[i]==" + bg.base.LightType.DIRECTIONAL + ") {\n                        L = normalize(-inLightDirection[i]);\n                        H = normalize(V + L);\n                    }\n                    \n                    float distance    = length(inLightPosition[i] - worldPos);\n                    float attenuation = 1.0 / distance * distance;\n                    vec3 radiance     = inLightDiffuse[i].rgb * attenuation * inLightIntensity[i];\n                    \n                    // cook-torrance brdf\n                    float NDF = distributionGGX(N, H, roughness);        \n                    float G   = geometrySmith(N, V, L, roughness);\n\n                    vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);\n                    \n                    vec3 kS = F;\n                    vec3 kD = vec3(1.0) - kS;\n                    kD *= 1.0 - metallic;\t  \n                    \n                    vec3 numerator    = NDF * G * F;\n                    float denominator = 4.0 * max(dot(N, V), 0.4) * max(dot(N, L), 0.4);\n                    vec3 specular     = numerator / max(denominator, 0.0001) * pow(shadowColor,vec3(30.0)) * inLightIntensity[i];\n\n                    // add to outgoing radiance Lo\n                    float NdotL = max(dot(N, L), 0.0);\n                    vec3 color = (kD * albedo / " + Math.PI + " + specular) * radiance * NdotL * intensity;\n                    // vec3 ambient = inLightAmbient[i].rgb * albedo;\n                    // vec3 shadowAmbient = clamp(shadowColor,ambient,vec3(1.0));\n                    // color = min(color,shadowAmbient);\n                    Lo += clamp(color,0.0,1.0);\n                } \n                vec3 kS = fresnelSchlickRoughness(max(dot(N,V), 0.001), F0, roughness);\n\n                vec3 kD = 1.0 - kS;\n                kD *= 1.0 - metallic;\n\n                vec3 R = reflect(worldPos - camPos, N);\n\n                vec3 specMap0 = textureCube(inSpecularMap0,R).rgb;\n                vec3 specMap1 = textureCube(inSpecularMap1,R).rgb;\n                vec3 specMap2 = textureCube(" + (s_supportedTextureUnits > 8 ? "inSpecularMap2" : "inSpecularMap1") + ",R).rgb;\n\n                vec3 prefilteredColor = vec3(0.0);\n                if (roughness<" + (s_supportedTextureUnits > 8 ? 0.333 : 0.5) + ") {\n                    prefilteredColor = mix(specMap0,specMap1,roughness/" + (s_supportedTextureUnits > 8 ? 0.333 : 0.5) + ");\n                }\n                else {\n                    prefilteredColor = mix(specMap1,specMap2,(roughness - " + (s_supportedTextureUnits > 8 ? 0.333 : 0.5) + ") / " + (s_supportedTextureUnits > 8 ? 0.666 : 0.5) + ");\n                }\n            \n                vec2 envBRDF = texture2D(inBRDF, vec2(min(max(dot(N,V), 0.0), 0.99), min(roughness,0.99))).rg;\n                vec3 specular = prefilteredColor * (F0 * envBRDF.x + envBRDF.y) * shadowColor * fresnelColor;\n\n                vec3 irradiance = textureCube(inIrradianceMap,N).rgb * inIrradianceMapIntensity;\n\t            vec3 diffuse = (irradiance * 1.0/shadowColor) * (albedo * shadowColor) * shadowColor;\n\t            vec3 irradianceAmbient = (kD * diffuse + specular); // TODO: * ao;\n            \n                return vec4(irradianceAmbient + Lo, 1.0);\n                ");
+        fragSrc.addFunction({
+          returnType: "vec4",
+          name: "irradiance",
+          params: {
+            normal: "vec3",
+            fresnelColor: "vec3",
+            camPos: "vec3",
+            albedo: "vec3",
+            worldPos: "vec3",
+            metallic: "float",
+            roughness: "float",
+            shadowColor: "vec3",
+            texCoord: "vec2"
+          },
+          body: irradianceBody
+        });
+        fragSrc.setMainBody(("\n                    // Shader for " + numLights + " lights \n\n                    vec2 diffuseUV = inDiffuseUV==0 ? fsTex0Coord : fsTex1Coord;\n                    vec2 metallicUV = inMetallicUV==0 ? fsTex0Coord : fsTex1Coord;\n                    vec2 roughnessUV = inRoughnessUV==0 ? fsTex0Coord : fsTex1Coord;\n                    vec2 fresnelUV = inFresnelUV==0 ? fsTex0Coord : fsTex1Coord;\n                    vec2 heightUV = inHeightUV==0 ? fsTex0Coord : fsTex1Coord;\n                    vec2 aoUV = inAmbientOcclussionUV==0 ? fsTex0Coord : fsTex1Coord;\n                    vec2 lightEmissionUV = inLightEmissionUV==0 ? fsTex0Coord : fsTex1Coord;\n                    vec2 normalUV = inNormalUV==0 ? fsTex0Coord : fsTex1Coord;\n                    \n                    vec3 viewDir = -normalize(fsTangentFragPos - fsTangentViewPos);\n                    float height = samplerColor(inHeighMetallicRoughnessAO,heightUV,inHeightScale).x;\n                    vec2 texCoords = parallaxMapping(-height,diffuseUV, viewDir, inHeightIntensity, inHeightScale);\n\n                    metallicUV = parallaxMapping(-height,metallicUV,viewDir,inHeightIntensity,inHeightScale);\n                    roughnessUV = parallaxMapping(-height,roughnessUV,viewDir,inHeightIntensity,inHeightScale);\n                    normalUV = parallaxMapping(-height,normalUV,viewDir,inHeightIntensity,inHeightScale);\n\n                    vec4 hmrao = samplerColor(inHeighMetallicRoughnessAO,texCoords,inDiffuseScale);\n                    float metallic = samplerColor(inHeighMetallicRoughnessAO,metallicUV,inMetallicScale).y;\n                    float roughness = samplerColor(inHeighMetallicRoughnessAO,roughnessUV,inRoughnessScale).z;\n                    float ao = texture2D(inHeighMetallicRoughnessAO,aoUV).w;\n\n                    vec4 diffuseRaw = samplerColor(inDiffuse,texCoords,inDiffuseScale);\n                    vec4 diffuse = inverseGammaCorrection(diffuseRaw,inGammaCorrection);\n                    if (diffuse.a>inAlphaCutoff) {\n                        if (inUnlit==true) {\n                            gl_FragColor = diffuseRaw;\n                        }\n                        else {\n                            vec3 normalMap = samplerNormal(inNormalMap,normalUV,inNormalScale);\n                            vec3 frontFacingNormal = fsNormal;\n                            // There is a bug on Mac Intel GPUs that produces an invalid value of gl_FrontFacing\n                            //if (!gl_FrontFacing) {\n                                //frontFacingNormal *= -1.0;\n                            //}\n        \n                            vec3 combinedNormal = combineNormalWithMap(frontFacingNormal,fsTangent,fsBitangent,normalMap);   \n        \n                            vec4 shadowColor = vec4(1.0);\n                            if (inReceiveShadows) {\n                                shadowColor = getShadowColor(fsVertexPosFromLight,inShadowMap,inShadowMapSize,inShadowType,inShadowStrength * (1.0 - metallic * 1.5),inShadowBias,inShadowColor);\n                            }\n        \n                            vec4 lighting = irradiance(combinedNormal,inFresnel.rgb,vec3(0.0),diffuse.rgb,fsPosition,metallic,roughness,shadowColor.rgb,texCoords);\n        \n                            vec4 result = vec4(lighting.rgb * ao, 1.0);\n        \n                            result = gammaCorrection(result,inGammaCorrection);\n                            gl_FragColor = vec4((brightnessMatrix(inBrightness - 1.0) *\n                                    contrastMatrix(inContrast) *\n                                    saturationMatrix(inSaturation) *\n                                    result).rgb, diffuse.a);\n                        }\n                    }\n                    else {\n                        discard;\n                    }\n                "));
+      }
+    }
+    return s_fragmentSources[numLights - 1];
+  }
+  var s_brdfPrecomputedTextureLoad = false;
+  var s_brdfPrecomputedTexture = null;
+  var PBRForwardEffect = function($__super) {
+    function PBRForwardEffect(context) {
+      $traceurRuntime.superConstructor(PBRForwardEffect).call(this, context);
+      this._material = null;
+      s_supportedTextureUnits = context.getParameter(context.MAX_TEXTURE_IMAGE_UNITS);
+      if (s_supportedTextureUnits < 8) {
+        throw new Error("Could not use PBR materials: not enought texture units available");
+      }
+      this._light = null;
+      this._lightTransform = bg.Matrix4.Identity();
+      this._lightArray = new bg.base.LightArray();
+      this._shadowMap = null;
+      for (var i = 1; i <= bg.base.MAX_FORWARD_LIGHTS; ++i) {
+        this.setupShaderSource([vertexShaderSource(), fragmentShaderSource(i)]);
+      }
+      if (!s_brdfPrecomputedTextureLoad) {
+        s_brdfPrecomputedTextureLoad = true;
+        s_brdfPrecomputedTexture = bg.base.TextureCache.PrecomputedBRDFLookupTexture(context);
+      }
+      this._colorCorrection = this._colorCorrection || {
+        gamma: 2.0,
+        saturation: 1,
+        brightness: 1,
+        contrast: 1
+      };
+    }
+    return ($traceurRuntime.createClass)(PBRForwardEffect, {
+      get vertexSourceCode() {
+        return s_vertexSource;
+      },
+      get fragmentSourceCodes() {
+        return s_fragmentSources;
+      },
+      get material() {
+        return this._material;
+      },
+      set material(m) {
+        this._material = m;
+      },
+      get colorCorrection() {
+        return this._colorCorrection;
+      },
+      set colorCorrection(cc) {
+        this._colorCorrection = cc;
+      },
+      get light() {
+        return this._light;
+      },
+      set light(l) {
+        this._light = l;
+        this._lightArray.reset();
+      },
+      get lightTransform() {
+        return this._lightTransform;
+      },
+      set lightTransform(trx) {
+        this._lightTransform = trx;
+        this._lightArray.reset();
+      },
+      get lightArray() {
+        return this._lightArray;
+      },
+      set shadowMap(sm) {
+        this._shadowMap = sm;
+      },
+      get shadowMap() {
+        return this._shadowMap;
+      },
+      setActive: function() {
+        var numLights = 0;
+        if (this._light) {
+          this.lightArray.reset();
+          this.lightArray.push(this.light, this.lightTransform);
+        }
+        numLights = Math.min(this.lightArray.numLights, bg.base.MAX_FORWARD_LIGHTS);
+        if (numLights > 0) {
+          this.setCurrentShader(numLights - 1);
+        }
+        $traceurRuntime.superGet(this, PBRForwardEffect.prototype, "setActive").call(this);
+      },
+      beginDraw: function() {
+        if (this.lightArray.numLights && this.lightArray.numLights < bg.base.MAX_FORWARD_LIGHTS) {
+          var matrixState = bg.base.MatrixState.Current();
+          var viewMatrix = new bg.Matrix4(matrixState.viewMatrixStack.matrixConst);
+          this.lightArray.updatePositionAndDirection(viewMatrix);
+          var lightTransform = this.shadowMap ? this.shadowMap.viewMatrix : this.lightArray.shadowLightTransform;
+          this.shader.setMatrix4("inLightProjectionMatrix", this.shadowMap ? this.shadowMap.projection : this.lightArray.shadowLight.projection);
+          var shadowColor = this.shadowMap ? this.shadowMap.shadowColor : bg.Color.Transparent();
+          var blackTex = bg.base.TextureCache.BlackTexture(this.context);
+          this.shader.setMatrix4("inLightViewMatrix", lightTransform);
+          this.shader.setValueInt("inShadowType", this._shadowMap ? this._shadowMap.shadowType : 0);
+          this.shader.setTexture("inShadowMap", this._shadowMap ? this._shadowMap.texture : blackTex, bg.base.TextureUnit.TEXTURE_0);
+          this.shader.setVector2("inShadowMapSize", this._shadowMap ? this._shadowMap.size : new bg.Vector2(32, 32));
+          this.shader.setValueFloat("inShadowStrength", this.lightArray.shadowLight.shadowStrength);
+          this.shader.setVector4("inShadowColor", shadowColor);
+          this.shader.setValueFloat("inShadowBias", this.lightArray.shadowLight.shadowBias);
+          this.shader.setValueInt("inCastShadows", this.lightArray.shadowLight.castShadows);
+          this.shader.setVector3("inShadowLightDirection", this.lightArray.shadowLightDirection);
+          this.shader.setValueInt("inShadowLightIndex", this.lightArray.shadowLightIndex);
+          this.shader.setValueIntPtr('inLightType', this.lightArray.type);
+          this.shader.setVector4Ptr('inLightDiffuse', this.lightArray.diffuse);
+          this.shader.setVector4Ptr('inLightSpecular', this.lightArray.specular);
+          this.shader.setVector3Ptr('inLightPosition', this.lightArray.position);
+          this.shader.setVector3Ptr('inLightDirection', this.lightArray.direction);
+          this.shader.setValueFloatPtr('inLightIntensity', this.lightArray.intensity);
+          this.shader.setValueFloatPtr('inLightSpotCutoff', this.lightArray.cosSpotCutoff);
+          this.shader.setValueFloatPtr('inLightOuterSpotCutoff', this.lightArray.cosSpotExponent);
+          this.shader.setValueFloat('inGammaCorrection', this.colorCorrection.gamma);
+          this.shader.setValueFloat('inSaturation', this.colorCorrection.saturation);
+          this.shader.setValueFloat('inBrightness', this.colorCorrection.brightness);
+          this.shader.setValueFloat('inContrast', this.colorCorrection.contrast);
+        }
+      },
+      setupVars: function() {
+        var material = this.material;
+        if (!(material instanceof bg.base.PBRMaterial) && !material.pbr) {
+          material.pbr = material.pbr || bg.base.PBRMaterial.ImportFromLegacyMaterial(this.context, material);
+          material = material.pbr;
+        } else if (material.pbr) {
+          material.pbr.updateFromLegacyMaterial(this.context, material);
+          material = material.pbr;
+        }
+        if (material instanceof bg.base.PBRMaterial) {
+          var matrixState = bg.base.MatrixState.Current();
+          var viewMatrix = new bg.Matrix4(matrixState.viewMatrixStack.matrixConst);
+          this.shader.setMatrix4('inModelMatrix', matrixState.modelMatrixStack.matrixConst);
+          this.shader.setMatrix4('inViewMatrix', viewMatrix);
+          this.shader.setMatrix4('inProjectionMatrix', matrixState.projectionMatrixStack.matrixConst);
+          this.shader.setMatrix4('inNormalMatrix', matrixState.normalMatrix);
+          this.shader.setMatrix4('inViewMatrixInv', matrixState.viewMatrixInvert);
+          var shaderParams = material.getShaderParameters(this.context);
+          this.shader.setVector2("inDiffuseScale", shaderParams.diffuseScale);
+          this.shader.setVector2("inMetallicScale", shaderParams.metallicScale);
+          this.shader.setVector2("inRoughnessScale", shaderParams.roughnessScale);
+          this.shader.setVector2("inFresnelScale", shaderParams.fresnelScale);
+          this.shader.setVector2("inLightEmissionScale", shaderParams.lightEmissionScale);
+          this.shader.setVector2("inHeightScale", shaderParams.heightScale);
+          this.shader.setVector2("inNormalScale", shaderParams.normalScale);
+          this.shader.setValueInt("inDiffuseUV", shaderParams.diffuseUV);
+          this.shader.setValueInt("inMetallicUV", shaderParams.metallicUV);
+          this.shader.setValueInt("inRoughnessUV", shaderParams.roughnessUV);
+          this.shader.setValueInt("inFresnelUV", shaderParams.fresnelUV);
+          this.shader.setValueInt("inLightEmissionUV", shaderParams.lightEmissionUV);
+          this.shader.setValueInt("inAmbientOcclussionUV", shaderParams.ambientOcclussionUV);
+          this.shader.setValueInt("inNormalUV", shaderParams.normalUV);
+          this.shader.setValueInt("inHeightUV", shaderParams.heightUV);
+          this.shader.setValueInt("inReceiveShadows", true);
+          this.shader.setValueInt("inUnlit", material.unlit);
+          this.shader.setValueFloat("inHeightIntensity", material.heightIntensity);
+          this.shader.setValueFloat("inAlphaCutoff", material.alphaCutoff);
+          var textureUnit = bg.base.TextureUnit.TEXTURE_1;
+          this.shader.setTexture("inDiffuse", shaderParams.diffuse.map, textureUnit++);
+          this.shader.setTexture("inHeighMetallicRoughnessAO", shaderParams.heightMetallicRoughnessAO.map, textureUnit++);
+          this.shader.setTexture("inNormalMap", shaderParams.normal.map, textureUnit++);
+          var fresnel = material.fresnel instanceof bg.Color ? material.fresnel : bg.Color.White();
+          this.shader.setVector4("inFresnel", fresnel);
+          var defaultMap = bg.base.TextureCache.BlackCubemap(this.context);
+          var irradianceMap = defaultMap;
+          var specMap0 = defaultMap;
+          var specMap1 = defaultMap;
+          var specMap2 = defaultMap;
+          var env = bg.scene.Environment.Get();
+          var irradianceIntensity = 1;
+          if (env && env.environment) {
+            irradianceMap = env.environment.irradianceMapTexture || irradianceMap;
+            specMap0 = env.environment.specularMapTextureL0 || specMap0;
+            specMap1 = env.environment.specularMapTextureL1 || specMap1;
+            specMap2 = env.environment.specularMapTextureL2 || specMap2;
+            irradianceIntensity = env.environment.irradianceIntensity;
+          }
+          this.shader.setValueFloat("inIrradianceMapIntensity", irradianceIntensity);
+          this.shader.setTexture("inIrradianceMap", irradianceMap, textureUnit++);
+          this.shader.setTexture("inSpecularMap0", specMap0, textureUnit++);
+          if (s_supportedTextureUnits > 8) {
+            this.shader.setTexture("inSpecularMap1", specMap1, textureUnit++);
+            this.shader.setTexture("inSpecularMap2", specMap2, textureUnit++);
+          } else {
+            this.shader.setTexture("inSpecularMap1", specMap1, textureUnit++);
+          }
+          this.shader.setTexture("inBRDF", s_brdfPrecomputedTexture, textureUnit++);
+        } else {
+          console.warn("Using invalid material or no PBRMaterial on PBR renderer.");
+        }
+      }
+    }, {}, $__super);
+  }(bg.base.Effect);
+  bg.base.PBRForwardEffect = PBRForwardEffect;
+})();
+
+"use strict";
+(function() {
+  var PBRForwardRenderLayer = function($__super) {
+    function PBRForwardRenderLayer(context, opacityLayer) {
+      $traceurRuntime.superConstructor(PBRForwardRenderLayer).call(this, context, opacityLayer);
+      this._pipeline.effect = new bg.base.PBRForwardEffect(context);
+    }
+    return ($traceurRuntime.createClass)(PBRForwardRenderLayer, {
+      draw: function(renderQueue, scene, camera) {
+        $traceurRuntime.superGet(this, PBRForwardRenderLayer.prototype, "draw").call(this, renderQueue, scene, camera);
+      },
+      willDraw: function(scene, camera) {
+        $traceurRuntime.superGet(this, PBRForwardRenderLayer.prototype, "willDraw").call(this, scene, camera);
+      },
+      performDraw: function(renderQueue, scene, camera) {
+        $traceurRuntime.superGet(this, PBRForwardRenderLayer.prototype, "performDraw").call(this, renderQueue, scene, camera);
+      }
+    }, {}, $__super);
+  }(bg.render.ForwardRenderLayer);
+  bg.render.PBRForwardRenderLayer = PBRForwardRenderLayer;
+})();
+
+"use strict";
+(function() {
+  var PBRForwardRenderer = function($__super) {
+    function PBRForwardRenderer(context) {
+      $traceurRuntime.superConstructor(PBRForwardRenderer).call(this, context);
+    }
+    return ($traceurRuntime.createClass)(PBRForwardRenderer, {
+      create: function() {
+        var ctx = this.context;
+        this._transparentLayer = new bg.render.PBRForwardRenderLayer(this.context, bg.base.OpacityLayer.TRANSPARENT);
+        this._opaqueLayer = new bg.render.PBRForwardRenderLayer(this.context, bg.base.OpacityLayer.OPAQUE);
+        this._shadowMap = new bg.base.ShadowMap(ctx);
+        this._shadowMap.size = new bg.Vector2(2048);
+        this.settings.shadows.cascade = bg.base.ShadowCascade.NEAR;
+        this._renderQueueVisitor = new bg.scene.RenderQueueVisitor;
+      },
+      display: function(sceneRoot, camera) {
+        this._opaqueLayer.pipeline.effect.colorCorrection = this._settings.colorCorrection;
+        this._transparentLayer.pipeline.effect.colorCorrection = this._settings.colorCorrection;
+        var renderSkybox = false;
+        var sceneEnvironment = bg.scene.Environment.Get();
+        if (sceneEnvironment && sceneEnvironment.environment) {
+          sceneEnvironment.environment.update(camera);
+        }
+        if (sceneEnvironment && sceneEnvironment.environment && sceneEnvironment.environment.showSkybox) {
+          renderSkybox = true;
+          sceneEnvironment.environment.renderSkybox(camera);
+        }
+        if (renderSkybox) {
+          this._opaqueLayer.pipeline.buffersToClear = bg.base.ClearBuffers.DEPTH;
+        } else {
+          this._opaqueLayer.pipeline.buffersToClear = bg.base.ClearBuffers.COLOR_DEPTH;
+        }
+        $traceurRuntime.superGet(this, PBRForwardRenderer.prototype, "draw").call(this, sceneRoot, camera);
+      }
+    }, {}, $__super);
+  }(bg.render.ForwardRenderer);
+  bg.render.PBRForwardRenderer = PBRForwardRenderer;
 })();
 
 "use strict";
@@ -15753,7 +20115,7 @@ bg.render = {};
           }]);
           this._fragmentShaderSource.addFunction(lib().functions.utils.random);
           if (bg.Engine.Get().id == "webgl1") {
-            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));\n\t\t\t\t\t\tbool renderFrame = false;\n\t\t\t\t\t\tif (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tif (renderFrame) {\n\t\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\n\t\t\t\t\t\t\tfloat roughness = specular.a * 0.3;\n\t\t\t\t\t\t\tvec3 r = texture2D(inRandomTexture,fsTexCoord*200.0).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec3 roughnessFactor = normalize(r) * roughness;\n\t\t\t\t\t\t\tnormal = normal + roughnessFactor;\n\t\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\t\n\t\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\t\tif (!inBasicMode && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\n\t\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\t\n\t\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\t\n\t\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}"));
+            this._fragmentShaderSource.setMainBody(("\n\t\t\t\t\t\tvec2 p = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));\n\t\t\t\t\t\tbool renderFrame = false;\n\t\t\t\t\t\tif (inFrameIndex==0.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==1.0 && mod(p.x,2.0)==0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==2.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)==0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse if (inFrameIndex==3.0 && mod(p.x,2.0)!=0.0 && mod(p.y,2.0)!=0.0) {\n\t\t\t\t\t\t\trenderFrame = true;\n\t\t\t\t\t\t}\n\n\t\t\t\t\t\tvec4 material = texture2D(inMaterialMap,fsTexCoord);\n\t\t\t\t\t\tif (renderFrame && material.b>0.0) {\t// material[2] is reflectionAmount\n\t\t\t\t\t\t\tvec3 normal = texture2D(inNormalMap,fsTexCoord).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tvec4 specular = texture2D(inSpecularMap,fsTexCoord);\n\t\t\t\t\t\t\tfloat roughness = specular.a * 0.3;\n\t\t\t\t\t\t\tvec3 r = texture2D(inRandomTexture,fsTexCoord*200.0).xyz * 2.0 - 1.0;\n\t\t\t\t\t\t\tvec3 roughnessFactor = normalize(r) * roughness;\n\t\t\t\t\t\t\tnormal = normal + roughnessFactor;\n\t\t\t\t\t\t\tvec4 vertexPos = texture2D(inPositionMap,fsTexCoord);\n\t\t\t\t\t\t\tvec3 cameraVector = vertexPos.xyz - inCameraPos;\n\t\t\t\t\t\t\tvec3 rayDirection = reflect(cameraVector,normal);\n\t\t\t\t\t\t\tvec4 lighting = texture2D(inLightingMap,fsTexCoord);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tvec4 rayFailColor = inRayFailColor;\n\t\n\t\t\t\t\t\t\tvec3 lookup = reflect(cameraVector,normal);\n\t\t\t\t\t\t\trayFailColor = textureCube(inCubeMap, lookup);\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\tfloat increment = " + q.rayIncrement + ";\n\t\t\t\t\t\t\tvec4 result = rayFailColor;\n\t\t\t\t\t\t\tif (!inBasicMode) {\n\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\tfor (float i=0.0; i<" + q.maxSamples + ".0; ++i) {\n\t\t\t\t\t\t\t\t\tif (i==" + q.maxSamples + ".0) {\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\n\t\t\t\t\t\t\t\t\tfloat radius = i * increment;\n\t\t\t\t\t\t\t\t\tincrement *= 1.01;\n\t\t\t\t\t\t\t\t\tvec3 ray = vertexPos.xyz + rayDirection * radius;\n\t\n\t\t\t\t\t\t\t\t\tvec4 offset = inProjectionMatrix * vec4(ray, 1.0);\t// -w, w\n\t\t\t\t\t\t\t\t\toffset.xyz /= offset.w;\t// -1, 1\n\t\t\t\t\t\t\t\t\toffset.xyz = offset.xyz * 0.5 + 0.5;\t// 0, 1\n\t\n\t\t\t\t\t\t\t\t\tvec4 rayActualPos = texture2D(inSamplePosMap, offset.xy);\n\t\t\t\t\t\t\t\t\tfloat hitDistance = rayActualPos.z - ray.z;\n\t\t\t\t\t\t\t\t\tif (offset.x>1.0 || offset.y>1.0 || offset.x<0.0 || offset.y<0.0) {\n\t\t\t\t\t\t\t\t\t\tresult = rayFailColor;\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\telse if (hitDistance>0.02 && hitDistance<0.15) {\n\t\t\t\t\t\t\t\t\t\tresult = texture2D(inLightingMap,offset.xy);\n\t\t\t\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\tif (result.a==0.0) {\n\t\t\t\t\t\t\t\tgl_FragColor = rayFailColor;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\tgl_FragColor = result;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tdiscard;\n\t\t\t\t\t\t}"));
           }
         }
         return this._fragmentShaderSource;
@@ -15843,8 +20205,11 @@ bg.webgl1 = {};
       this._colorBuffer = new bg.webgl1.ColorRenderSurfaceImpl(context);
       this._textureBuffer = new bg.webgl1.TextureRenderSurfaceImpl(context);
       this._shaderSource = new bg.webgl1.ShaderSourceImpl();
+      this._cubemapCapture = new bg.webgl1.CubemapCaptureImpl();
     }
-    return ($traceurRuntime.createClass)(WebGL1Engine, {}, {}, $__super);
+    return ($traceurRuntime.createClass)(WebGL1Engine, {createTextureMergerInstance: function() {
+        return new bg.webgl1.TextureMergerImpl();
+      }}, {}, $__super);
   }(bg.Engine);
   bg.webgl1.Engine = WebGL1Engine;
 })();
@@ -15903,6 +20268,76 @@ bg.webgl1 = {};
 
 "use strict";
 (function() {
+  var s_captureViews = [bg.Matrix4.LookAt(new bg.Vector3(0, 0, 0), new bg.Vector3(1, 0, 0), new bg.Vector3(0, -1, 0)), bg.Matrix4.LookAt(new bg.Vector3(0, 0, 0), new bg.Vector3(-1, 0, 0), new bg.Vector3(0, -1, 0)), bg.Matrix4.LookAt(new bg.Vector3(0, 0, 0), new bg.Vector3(0, 1, 0), new bg.Vector3(0, 0, 1)), bg.Matrix4.LookAt(new bg.Vector3(0, 0, 0), new bg.Vector3(0, -1, 0), new bg.Vector3(0, 0, -1)), bg.Matrix4.LookAt(new bg.Vector3(0, 0, 0), new bg.Vector3(0, 0, 1), new bg.Vector3(0, -1, 0)), bg.Matrix4.LookAt(new bg.Vector3(0, 0, 0), new bg.Vector3(0, 0, -1), new bg.Vector3(0, -1, 0))];
+  var s_captureProjection = bg.Matrix4.Perspective(90, 1, 0.1, 1000.0);
+  var CubemapCaptureImpl = function($__super) {
+    function CubemapCaptureImpl() {
+      $traceurRuntime.superConstructor(CubemapCaptureImpl).apply(this, arguments);
+    }
+    return ($traceurRuntime.createClass)(CubemapCaptureImpl, {
+      createCaptureBuffers: function(gl, size) {
+        var captureBuffers = {
+          fbo: gl.createFramebuffer(),
+          rbo: gl.createRenderbuffer(),
+          texture: null,
+          size: size
+        };
+        gl.bindFramebuffer(gl.FRAMEBUFFER, captureBuffers.fbo);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, captureBuffers.rbo);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, size, size);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, captureBuffers.rbo);
+        captureBuffers.texture = new bg.base.Texture(gl);
+        captureBuffers.texture.target = bg.base.TextureTarget.CUBE_MAP;
+        captureBuffers.texture.create();
+        captureBuffers.texture.bind();
+        for (var i = 0; i < 6; ++i) {
+          gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, gl.RGB, size, size, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+        }
+        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        captureBuffers.texture.unbind();
+        captureBuffers.texture._size = new bg.Vector2(size);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+        return captureBuffers;
+      },
+      beginRender: function(gl, captureBuffers) {
+        captureBuffers._currentViewport = bg.base.Pipeline.Current() ? bg.base.Pipeline.Current().viewport : new bg.Viewport(0, 0, 512, 512);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, captureBuffers.fbo);
+      },
+      beginRenderFace: function(gl, face, captureBuffers, viewMatrix) {
+        var textureImpl = captureBuffers.texture.texture;
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + face, textureImpl, 0);
+        gl.clearColor(0, 0, 0, 1);
+        gl.viewport(0, 0, captureBuffers.size, captureBuffers.size);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.disable(gl.CULL_FACE);
+        var captureView = new bg.Matrix4(s_captureViews[face]);
+        captureView.mult(viewMatrix);
+        return {
+          view: captureView,
+          projection: s_captureProjection
+        };
+      },
+      endRenderFace: function(context, face, captureBuffers) {},
+      endRender: function(gl, captureBuffers) {
+        gl.viewport(captureBuffers._currentViewport.x, captureBuffers._currentViewport.y, captureBuffers._currentViewport.width, captureBuffers._currentViewport.height);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.enable(gl.CULL_FACE);
+      },
+      getTexture: function(context, captureBuffers) {
+        return captureBuffers.texture;
+      },
+      destroy: function(context, captureBuffers) {}
+    }, {}, $__super);
+  }(bg.base.CubemapCaptureImpl);
+  bg.webgl1.CubemapCaptureImpl = CubemapCaptureImpl;
+})();
+
+"use strict";
+(function() {
   var s_singleton = null;
   var Extensions = function($__super) {
     function Extensions(gl) {
@@ -15956,7 +20391,8 @@ bg.webgl1 = {};
       },
       clearBuffers: function(context, color, buffers) {
         context.clearColor(color.r, color.g, color.b, color.a);
-        context.clear(buffers);
+        if (buffers)
+          context.clear(buffers);
       },
       setDepthTestEnabled: function(context, e) {
         e ? context.enable(context.DEPTH_TEST) : context.disable(context.DEPTH_TEST);
@@ -15970,7 +20406,7 @@ bg.webgl1 = {};
       setBlendMode: function(gl, m) {
         switch (m) {
           case bg.base.BlendMode.NORMAL:
-            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
             gl.blendEquation(gl.FUNC_ADD);
             break;
           case bg.base.BlendMode.MULTIPLY:
@@ -16526,6 +20962,24 @@ bg.webgl1 = {};
         contrast: "float"
       },
       body: "\n\t\t\t\treturn applyContrast(applyBrightness(applySaturation(fragColor,hue,saturation,lightness),brightness),contrast);"
+    },
+    brightnessMatrix: {
+      returnType: "mat4",
+      name: "brightnessMatrix",
+      params: {brightness: "float"},
+      body: "\n\t\t\t\treturn mat4( 1, 0, 0, 0,\n\t\t\t\t\t0, 1, 0, 0,\n\t\t\t\t\t0, 0, 1, 0,\n\t\t\t\t\tbrightness, brightness, brightness, 1 );\n\t\t\t\t"
+    },
+    contrastMatrix: {
+      returnType: "mat4",
+      name: "contrastMatrix",
+      params: {contrast: "float"},
+      body: "\n\t\t\t\tfloat t = ( 1.0 - contrast ) / 2.0;\n\t\t\t\treturn mat4( contrast, 0, 0, 0,\n\t\t\t\t\t0, contrast, 0, 0,\n\t\t\t\t\t0, 0, contrast, 0,\n\t\t\t\t\tt, t, t, 1 );\n\t\t\t\t"
+    },
+    saturationMatrix: {
+      returnType: "mat4",
+      name: "saturationMatrix",
+      params: {saturation: "float"},
+      body: "\n\t\t\t\tvec3 luminance = vec3( 0.3086, 0.6094, 0.0820 );\n    \n\t\t\t\tfloat oneMinusSat = 1.0 - saturation;\n\t\t\t\t\n\t\t\t\tvec3 red = vec3( luminance.x * oneMinusSat );\n\t\t\t\tred+= vec3( saturation, 0, 0 );\n\t\t\t\t\n\t\t\t\tvec3 green = vec3( luminance.y * oneMinusSat );\n\t\t\t\tgreen += vec3( 0, saturation, 0 );\n\t\t\t\t\n\t\t\t\tvec3 blue = vec3( luminance.z * oneMinusSat );\n\t\t\t\tblue += vec3( 0, 0, saturation );\n\t\t\t\t\n\t\t\t\treturn mat4( red,     0,\n\t\t\t\t\t\t\tgreen,   0,\n\t\t\t\t\t\t\tblue,    0,\n\t\t\t\t\t\t\t0, 0, 0, 1 );\n\t\t\t\t"
     }
   };
 })();
@@ -17161,6 +21615,368 @@ bg.webgl1 = {};
 
 "use strict";
 (function() {
+  bg.webgl1.shaderLibrary.functions.pbr = {};
+  bg.webgl1.shaderLibrary.inputs.pbr = {};
+  bg.webgl1.shaderLibrary.functions.pbr = {
+    lighting: {
+      processLight: {
+        returnType: "vec4",
+        name: "processLight",
+        params: {
+          inAmbient: "vec3",
+          inDiffuse: "vec3",
+          inSpecular: "vec3",
+          type: "int",
+          specularType: "int",
+          direction: "vec3",
+          position: "vec3",
+          inAttenuation: "vec3",
+          spotCutoff: "float",
+          spotOuterCutoff: "float",
+          surfaceNormal: "vec3",
+          surfacePosition: "vec3",
+          surfaceDiffuse: "vec3",
+          shadowColor: "vec3"
+        },
+        body: ("\n                    vec3 diffuse = vec3(0.0);\n                    vec3 specular = vec3(0.0);\n                    float attenuation = 1.0;\n                    float shininess = 64.0;\n                    if (type==" + bg.base.LightType.DIRECTIONAL + ") {\n                        vec3 lightDir = normalize(-direction);\n                        diffuse = max(dot(normalize(surfaceNormal), lightDir), 0.0) * surfaceDiffuse;\n                        vec3 viewDir = normalize(vec3(0.0) - surfacePosition);\n                        vec3 reflectDir = reflect(-lightDir, surfaceNormal);\n                        float spec = 0.0;\n                        if (specularType==" + bg.base.SpecularType.PHONG + ") {\n                            spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);\n                        }\n                        else {\n                            vec3 halfwayDir = normalize(lightDir + viewDir);\n                            spec = pow(max(dot(surfaceNormal, halfwayDir), 0.0), shininess);\n                        }\n                        specular = spec * inSpecular;\n                        specular *= pow(shadowColor,vec3(10.0));\n                    }\n                    else if (type==" + bg.base.LightType.POINT + ") {\n                        vec3 lightDir = normalize(position - surfacePosition);\n                        float distance = length(position - surfacePosition);\n                        attenuation = 1.0 / (\n                            inAttenuation.x +\n                            inAttenuation.y * distance +\n                            inAttenuation.z * distance * distance\n                        );\n                        diffuse = max(dot(normalize(surfaceNormal), lightDir), 0.0) * inDiffuse;\n                        vec3 viewDir = normalize(vec3(0.0) - surfacePosition);\n                        vec3 reflectDir = reflect(-lightDir, surfaceNormal);\n\n                        float spec = 0.0;\n                        if (specularType==" + bg.base.SpecularType.PHONG + ") {\n                            spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);\n                        }\n                        else {\n                            vec3 halfwayDir = normalize(lightDir + viewDir);\n                            spec = pow(max(dot(surfaceNormal, halfwayDir), 0.0), shininess);\n                        }\n\n                        specular = spec * inSpecular;\n                    }\n                    else if (type==" + bg.base.LightType.SPOT + ") {\n                        vec3 lightDirToSurface = normalize(position - surfacePosition);\n                        float theta = dot(lightDirToSurface,normalize(-direction));\n                        if (theta > spotCutoff) {\n                            float epsilon = spotCutoff - spotOuterCutoff;\n                            float intensity = 1.0 - clamp((theta - spotOuterCutoff) / epsilon, 0.0, 1.0);\n                            float distance = length(position - surfacePosition);\n                            diffuse = max(dot(normalize(surfaceNormal), lightDirToSurface), 0.0) * inDiffuse * intensity;\n                            vec3 viewDir = normalize(vec3(0.0) - surfacePosition);\n                            vec3 reflectDir = reflect(-lightDirToSurface, surfaceNormal);\n                            float spec = 0.0;\n                            if (specularType==" + bg.base.SpecularType.PHONG + ") {\n                                spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);\n                            }\n                            else {\n                                vec3 halfwayDir = normalize(lightDirToSurface + viewDir);\n                                spec = pow(max(dot(surfaceNormal, halfwayDir), 0.0), shininess);\n                            }\n                            specular = spec * inSpecular * intensity;\n                            specular *= pow(shadowColor,vec3(10.0));\n                        }\n                    }\n                    vec3 shadowAmbient = clamp(shadowColor,inAmbient,vec3(1.0));\n                    diffuse = min(diffuse,shadowAmbient);\n                    return vec4((inAmbient + diffuse + specular) * attenuation,1.0);\n                ")
+      },
+      getShadowColor: {
+        returnType: "vec4",
+        name: "getShadowColor",
+        params: {
+          vertexPosFromLight: 'vec4',
+          shadowMap: 'sampler2D',
+          shadowMapSize: 'vec2',
+          shadowType: 'int',
+          shadowStrength: 'float',
+          shadowBias: 'float',
+          shadowColor: 'vec4'
+        },
+        body: ("\n\t\t\t\tfloat visibility = 1.0;\n\t\t\t\tvec3 depth = vertexPosFromLight.xyz / vertexPosFromLight.w;\n\t\t\t\tconst float kShadowBorderOffset = 3.0;\n\t\t\t\tfloat shadowBorderOffset = kShadowBorderOffset / shadowMapSize.x;\n\t\t\t\tfloat bias = shadowBias;\n                vec4 shadow = vec4(1.0);\n                \n                float shadowDepth = unpack(texture2D(shadowMap,depth.xy));\n\n\t\t\t\tif (shadowType==" + bg.base.ShadowType.HARD + ") {\t// hard\n                    float shadowDepth = unpack(texture2D(shadowMap,depth.xy));\n\t\t\t\t\tif (shadowDepth<depth.z - bias &&\n\t\t\t\t\t\t(depth.x>0.0 && depth.x<1.0 && depth.y>0.0 && depth.y<1.0))\n\t\t\t\t\t{\n\t\t\t\t\t\tvisibility = 1.0 - shadowStrength;\n\t\t\t\t\t}\n\t\t\t\t\tshadow = clamp(shadowColor + visibility,0.0,1.0);\n\t\t\t\t}\n\t\t\t\telse if (shadowType>=" + bg.base.ShadowType.SOFT + ") {\t// soft / soft stratified (not supported on webgl, fallback to soft)\n\t\t\t\t\tvec2 poissonDisk[7];\n                    poissonDisk[0] = vec2( -0.54201624, -0.19906216 );\n                    poissonDisk[1] = vec2( 0.54558609, -0.46890725 );\n                    poissonDisk[2] = vec2( -0.054184101, -0.52938870 );\n                    poissonDisk[3] = vec2( 0.02495938, -0.14387760 );\n                    poissonDisk[4] = vec2( -0.24495938, 0.14387760 );\n                    poissonDisk[5] = vec2( 0.3495938, -0.74387760 );\n                    poissonDisk[6] = vec2( -0.07495938, 0.54387760 );\n                    \n                    for (int i=0; i<7; ++i) {\n                        float shadowDepth = unpack(texture2D(shadowMap, depth.xy + poissonDisk[i]/3000.0));\n                        \n                        if (shadowDepth<depth.z - bias\n                            && (depth.x>0.0 && depth.x<1.0 && depth.y>0.0 && depth.y<1.0)) {\n                            visibility -= (shadowStrength) * 0.14;\n                        }\n                    }\n                    shadow = clamp(shadowColor + visibility,0.0,1.0);\n\t\t\t\t}\n\t\t\t\treturn shadow;")
+      }
+    },
+    material: {
+      samplerColor: {
+        returnType: "vec4",
+        name: "samplerColor",
+        params: {
+          sampler: "sampler2D",
+          uv: "vec2",
+          scale: "vec2"
+        },
+        body: "\n                return texture2D(sampler,uv*scale);"
+      },
+      samplerNormal: {
+        returnType: "vec3",
+        name: "samplerNormal",
+        params: {
+          sampler: "sampler2D",
+          uv: "vec2",
+          scale: "vec2"
+        },
+        body: "\n\t\t\t\treturn normalize(samplerColor(sampler,uv,scale).xyz * 2.0 - 1.0);"
+      },
+      combineNormalWithMap: {
+        returnType: "vec3",
+        name: "combineNormalWithMap",
+        params: {
+          normalCoord: "vec3",
+          tangent: "vec3",
+          bitangent: "vec3",
+          normalMapValue: "vec3"
+        },
+        body: "\n\t\t\t\tmat3 tbnMat = mat3( tangent.x, bitangent.x, normalCoord.x,\n\t\t\t\t\t\t\ttangent.y, bitangent.y, normalCoord.y,\n\t\t\t\t\t\t\ttangent.z, bitangent.z, normalCoord.z\n\t\t\t\t\t\t);\n\t\t\t\treturn normalize(normalMapValue * tbnMat);"
+      },
+      parallaxMapping: {
+        returnType: "vec2",
+        name: "parallaxMapping",
+        params: {
+          height: "float",
+          texCoords: "vec2",
+          viewDir: "vec3",
+          scale: "float",
+          texScale: "vec2"
+        },
+        body: "\n                float height_scale = (0.01 * scale) / ((texScale.x + texScale.y) / 2.0);\n                vec2 p = viewDir.xy / viewDir.z;\n                p.x *= -1.0;\n                p.y *= -1.0;\n                p *= (height * height_scale);\n                return texCoords - p;\n                "
+      }
+    },
+    utils: {
+      pack: {
+        returnType: "vec4",
+        name: "pack",
+        params: {depth: "float"},
+        body: "\n\t\t\t\tconst vec4 bitSh = vec4(256 * 256 * 256,\n\t\t\t\t\t\t\t\t\t\t256 * 256,\n\t\t\t\t\t\t\t\t\t\t256,\n\t\t\t\t\t\t\t\t\t\t1.0);\n\t\t\t\tconst vec4 bitMsk = vec4(0,\n\t\t\t\t\t\t\t\t\t\t1.0 / 256.0,\n\t\t\t\t\t\t\t\t\t\t1.0 / 256.0,\n\t\t\t\t\t\t\t\t\t\t1.0 / 256.0);\n\t\t\t\tvec4 comp = fract(depth * bitSh);\n\t\t\t\tcomp -= comp.xxyz * bitMsk;\n\t\t\t\treturn comp;"
+      },
+      unpack: {
+        returnType: "float",
+        name: "unpack",
+        params: {color: "vec4"},
+        body: "\n\t\t\t\tconst vec4 bitShifts = vec4(1.0 / (256.0 * 256.0 * 256.0),\n\t\t\t\t\t\t\t\t\t\t\t1.0 / (256.0 * 256.0),\n\t\t\t\t\t\t\t\t\t\t\t1.0 / 256.0,\n\t\t\t\t\t\t\t\t\t\t\t1.0);\n\t\t\t\treturn dot(color, bitShifts);"
+      },
+      random: {
+        returnType: "float",
+        name: "random",
+        params: {
+          seed: "vec3",
+          i: "int"
+        },
+        body: "\n\t\t\t\tvec4 seed4 = vec4(seed,i);\n\t\t\t\tfloat dot_product = dot(seed4, vec4(12.9898,78.233,45.164,94.673));\n\t\t\t\treturn fract(sin(dot_product) * 43758.5453);"
+      },
+      gammaCorrection: {
+        returnType: "vec4",
+        name: "gammaCorrection",
+        params: {
+          color: "vec4",
+          gamma: "float"
+        },
+        body: "\n                return pow(color,vec4(1.0/gamma));\n                "
+      },
+      inverseGammaCorrection: {
+        returnType: "vec4",
+        name: "inverseGammaCorrection",
+        params: {
+          color: "vec4",
+          gamma: "float"
+        },
+        body: "\n                return pow(color,vec4(gamma));\n                "
+      }
+    }
+  };
+  bg.webgl1.shaderLibrary.inputs.pbr.material = {
+    diffuse: {
+      name: "inDiffuse",
+      dataType: "sampler2D",
+      role: "value"
+    },
+    alphaCutoff: {
+      name: "inAlphaCutoff",
+      dataType: "float",
+      role: "value"
+    },
+    fresnel: {
+      name: "inFresnel",
+      dataType: "vec4",
+      role: "value"
+    },
+    height: {
+      name: "inHeight",
+      dataType: "sampler2D",
+      role: "value"
+    },
+    heighMetallicRoughnessAO: {
+      name: "inHeighMetallicRoughnessAO",
+      dataType: "sampler2D",
+      role: "value"
+    },
+    normal: {
+      name: "inNormalMap",
+      dataType: "sampler2D",
+      role: "value"
+    },
+    diffuseUV: {
+      name: "inDiffuseUV",
+      dataType: "int",
+      role: "value"
+    },
+    metallicUV: {
+      name: "inMetallicUV",
+      dataType: "int",
+      role: "value"
+    },
+    roughnessUV: {
+      name: "inRoughnessUV",
+      dataType: "int",
+      role: "value"
+    },
+    fresnelUV: {
+      name: "inFresnelUV",
+      dataType: "int",
+      role: "value"
+    },
+    heightUV: {
+      name: "inHeightUV",
+      dataType: "int",
+      role: "value"
+    },
+    ambientOcclussionUV: {
+      name: "inAmbientOcclussionUV",
+      dataType: "int",
+      role: "value"
+    },
+    lightEmissionUV: {
+      name: "inLightEmissionUV",
+      dataType: "int",
+      role: "value"
+    },
+    normalUV: {
+      name: "inNormalUV",
+      dataType: "int",
+      role: "value"
+    },
+    diffuseScale: {
+      name: "inDiffuseScale",
+      dataType: "vec2",
+      role: "value"
+    },
+    metallicScale: {
+      name: "inMetallicScale",
+      dataType: "vec2",
+      role: "value"
+    },
+    roughnessScale: {
+      name: "inRoughnessScale",
+      dataType: "vec2",
+      role: "value"
+    },
+    fresnelScale: {
+      name: "inFresnelScale",
+      dataType: "vec2",
+      role: "value"
+    },
+    lightEmissionScale: {
+      name: "inLightEmissionScale",
+      dataType: "vec2",
+      role: "value"
+    },
+    heightScale: {
+      name: "inHeightScale",
+      dataType: "vec2",
+      role: "value"
+    },
+    normalScale: {
+      name: "inNormalScale",
+      dataType: "vec2",
+      role: "value"
+    },
+    receiveShadows: {
+      name: "inReceiveShadows",
+      dataType: "bool",
+      role: "value"
+    },
+    heightIntensity: {
+      name: "inHeightIntensity",
+      dataType: "float",
+      role: "value"
+    },
+    unlit: {
+      name: "inUnlit",
+      dataType: "bool",
+      role: "value"
+    }
+  };
+  bg.webgl1.shaderLibrary.inputs.pbr.lighting = {ambient: {
+      name: "inLightAmbient",
+      dataType: "vec4",
+      role: "value"
+    }};
+  bg.webgl1.shaderLibrary.inputs.pbr.lightingForward = {
+    lightType: {
+      name: "inLightType",
+      dataType: "int",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    },
+    diffuse: {
+      name: "inLightDiffuse",
+      dataType: "vec4",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    },
+    specular: {
+      name: "inLightSpecular",
+      dataType: "vec4",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    },
+    position: {
+      name: "inLightPosition",
+      dataType: "vec3",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    },
+    direction: {
+      name: "inLightDirection",
+      dataType: "vec3",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    },
+    intensity: {
+      name: "inLightIntensity",
+      dataType: "float",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    },
+    spotCutoff: {
+      name: "inLightSpotCutoff",
+      dataType: "float",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    },
+    outerSpotCutoff: {
+      name: "inLightOuterSpotCutoff",
+      dataType: "float",
+      role: "value",
+      vec: bg.base.MAX_FORWARD_LIGHTS
+    }
+  };
+  bg.webgl1.shaderLibrary.inputs.pbr.shadows = {
+    shadowMap: {
+      name: "inShadowMap",
+      dataType: "sampler2D",
+      role: "value"
+    },
+    shadowMapSize: {
+      name: "inShadowMapSize",
+      dataType: "vec2",
+      role: "value"
+    },
+    shadowStrength: {
+      name: "inShadowStrength",
+      dataType: "float",
+      role: "value"
+    },
+    shadowColor: {
+      name: "inShadowColor",
+      dataType: "vec4",
+      role: "value"
+    },
+    shadowBias: {
+      name: "inShadowBias",
+      dataType: "float",
+      role: "value"
+    },
+    shadowType: {
+      name: "inShadowType",
+      dataType: "int",
+      role: "value"
+    }
+  };
+  bg.webgl1.shaderLibrary.inputs.pbr.colorCorrection = {
+    gammaCorrection: {
+      name: "inGammaCorrection",
+      dataType: "float",
+      role: "value"
+    },
+    saturation: {
+      name: "inSaturation",
+      dataType: "float",
+      role: "value"
+    },
+    brightness: {
+      name: "inBrightness",
+      dataType: "float",
+      role: "value"
+    },
+    contrast: {
+      name: "inContrast",
+      dataType: "float",
+      role: "value"
+    }
+  };
+})();
+
+"use strict";
+(function() {
   bg.webgl1.shaderLibrary.functions.utils = {
     pack: {
       returnType: "vec4",
@@ -17344,6 +22160,168 @@ bg.webgl1 = {};
 
 "use strict";
 (function() {
+  var g_textureTools = {};
+  var TextureTools = function($__super) {
+    function TextureTools(context) {
+      $traceurRuntime.superConstructor(TextureTools).call(this, context);
+    }
+    return ($traceurRuntime.createClass)(TextureTools, {getFBO: function(width, height) {
+        var gl = this.context;
+        var fboData = {
+          gl: gl,
+          fbo: gl.createFramebuffer(),
+          rbo: gl.createRenderbuffer(),
+          texture: new bg.base.Texture(gl),
+          width: width,
+          height: height,
+          bind: function() {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fbo);
+          },
+          unbind: function() {
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+          },
+          resize: function(w, h) {
+            if (w != this.width || h != this.height) {
+              this.bind();
+              this.width = w;
+              this.height = height;
+              var gl$__2 = this.gl;
+              gl$__2.bindRenderbuffer(gl$__2.RENDERBUFFER, this.rbo);
+              gl$__2.renderbufferStorage(gl$__2.RENDERBUFFER, gl$__2.DEPTH_COMPONENT16, this.width, this.height);
+              gl$__2.bindRenderbuffer(gl$__2.RENDERBUFFER, null);
+              this.texture.bind();
+              gl$__2.texImage2D(gl$__2.TEXTURE_2D, 0, gl$__2.RGBA, this.width, this.height, 0, gl$__2.RGBA, gl$__2.UNSIGNED_BYTE, null);
+              this.texture.unbind();
+              this.unbind();
+            }
+          },
+          beginRender: function() {
+            this._currentViewport = this.gl.getParameter(this.gl.VIEWPORT);
+            this.bind();
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.texture.texture, 0);
+            this.gl.viewport(0, 0, this.width, this.height);
+          },
+          endRender: function() {
+            this.gl.viewport(this._currentViewport[0], this._currentViewport[1], this._currentViewport[2], this._currentViewport[3]);
+            this.unbind();
+          },
+          destroy: function() {
+            var destroyTexture = arguments[0] !== (void 0) ? arguments[0] : false;
+            this.unbind();
+            if (destroyTexture) {
+              this.texture.destroy();
+            }
+            this.gl.deleteRenderbuffer(this.rbo);
+            this.gl.deleteFramebuffer(this.fbo);
+          }
+        };
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, fboData.rbo);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, width, height);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, fboData.rbo);
+        fboData.texture.target = bg.base.TextureTarget.TEXTURE_2D;
+        fboData.texture.create();
+        fboData.texture.bind();
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        fboData.texture.unbind();
+        fboData.texture._size = new bg.Vector2(width, height);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+        return fboData;
+      }}, {Get: function(context) {
+        if (!g_textureTools[context]) {
+          g_textureTools = new TextureTools(context);
+        }
+        return g_textureTools;
+      }}, $__super);
+  }(bg.app.ContextObject);
+  bg.webgl1.TextureTools = TextureTools;
+  var s_mergeMapsPlane = null;
+  function getMergeMapPlane(gl) {
+    if (!s_mergeMapsPlane) {
+      s_mergeMapsPlane = new bg.base.PolyList(gl);
+      s_mergeMapsPlane.vertex = [1, 1, 0, -1, 1, 0, -1, -1, 0, 1, -1, 0];
+      s_mergeMapsPlane.texCoord0 = [1, 1, 0, 1, 0, 0, 1, 0];
+      s_mergeMapsPlane.index = [0, 1, 2, 2, 3, 0];
+      s_mergeMapsPlane.build();
+    }
+    return s_mergeMapsPlane;
+  }
+  var s_mergeMapsShader = null;
+  function getMergeMapShader(gl) {
+    if (!s_mergeMapsShader) {
+      var vert = "\n            attribute vec3 inPosition;\n            attribute vec2 inTexCoord;\n\n            varying vec2 fsTexCoord;\n\n            void main() {\n                fsTexCoord = inTexCoord;\n                gl_Position = vec4(inPosition,1.0);\n            }\n            ";
+      var frag = "\n            precision mediump float;\n            varying vec2 fsTexCoord;\n\n            uniform sampler2D inT0;\n            uniform int inT0Channel;\n            uniform sampler2D inT1;\n            uniform int inT1Channel;\n            uniform sampler2D inT2;\n            uniform int inT2Channel;\n            uniform sampler2D inT3;\n            uniform int inT3Channel;\n\n            float mapChannel(sampler2D tex, int channel) {\n                vec4 color = texture2D(tex,fsTexCoord);\n                if (channel==0) {\n                    return color.r;\n                }\n                else if (channel==1) {\n                    return color.g;\n                }\n                else if (channel==2) {\n                    return color.b;\n                }\n                else if (channel==3) {\n                    return color.a;\n                }\n                else {\n                    return 0.0;\n                }\n            }\n\n            void main() {\n                vec4 result;\n                result.r = mapChannel(inT0,inT0Channel);\n                result.g = mapChannel(inT1,inT1Channel);\n                result.b = mapChannel(inT2,inT2Channel);\n                result.a = mapChannel(inT3,inT3Channel);\n                gl_FragColor = result;\n            }\n            ";
+      s_mergeMapsShader = new bg.base.Shader(gl);
+      s_mergeMapsShader.addShaderSource(bg.base.ShaderType.VERTEX, vert);
+      s_mergeMapsShader.addShaderSource(bg.base.ShaderType.FRAGMENT, frag);
+      var status = s_mergeMapsShader.link();
+      if (!status) {
+        throw new Error("Error generating texture merger shader.");
+      }
+      s_mergeMapsShader.initVars(["inPosition", "inTexCoord"], ["inT0", "inT1", "inT2", "inT3", "inT0Channel", "inT1Channel", "inT2Channel", "inT3Channel"]);
+    }
+    return s_mergeMapsShader;
+  }
+  var TextureMergerImpl = function($__super) {
+    function TextureMergerImpl() {
+      $traceurRuntime.superConstructor(TextureMergerImpl).call(this);
+      this._fbo = null;
+    }
+    return ($traceurRuntime.createClass)(TextureMergerImpl, {
+      getMapSize: function(r, g, b, a) {
+        return {
+          width: Math.max(r.map.size.width, g.map.size.width, b.map.size.width, a.map.size.width),
+          height: Math.max(r.map.size.height, g.map.size.height, b.map.size.height, a.map.size.height)
+        };
+      },
+      mergeMaps: function(gl, r, g, b, a) {
+        var activeShader = bg.base.Shader.GetActiveShader();
+        var size = this.getMapSize(r, g, b, a);
+        var tools = TextureTools.Get(gl);
+        this._fbo = tools.getFBO(size.width, size.height);
+        var fbo = this._fbo;
+        var shader = getMergeMapShader.apply(this, [gl]);
+        var plane = getMergeMapPlane.apply(this, [gl]);
+        fbo.beginRender();
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.disable(gl.CULL_FACE);
+        shader.setActive();
+        shader.setInputBuffer("inPosition", plane.vertexBuffer, 3);
+        shader.setInputBuffer("inTexCoord", plane.texCoord0Buffer, 2);
+        shader.setTexture("inT0", r.map, bg.base.TextureUnit.TEXTURE_0);
+        shader.setTexture("inT1", g.map, bg.base.TextureUnit.TEXTURE_1);
+        shader.setTexture("inT2", b.map, bg.base.TextureUnit.TEXTURE_2);
+        shader.setTexture("inT3", a.map, bg.base.TextureUnit.TEXTURE_3);
+        shader.setValueInt("inT0Channel", r.channel);
+        shader.setValueInt("inT1Channel", g.channel);
+        shader.setValueInt("inT2Channel", b.channel);
+        shader.setValueInt("inT3Channel", a.channel);
+        plane.draw();
+        shader.disableInputBuffer("inPosition");
+        shader.disableInputBuffer("inTexCoord");
+        shader.clearActive();
+        fbo.endRender();
+        if (activeShader) {
+          activeShader.setActive();
+        }
+        return fbo.texture;
+      },
+      destroy: function(context) {
+        this._fbo.destroy();
+      }
+    }, {}, $__super);
+  }(bg.tools.TextureMergerImpl);
+  bg.webgl1.TextureMergerImpl = TextureMergerImpl;
+})();
+
+"use strict";
+(function() {
   var TextureImpl = function($__super) {
     function TextureImpl() {
       $traceurRuntime.superConstructor(TextureImpl).apply(this, arguments);
@@ -17423,19 +22401,20 @@ bg.webgl1 = {};
       },
       setCubemapImage: function(context, face, image) {
         context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
+        context.texParameteri(context.TEXTURE_CUBE_MAP, context.TEXTURE_MIN_FILTER, bg.base.TextureFilter.LINEAR);
+        context.texParameteri(context.TEXTURE_CUBE_MAP, context.TEXTURE_MAG_FILTER, bg.base.TextureFilter.LINEAR);
         context.texImage2D(face, 0, context.RGBA, context.RGBA, context.UNSIGNED_BYTE, image);
-        context.generateMipmap(face);
       },
       setCubemapRaw: function(context, face, rawImage, w, h) {
         var type = context.RGBA;
         var format = context.UNSIGNED_BYTE;
+        context.texParameteri(context.TEXTURE_CUBE_MAP, context.TEXTURE_MIN_FILTER, bg.base.TextureFilter.LINEAR);
+        context.texParameteri(context.TEXTURE_CUBE_MAP, context.TEXTURE_MAG_FILTER, bg.base.TextureFilter.LINEAR);
         context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
         context.texImage2D(face, 0, type, w, h, 0, type, format, rawImage);
-        context.generateMipmap(face);
       },
       setVideo: function(context, target, texture, video, flipY) {
-        if (flipY)
-          context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, false);
+        context.pixelStorei(context.UNPACK_FLIP_Y_WEBGL, flipY);
         context.texParameteri(target, context.TEXTURE_MAG_FILTER, context.LINEAR);
         context.texParameteri(target, context.TEXTURE_MIN_FILTER, context.LINEAR);
         context.texParameteri(target, context.TEXTURE_WRAP_S, context.CLAMP_TO_EDGE);
