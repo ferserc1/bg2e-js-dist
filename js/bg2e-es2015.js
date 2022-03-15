@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.4.31 - build: 746cf50";
+bg.version = "1.4.33 - build: d0833b0";
 bg.utils = {};
 
 // Export for webpack and similar utilities
@@ -8810,7 +8810,7 @@ Object.defineProperty(bg, "isElectronApp", {
 				}
 				bg.emitImageLoadEvent();
 			//}
-			},10);
+			},100);
 			texture.img.src = imageData;
 			
 			return texture;

@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.4.31 - build: 746cf50";
+bg.version = "1.4.33 - build: d0833b0";
 bg.utils = {};
 try {
   module.exports = bg;
@@ -8745,7 +8745,7 @@ Object.defineProperty(bg, "isElectronApp", {get: function() {
             g_base64TexturePreventRemove.splice(index, 1);
           }
           bg.emitImageLoadEvent();
-        }, 10);
+        }, 100);
         texture.img.src = imageData;
         return texture;
       },
