@@ -1,6 +1,6 @@
 "use strict";
 var bg = {};
-bg.version = "1.4.31 - build: 3bd360b";
+bg.version = "1.4.31 - build: 746cf50";
 bg.utils = {};
 try {
   module.exports = bg;

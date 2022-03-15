@@ -1,6 +1,6 @@
 
 const bg = {};
-bg.version = "1.4.31 - build: 3bd360b";
+bg.version = "1.4.31 - build: 746cf50";
 bg.utils = {};
 
 // Export for webpack and similar utilities
